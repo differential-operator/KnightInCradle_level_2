@@ -2727,6 +2727,32 @@ public const float DashmasterRunSpeedMult = 0.8f;   // 0.17 → 0.136，仍快�
 | 11 坚固心脏 | 生命上限 +120 | 佩戴时把"基础上限"寄存 SF（防止读档/反复佩戴重复累加），新增的上限立刻补成当前血量 |
 | 12 坚固贪婪 | 与小骑士**完全一致**，且两边同时佩戴时效果**可叠加** | `GreedStacks()` 统计小骑士 + 诺艾尔各自的层数：背包容量 +150×层数，掉率/星级/金币/宝箱按层放大；小骑士的伤害惩罚下限 0.5（最多 -50%）。容量用**幂等重算**（SF 记 `kic_greed_stack` 上次层数反推基础容量）＋每帧 `SyncGreedCapacity()`，避免"卸下不恢复" |
 | 13 坚固力量 | 诺艾尔以下招式最终伤害 +25%：轻攻击 Punch、魔法霰弹 Shotgun、旋风斩击 Cyclone Slash、彗星俯冲 Comet Dive、突进冲击 Dashpunch、凌空横斩 Airpunch、会心重击 Fatal Smash、轮舞斩击 Dancing Slash | 与萨满之石（法术 ×1.25）**连乘**，互不覆盖 |
-| 14 法术扭曲者 | 诺艾尔使用任意魔法时，**起手消耗 -10**；**蓄力消耗也 -10**（二者都不低于 1） | ① patch `PR.applyBurstMpDamage` 前缀改参数（扣魔点在 `M2PrSkill.cs:2813`）；② patch `M2PrSkill.digestShotgunHoldMp` 前缀改 `reduce_mag`（`:2394-2395` 直接用它抵扣 `mp_hold`/`mp_overhold`，即蓄力实际消耗）。两处都只对本地诺艾尔（`ReferenceEquals(__instance, pr.Skill)`）生效，敌人与其它 mover 不受影响 |
+| 14 法术扭曲者 | 诺艾尔使用任意魔法时，**起手消耗 -10**；**蓄力消耗也 -10**（二者都不低于 1） | 见下方"三稿"。 |
 
 验证：`build=2026-09-22.43`，DLL SHA256 `DB9996D011071A71…`（两份安装已同步；只覆盖 DLL）。
+
+### 26.1 法术扭曲者三稿：普通法术（咏唱→施放）的扣魔也减 10（build=2026-09-22.44）
+
+**问题**：一稿之二只挂了 `PR.applyBurstMpDamage`（爆发型魔法起手）与
+`M2PrSkill.digestShotgunHoldMp`（霰弹蓄力结算），测试时"咏唱魔法该扣多少还是扣多少"。
+
+**查证**（`_tmp_aic_src_new/Assembly-CSharp/nel/M2PrSkill.cs`）：普通法术真正的扣魔点有两处，
+都在 `M2PrSkill` 内部按施法状态算出金额，**前缀改不到参数**：
+
+- `explodeMagic`（`:3659`）：咏唱完毕/松手施放时 `Pr.applyMpDamage((int)mp_hold)`；
+- `killHoldMagic(MANA_HIT,...)`（`:3875`）：被打断/取消时按 `(int)(mp_hold - mp_overhold)` 结算。
+
+**做法**：这两处扣的魔力同时决定魔法威力（`MDAT.initShotGun` 用 `X.ZPOW(mp_hold, reduce_mp)` 缩放伤害），
+所以不能改 `mp_hold`——改成"**原版照扣，扣完立刻返还 10**"：
+
+- `explodeMagic` 前缀记下 `mp_hold`，后缀在 `__result == true`（真的施放并扣魔）时返还
+  `min(10, 消耗量)`；返回 false 的早退分支（UI 点击、被 `killHoldMagic(false,…)` 清掉等）不返还；
+- `killHoldMagic(MANA_HIT,…)` 前缀记下 `mp_hold - mp_overhold`（仅当 `split_mana != NOUSE`），后缀返还同样上限；
+- 返还是 `KnightInCradleBehaviour.GrantNoelMana()` + `RefreshNoelHudMp()`，与护符 4/6 同一条通道；
+- `mp_hold`/`mp_overhold` 是 `M2PrSkill` 的私有字段，用 `AccessTools.Field` 读；只对本地诺艾尔
+  （`ReferenceEquals(__instance, pr.Skill)` 且非小骑士模式）生效。
+
+同一次施放不会重复返还：`explodeMagic` 成功后 `CurMg` 被置空（`:3678`），再次调用会走
+`CurMg != TargetMg` 分支并返回 false。
+
+验证：`build=2026-09-22.44`，DLL SHA256 `E7240B905E513A29…`（两份安装已同步；只覆盖 DLL）。

@@ -1139,6 +1139,129 @@ namespace KnightInCradle.CharmUi
             return true;
         }
 
+        // ---------- 护符14 续2：普通法术（咏唱→施放）的扣魔也减 10 ----------
+        /// <summary>
+        /// 普通法术真正的扣魔点有两个，都在 `M2PrSkill` 内部按施法状态算出金额
+        /// （前缀改不到参数）：
+        /// ① `explodeMagic`（`nel/M2PrSkill.cs:3659`）：松开按键/咏唱完毕施放时
+        ///    `Pr.applyMpDamage((int)mp_hold)`；
+        /// ② `killHoldMagic(MANA_HIT,...)`（`:3875`）：被打断/取消时按
+        ///    `(int)(mp_hold - mp_overhold)` 结算。
+        /// 这两处扣的魔力同时决定魔法威力（`MDAT.initShotGun` 用 `X.ZPOW(mp_hold, reduce_mp)` 缩放伤害），
+        /// 所以不能直接改 `mp_hold`——改为"原版照扣，扣完立刻返还 10"，威力不受影响。
+        /// </summary>
+        private static float _noelSpellTwisterCastHold;   // explodeMagic 前的 mp_hold
+        private static float _noelSpellTwisterSplitHold;  // killHoldMagic 前的 mp_hold - mp_overhold
+        private static FieldInfo _skillMpHoldField;
+        private static FieldInfo _skillMpOverHoldField;
+
+        /// <summary>本次调用是否"本地诺艾尔在付魔法消耗"（小骑士模式/其它施法者不算）。</summary>
+        private static bool IsNoelSpellTwisterCast(M2PrSkill skill)
+        {
+            if (IsKnightMode || !IsEquipped(CharmOwner.Noel, SpellTwisterId))
+            {
+                return false;
+            }
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            return pr != null && ReferenceEquals(skill, pr.Skill);
+        }
+
+        private static float ReadSkillFloat(M2PrSkill skill, ref FieldInfo cache, string name)
+        {
+            if (cache == null)
+            {
+                cache = AccessTools.Field(typeof(M2PrSkill), name);
+            }
+            if (cache == null)
+            {
+                return 0f;
+            }
+            object v = cache.GetValue(skill);
+            return v is float f ? f : 0f;
+        }
+
+        /// <summary>把本次施法返还的魔力补回去（上限 10、且不超过原本消耗量）。</summary>
+        private static void RefundSpellTwisterMp(float cost)
+        {
+            float refund = Mathf.Min(SpellTwisterMpReduce, cost);
+            if (refund <= 0f)
+            {
+                return;
+            }
+            if (KnightInCradleBehaviour.GrantNoelMana(refund))
+            {
+                RefreshNoelHudMp();
+            }
+        }
+
+        /// <summary>`M2PrSkill.explodeMagic` 前缀：记下本次要结算的 mp_hold。</summary>
+        private static void SpellTwisterExplodePrefix(M2PrSkill __instance)
+        {
+            try
+            {
+                _noelSpellTwisterCastHold = 0f;
+                if (!IsNoelSpellTwisterCast(__instance))
+                {
+                    return;
+                }
+                _noelSpellTwisterCastHold = ReadSkillFloat(__instance, ref _skillMpHoldField, "mp_hold");
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>`M2PrSkill.explodeMagic` 后缀：返回 true 表示这次真的施放并扣了魔。</summary>
+        private static void SpellTwisterExplodePostfix(bool __result)
+        {
+            try
+            {
+                float cost = _noelSpellTwisterCastHold;
+                _noelSpellTwisterCastHold = 0f;
+                if (!__result)
+                {
+                    return;
+                }
+                RefundSpellTwisterMp(cost);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>`M2PrSkill.killHoldMagic(MANA_HIT,...)` 前缀：记下被拆分结算的持有魔力。</summary>
+        private static void SpellTwisterHoldKillPrefix(M2PrSkill __instance, MANA_HIT split_mana)
+        {
+            try
+            {
+                _noelSpellTwisterSplitHold = 0f;
+                if (split_mana == MANA_HIT.NOUSE || !IsNoelSpellTwisterCast(__instance))
+                {
+                    return; // 这一路不扣魔（`split_mana == NOUSE`）或不是本地诺艾尔
+                }
+                float hold = ReadSkillFloat(__instance, ref _skillMpHoldField, "mp_hold");
+                float over = ReadSkillFloat(__instance, ref _skillMpOverHoldField, "mp_overhold");
+                _noelSpellTwisterSplitHold = Mathf.Max(0f, hold - over);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>`M2PrSkill.killHoldMagic(MANA_HIT,...)` 后缀：把那次消耗同样返还 10。</summary>
+        private static void SpellTwisterHoldKillPostfix()
+        {
+            try
+            {
+                float cost = _noelSpellTwisterSplitHold;
+                _noelSpellTwisterSplitHold = 0f;
+                RefundSpellTwisterMp(cost);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         // ================= 护符13 坚固力量（诺艾尔侧：骨钉系技能最终伤害 +25%） =================
         /// <summary>坚固力量：下列招式的最终伤害倍率（需求：+25%）。</summary>
         public const float PowerDamageMult = 1.25f;
@@ -2050,6 +2173,30 @@ namespace KnightInCradle.CharmUi
                         harmony.Patch(holdMp, prefix: new HarmonyMethod(
                             typeof(CharmEffects).GetMethod(nameof(SpellTwisterHoldMpPrefix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    // 护符14 法术扭曲者（续2）：普通法术施放/取消时的实际扣魔也 -10（原版照扣、事后返还）
+                    MethodInfo explodeMg = AccessTools.Method(typeof(M2PrSkill), "explodeMagic");
+                    if (explodeMg != null)
+                    {
+                        harmony.Patch(explodeMg,
+                            prefix: new HarmonyMethod(
+                                typeof(CharmEffects).GetMethod(nameof(SpellTwisterExplodePrefix),
+                                    BindingFlags.Static | BindingFlags.NonPublic)),
+                            postfix: new HarmonyMethod(
+                                typeof(CharmEffects).GetMethod(nameof(SpellTwisterExplodePostfix),
+                                    BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    MethodInfo killHold = AccessTools.Method(typeof(M2PrSkill), "killHoldMagic",
+                        new[] { typeof(MANA_HIT), typeof(bool), typeof(bool) });
+                    if (killHold != null)
+                    {
+                        harmony.Patch(killHold,
+                            prefix: new HarmonyMethod(
+                                typeof(CharmEffects).GetMethod(nameof(SpellTwisterHoldKillPrefix),
+                                    BindingFlags.Static | BindingFlags.NonPublic)),
+                            postfix: new HarmonyMethod(
+                                typeof(CharmEffects).GetMethod(nameof(SpellTwisterHoldKillPostfix),
+                                    BindingFlags.Static | BindingFlags.NonPublic)));
                     }
                     // 护符5 萨满之石（诺艾尔侧）：法术最终伤害 +25%（前缀抬高、后缀还原）
                     harmony.Patch(circleCast,
