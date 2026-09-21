@@ -340,12 +340,15 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        // ================= 护符4 灵魂捕手（诺艾尔侧：法术命中敌人回 MP） =================
-        /// <summary>用法术命中敌人时立即回复的 MP。</summary>
+        // ========== 护符4 灵魂捕手 / 护符6 噬魂者（诺艾尔侧：法术命中敌人回 MP） ==========
+        /// <summary>灵魂捕手：法术命中敌人时立即回复的 MP。</summary>
         public const float SoulCatcherMp = 6f;
+        /// <summary>噬魂者：法术命中敌人时立即回复的 MP。</summary>
+        public const float SoulEaterMp = 15f;
 
         /// <summary>
-        /// 护符4 灵魂捕手（**诺艾尔侧**）：诺艾尔用法术命中敌人时立刻回 6 MP。
+        /// 护符4 灵魂捕手 / 护符6 噬魂者（**诺艾尔侧**）：诺艾尔用法术命中敌人时立刻回 MP
+        /// （灵魂捕手 +6、噬魂者 +15，**两者都装备时叠加**——与小骑士侧 `10 + 3 + 8` 的口径一致）。
         ///
         /// **挂载点**：`MGContainer.CircleCast` 的 postfix —— 它是 AIC 里法术命中的汇聚点
         /// （`MGContainer.cs:473`，内部对每个命中目标调 `nelM2Attacker.applyDamage(Atk, ref hittype, false)`）。
@@ -358,13 +361,26 @@ namespace KnightInCradle.CharmUi
         /// 只在**诺艾尔模式**结算（骑士模式里小骑士的攻击 Caster 也是诺艾尔，需隔离）；
         /// 一次施法命中敌人结算一次（按"施法命中"计，不按目标数）。
         /// </summary>
-        private static void SoulCatcherCircleCastPostfix(MagicItem Mg, ref HITTYPE __result)
+        private static void SoulCharmCircleCastPostfix(MagicItem Mg, ref HITTYPE __result)
         {
             try
             {
-                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, SoulCatcherId))
+                if (IsKnightMode)
                 {
                     return;
+                }
+                float gain = 0f;
+                if (IsEquipped(CharmOwner.Noel, SoulCatcherId))
+                {
+                    gain += SoulCatcherMp;
+                }
+                if (IsEquipped(CharmOwner.Noel, SoulEaterId))
+                {
+                    gain += SoulEaterMp;
+                }
+                if (gain <= 0f)
+                {
+                    return; // 两个护符都没装备
                 }
                 if (Mg == null || !(Mg.Caster is PRNoel))
                 {
@@ -378,7 +394,7 @@ namespace KnightInCradle.CharmUi
                 {
                     return; // 这一发没打中敌人
                 }
-                if (KnightInCradleBehaviour.GrantNoelMana(SoulCatcherMp))
+                if (KnightInCradleBehaviour.GrantNoelMana(gain))
                 {
                     RefreshNoelHudMp();
                 }
@@ -1254,7 +1270,7 @@ namespace KnightInCradle.CharmUi
                 if (circleCast != null)
                 {
                     harmony.Patch(circleCast, postfix: new HarmonyMethod(
-                        typeof(CharmEffects).GetMethod(nameof(SoulCatcherCircleCastPostfix),
+                        typeof(CharmEffects).GetMethod(nameof(SoulCharmCircleCastPostfix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                     // 护符5 萨满之石（诺艾尔侧）：法术最终伤害 +25%（前缀抬高、后缀还原）
                     harmony.Patch(circleCast,
