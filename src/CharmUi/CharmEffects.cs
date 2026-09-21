@@ -482,7 +482,24 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (_noelDashmasterActive && !IsKnightMode && __instance is PRNoel)
+                if (!_noelDashmasterActive || IsKnightMode || __result || !(__instance is PRNoel pr))
+                {
+                    return;
+                }
+                // 只在**确实在移动**时强制跑步：AIC 的姿势选择里 `isRunning()` 为真会**无条件**摆跑步姿势
+                // （`AnimationShufflerNoel.cs:669-671`：`else if (isRunning()) dep_pose = "run";`），
+                // 静止时也跟着变跑步就错了。判据沿用游戏自己的"在移动"（`:677`）：
+                // 按了左右键，或脚本移动且物理水平速度非 0。
+                bool moving = (int)(pr.getMoveKey(true) & M2MoverPr.MOVEK._LR) > 0;
+                if (!moving)
+                {
+                    M2Phys ph = pr.getPhysic();
+                    if (ph != null && Mathf.Abs(ph.walk_xspeed) > 0.001f)
+                    {
+                        moving = true;
+                    }
+                }
+                if (moving)
                 {
                     __result = true;
                 }
