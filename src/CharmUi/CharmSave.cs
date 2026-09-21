@@ -190,6 +190,9 @@ namespace KnightInCradle.CharmUi
             {
                 // 束缚（自限）状态每次读档重置：四个束缚全部消失，不跨存档/会话保留
                 CharmEffects.ResetGgRestrictionsOnLoad();
+                // 次数血（护符3 坚硬外壳·诺艾尔侧）同样重置会话状态：
+                // 存档里的 maxhp 字段可能已经是"次数"，真实上限记在 SF 里，下一次 tick 会据此重新激活。
+                CharmEffects.ResetNoelSturdyOnLoad();
                 RestoreOwner(CharmOwner.Knight);
                 RestoreOwner(CharmOwner.Noel);
                 // 坚固贪婪：每次读档都把背包容量修正到与佩戴状态一致

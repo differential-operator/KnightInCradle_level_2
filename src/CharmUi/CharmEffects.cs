@@ -196,6 +196,165 @@ namespace KnightInCradle.CharmUi
             return IsKnightMode && IsEquipped(CollectorId);
         }
 
+        // ================= 护符3 坚硬外壳（**诺艾尔专属**：次数血） =================
+        // 与小骑士的"延长无敌时间"完全不同，诺艾尔侧的效果是：
+        //   ① 血条变成"次数血"：上限 = floor(真实最大生命 / 45)；
+        //   ② 掉血后 2 秒内血量不再降低。
+
+        /// <summary>多少点"真实最大生命"折算成 1 次。</summary>
+        public const int SturdyHpPerHit = 45;
+        /// <summary>掉 1 次血之后的免掉间隔（秒）。</summary>
+        public const float SturdyHitInterval = 2f;
+        /// <summary>真实最大生命寄存键（COOK SF，随存档序列化）：
+        /// 次数血把 maxhp 字段改小了，读档时只能靠它还原真实上限。</summary>
+        private const string SturdyRealMaxHpKey = "kic_noel_sturdy_maxhp";
+
+        private static readonly FieldInfo PrHpField = AccessTools.Field(typeof(M2Attackable), "hp");
+        private static readonly FieldInfo PrMaxHpField = AccessTools.Field(typeof(M2Attackable), "maxhp");
+
+        private static bool _noelSturdyActive;
+        private static int _noelSturdyRealMaxHp = -1;
+        private static float _noelSturdyLastHitTime = -999f;
+
+        /// <summary>次数血是否生效中。</summary>
+        public static bool NoelSturdyActive => _noelSturdyActive;
+
+        /// <summary>读档/换存档后重置会话状态（SF 里的真实上限保留，下一次每帧 tick 会据此重新激活）。</summary>
+        public static void ResetNoelSturdyOnLoad()
+        {
+            _noelSturdyActive = false;
+            _noelSturdyRealMaxHp = -1;
+            _noelSturdyLastHitTime = -999f;
+        }
+
+        /// <summary>次数血上限：floor(真实最大生命 / 45)，至少 1。</summary>
+        public static int SturdyHitMax(int realMaxHp)
+        {
+            return Mathf.Max(1, realMaxHp / SturdyHpPerHit);
+        }
+
+        /// <summary>
+        /// 每帧维护（诺艾尔模式调用）：
+        /// - 装备状态变化时做"真值 ↔ 次数"换算（装备时 maxhp 变 floor(maxhp/45)、hp 按比例折算；
+        ///   卸下时按剩余次数折回真实生命）；
+        /// - 装备期间保证 maxhp == 次数上限、hp ∈ [0, maxhp]（被别处改写也拉回来）。
+        /// </summary>
+        public static void TickNoelSturdyCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null || PrHpField == null || PrMaxHpField == null)
+                {
+                    return;
+                }
+                bool want = IsEquipped(CharmOwner.Noel, SturdyId);
+                if (want && !_noelSturdyActive)
+                {
+                    ActivateNoelSturdy(pr);
+                }
+                else if (!want && _noelSturdyActive)
+                {
+                    DeactivateNoelSturdy(pr);
+                }
+                else if (want)
+                {
+                    int hitMax = SturdyHitMax(_noelSturdyRealMaxHp);
+                    int maxHp = (int)PrMaxHpField.GetValue(pr);
+                    int hp = (int)PrHpField.GetValue(pr);
+                    if (maxHp != hitMax)
+                    {
+                        PrMaxHpField.SetValue(pr, hitMax);
+                    }
+                    if (hp > hitMax)
+                    {
+                        PrHpField.SetValue(pr, hitMax);
+                    }
+                    else if (hp < 0)
+                    {
+                        PrHpField.SetValue(pr, 0);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>进入次数血：真实上限记进 SF，字段换成次数量。</summary>
+        private static void ActivateNoelSturdy(PRNoel pr)
+        {
+            int savedRealMax = COOK.getSF(SturdyRealMaxHpKey);
+            int realMax;
+            if (savedRealMax > 0)
+            {
+                // 读档回到"已装备"状态：字段里已经是次数，真实上限从 SF 取回
+                realMax = savedRealMax;
+            }
+            else
+            {
+                realMax = (int)PrMaxHpField.GetValue(pr);
+                if (realMax <= 0)
+                {
+                    return;
+                }
+                COOK.setSF(SturdyRealMaxHpKey, Mathf.Clamp(realMax, 0, 255));
+            }
+            int hitMax = SturdyHitMax(realMax);
+            int hp = (int)PrHpField.GetValue(pr);
+            if (savedRealMax > 0)
+            {
+                hp = Mathf.Clamp(hp, 0, hitMax);
+            }
+            else
+            {
+                // 首次装备：真实生命按比例折算成次数（还剩血就至少 1 次）
+                hp = Mathf.Clamp(Mathf.CeilToInt(hp * (float)hitMax / Mathf.Max(1, realMax)), 0, hitMax);
+            }
+            _noelSturdyRealMaxHp = realMax;
+            PrMaxHpField.SetValue(pr, hitMax);
+            PrHpField.SetValue(pr, hp);
+            _noelSturdyActive = true;
+            _noelSturdyLastHitTime = -999f;
+        }
+
+        /// <summary>退出次数血：按剩余次数折回真实生命，清掉寄存键。</summary>
+        private static void DeactivateNoelSturdy(PRNoel pr)
+        {
+            int realMax = _noelSturdyRealMaxHp > 0 ? _noelSturdyRealMaxHp : 150;
+            int hitMax = Mathf.Max(1, (int)PrMaxHpField.GetValue(pr));
+            int hits = Mathf.Clamp((int)PrHpField.GetValue(pr), 0, hitMax);
+            int realHp = Mathf.Clamp(Mathf.CeilToInt(hits * (float)realMax / hitMax), 0, realMax);
+            PrMaxHpField.SetValue(pr, realMax);
+            PrHpField.SetValue(pr, realHp);
+            COOK.setSF(SturdyRealMaxHpKey, 0);
+            _noelSturdyActive = false;
+            _noelSturdyRealMaxHp = -1;
+            _noelSturdyLastHitTime = -999f;
+        }
+
+        /// <summary>
+        /// 护符3 坚硬外壳（诺艾尔专属）：把"一次伤害"固定变成掉 1 次血，且掉血后 2 秒内不再掉。
+        /// 挂在 `M2Attackable.applyHpDamage` 上——它是玩家受伤干线的最后一站
+        /// （`M2PrADmg.applyHpDamageSimple` → `GSaver.applyHpDamage` → `Pr.applyHpDamage`），
+        /// 只对本地诺艾尔生效，敌人/其它可攻击物不受影响。
+        /// </summary>
+        private static bool SturdyHpDamagePrefix(M2Attackable __instance, ref int val)
+        {
+            if (!_noelSturdyActive || !(__instance is PRNoel) || val <= 0)
+            {
+                return true;
+            }
+            float now = Time.unscaledTime;
+            if (now - _noelSturdyLastHitTime < SturdyHitInterval)
+            {
+                val = 0; // 2 秒内：血量不再降低
+                return true;
+            }
+            _noelSturdyLastHitTime = now;
+            val = 1;     // 一次伤害 = 掉 1 次
+            return true;
+        }
+
         /// <summary>萨满之石：法术伤害每段提升 25%（四舍五入取整）。</summary>
         public static int ScaleSpellDamage(int baseDmg)
         {
@@ -871,6 +1030,17 @@ namespace KnightInCradle.CharmUi
                 {
                     harmony.Patch(enemyDmg, prefix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(EnemyApplyDamagePrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符3 坚硬外壳（诺艾尔专属）：次数血 + 掉血后 2 秒免掉。
+                // 与 CombatGuard 的 HpDamagePrefix 挂在同一个方法上互不冲突：
+                // 那个只在骑士模式拦截（返回 false），诺艾尔模式下返回 true 让这里生效。
+                MethodInfo sturdyDmg = AccessTools.Method(typeof(M2Attackable), "applyHpDamage",
+                    new[] { typeof(int), typeof(bool), typeof(AttackInfo) });
+                if (sturdyDmg != null)
+                {
+                    harmony.Patch(sturdyDmg, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(SturdyHpDamagePrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符12 坚固贪婪：击杀魔物掉落 5% 最大生命值的金币

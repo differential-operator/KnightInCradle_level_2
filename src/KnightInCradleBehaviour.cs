@@ -20,7 +20,7 @@ namespace KnightInCradle
         /// 构建标记：每次部署时手动更新，日志 `[KIC][补丁] build=…` 会打印；
         /// 配合后面的 `dll=路径 (文件时间)` 可以立刻确认游戏实际加载的是哪一份 DLL。
         /// </summary>
-        internal const string SelfBuildTag = "2026-09-22.10";
+        internal const string SelfBuildTag = "2026-09-22.11";
 
         private static bool _harmonyApplied;
         private static bool _seriousInitApplied; // 启动时是否已应用过一次布局（防止残留居中布局）
@@ -428,6 +428,7 @@ namespace KnightInCradle
         /// ① 换图时重算蜂巢房间标记（骑士模式由 KnightEntity 的换图分支调 UpdateHiveRoom）；
         /// ② 护符2 蜂群集结：蜂巢中立期每帧清除魔物的锁定目标；
         /// ③ 护符2 蜂群集结：按诺艾尔坐标做 3 格内自动拾取。
+        /// ④ 护符3 坚硬外壳：次数血维护（装备/卸下时换算、装备期间钳制上限）。
         /// （魔力相关的那两项只服务小骑士侧，见 CharmEffects.CollectorManaGuardActive 的注释。）
         /// </summary>
         private static void TickNoelCharmEffects()
@@ -444,6 +445,7 @@ namespace KnightInCradle
                     _noelCharmMap = pr.Mp;
                     CharmEffects.UpdateHiveRoom(pr.Mp);
                 }
+                CharmEffects.TickNoelSturdyCharm(pr);
                 CharmEffects.ClearHiveEnemyAim();
                 CharmEffects.TickCollectorAutoPickup(pr.x, pr.mbottom);
             }
