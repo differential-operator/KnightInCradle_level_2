@@ -789,7 +789,8 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
-        /// 护符9 幼虫之歌（诺艾尔侧）：诺艾尔不会被虫墙/虫巢抓取。
+        /// 护符9 幼虫之歌 / 护符10 蜕变挽歌（诺艾尔侧）：诺艾尔不会被虫墙/虫巢抓取
+        /// （与小骑士侧一致：这两个护符都会免虫墙抓取）。
         /// `M2WormTrap` 决定是否拉扯玩家时读 `PR.canPullByWorm()`（`nel/M2WormTrap.cs:111,148`），
         /// 这里对本地诺艾尔直接返回 false。
         /// 骑士模式下另有 CombatGuard 的同名补丁（它会先返回 false 拦掉），两者按各自模式生效、互不冲突。
@@ -798,7 +799,8 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, GrubsongId) || !(__instance is PRNoel))
+                if (IsKnightMode || !(__instance is PRNoel) ||
+                    !(IsEquipped(CharmOwner.Noel, GrubsongId) || IsEquipped(CharmOwner.Noel, ElegyId)))
                 {
                     return true;
                 }
