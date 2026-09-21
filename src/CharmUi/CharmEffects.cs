@@ -370,7 +370,10 @@ namespace KnightInCradle.CharmUi
                 {
                     return; // 不是诺艾尔放的法术
                 }
-                if (MKind.getReduceMp(Mg.kind) <= 0)
+                // "法术"的判据：消耗魔力的一律算（`MKind.getReduceMp` > 0）。
+                // 例外：**魔法霰弹（PR_SHOTGUN）** 吃的是蓄力魔力 `mp_hold`，没有 per-kind 的 reduce_mp
+                // （它的命中处理在 `M2PrSkill.cs:2149-2155`，靠 `mp_hold` 结算），所以单独放行。
+                if (MKind.getReduceMp(Mg.kind) <= 0 && Mg.kind != MGKIND.PR_SHOTGUN)
                 {
                     return; // 不消耗魔力的攻击（普攻/技艺）不算魔法
                 }
