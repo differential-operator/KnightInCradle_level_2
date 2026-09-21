@@ -1302,7 +1302,8 @@ namespace KnightInCradle.CharmUi
                     return 1f;
                 }
                 int groups = st.getVisibleRowCount(false) / 4; // 每 4 个被填充的格子一组
-                return Mathf.Max(0f, 1f - groups * 0.0075f * stacks);
+                // 小骑士的伤害惩罚最多 50%（下限 0.5）——需求：2026-09-22 用户确认
+                return Mathf.Max(0.5f, 1f - groups * 0.0075f * stacks);
             }
             catch (Exception)
             {
