@@ -1,0 +1,1759 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using evt;
+using HarmonyLib;
+using m2d;
+using nel;
+using nel.gm;
+using UnityEngine;
+using XX;
+
+namespace KnightInCradle.CharmUi
+{
+    /// <summary>
+    /// 护符效果系统：按“已装备 / 未装备”状态驱动各护符效果。
+    /// 当前实现：1 任性的指南针（地图快速旅行门控）。
+    /// </summary>
+    public static class CharmEffects
+    {
+        public const int CompassId = 1;
+        public const int CollectorId = 2; // 蜂群集结
+        public const int SturdyId = 3;    // 坚硬外壳
+        public const int SoulCatcherId = 4; // 灵魂捕手
+        public const int ShamanId = 5;    // 萨满之石
+        public const int SoulEaterId = 6; // 噬魂者
+        public const int DashmasterId = 7; // 冲刺大师
+        public const int RunnerId = 8;    // 飞毛腿
+        public const int GrubsongId = 9;  // 幼虫之歌
+        public const int ElegyId = 10;    // 蜕变挽歌
+        public const int HeartId = 11;    // 坚固心脏
+        public const int GreedId = 12;    // 坚固贪婪
+        public const int PowerId = 13;    // 坚固力量
+        public const int SpellTwisterId = 14; // 法术扭曲者
+        public const int StableId = 15;   // 稳定之体
+        public const int HeavyBlowId = 16; // 沉重之击
+        public const int FastSlashId = 17; // 快速劈砍
+        public const int LongNailId = 18;  // 长钉
+        public const int PrideId = 19;     // 骄傲印记
+        public const int FuryId = 20;      // 亡者之怒
+        public const int ThornsId = 21;    // 苦痛荆棘
+        public const int BaldurId = 22;    // 巴尔德之壳
+        public const int NestId = 23;      // 吸虫之巢
+        public const int ShelterId = 24;   // 防御者纹章
+        public const int UterusId = 25;    // 发光子宫
+        public const int FastGatherId = 26; // 快速聚集
+        public const int DeepGatherId = 27; // 深度聚集
+        public const int BlueHeart1Id = 28; // 生命血之心
+        public const int BlueHeart2Id = 29; // 生命血核心
+        public const int JohnnyId = 30;     // 乔尼的祝福
+        public const int HiveId = 31;       // 蜂巢之血
+        public const int MushroomId = 32;   // 蘑菇孢子
+        public const int ShadowId = 33;     // 锋利之影
+        public const int UnnId = 34;        // 乌恩之形
+        public const int NailMasterId = 35; // 骨钉大师的荣耀
+        public const int SpiderId = 36;     // 编织者之歌
+        public const int DreamId = 37;      // 舞梦者
+        public const int DreamShieldId = 38; // 梦之盾
+        public const int GrimmId = 39;      // 格林之子
+        public const int KingsoulId = 41;   // 国王之魂
+        public const int MelodyId = 43;     // 无忧旋律（格林之子变体，T 键互换）
+
+        /// <summary>普攻基础总时长/间隔（秒，与 KnightEntity 的挥砍计时器一致）。
+        /// 0.4s = 挥砍剪辑 8 帧 @20fps（HK 原版骨钉挥砍的标准时长，含后摇）。</summary>
+        public const float SlashTimeBase = 0.4f;
+        /// <summary>快速劈砍（护符17）：普攻总时长/间隔（秒）。</summary>
+        public const float SlashTimeQuick = 0.3f;
+        private const string GreedBaseKey = "kic_greed_base"; // 背包基础容量快照
+        /// <summary>坚固贪婪：佩戴时背包上限加成（当前版本 +150）。</summary>
+        private const int GreedSlotBonus = 150;
+        /// <summary>旧版加成（+100 时期）——用于识别并迁移旧存档。</summary>
+        private const int OldGreedSlotBonus = 100;
+        // 束缚（自限）按钮状态键：值为 2 表示该束缚生效
+        public const string GgNailKey = "kic_gg_nail";
+        public const string GgMaskKey = "kic_gg_mask";
+        public const string GgCharmKey = "kic_gg_charm";
+        public const string GgSoulKey = "kic_gg_soul";
+
+        /// <summary>本次快速旅行是否传送到战斗区域（区分长椅目的地，避免提前完成跟随）。</summary>
+        public static bool BattleAreaFastTravel;
+
+        /// <summary>本次快速旅行目的地是否为战斗区域：跳过收尾 AUTO_SAVE_BENCH 的“附近有长椅”检查。</summary>
+        public static bool AutoSaveBenchSuppress;
+
+        /// <summary>当前所在房间是否为蜂巢房间（房间 key 含 honey）。</summary>
+        public static bool CurrentRoomIsHive { get; private set; }
+
+        /// <summary>坚固贪婪：背包加成是否已生效（防重复叠加）。</summary>
+        private static bool _greedCapacityApplied;
+        // 坚固贪婪“击杀掉落宝箱复制”防递归标记
+        private static bool _greedReelDupGuard;
+        private static readonly HashSet<NelEnemy> _greedGoldGranted = new HashSet<NelEnemy>();
+        private static readonly FieldInfo EnemyMaxHpField =
+            AccessTools.Field(typeof(M2Attackable), "maxhp");
+        private static readonly FieldInfo EnemyDropItemField =
+            AccessTools.Field(typeof(NelEnemy), "DropItem");
+        private static readonly FieldInfo EnemyOdField =
+            AccessTools.Field(typeof(NelEnemy), "Od");
+        private static readonly FieldInfo OdDropItemOdField =
+            AccessTools.Field(typeof(OverDriveManager), "DropItemOd");
+        private static readonly MethodInfo ExecuteDropItemMethod =
+            AccessTools.Method(typeof(NelEnemy), "ExecuteDropItem",
+                new[] { typeof(NelItem).MakeByRefType() });
+        // ---- 沉重之击（斩杀 / 上限百分比追加伤害）----
+        private static readonly FieldInfo EnemyHpField =
+            AccessTools.Field(typeof(M2Attackable), "hp");
+
+        /// <summary>蜂巢房间内是否已被小骑士挑衅（全房魔物进入攻击状态）。</summary>
+        private static bool _hiveAggroTriggered;
+
+        /// <summary>护符是否已装备（含固定虚空之心）。</summary>
+        public static bool IsEquipped(int id)
+        {
+            if (id == CharmDatabase.FixedCharmId)
+            {
+                return true; // 虚空之心恒为装备
+            }
+            // 束缚·护符：除束缚本身外，其他护符直接无效（仍佩戴，但效果不生效）；
+            // 指南针、坚固贪婪不受束缚影响
+            if (GgCharmBound && id != CharmDatabase.GgSelectorId &&
+                id != CompassId && id != GreedId)
+            {
+                return false;
+            }
+            // 控制器未创建（从未打开护符 UI）时，读独立装备快照，
+            // 保证读档后护符效果立即生效，无需先打开一次护符界面。
+            if (CharmUiController.Instance != null)
+            {
+                return CharmUiController.Instance.EquippedIds.Contains(id);
+            }
+            return CharmSave.HasEquipped(id);
+        }
+
+        /// <summary>束缚·骨钉：无加成骨钉伤害降低为 30。</summary>
+        public static bool GgNailBound => COOK.getSF(GgNailKey) == 2;
+        /// <summary>束缚·外壳：无加成血量上限降低为 4。</summary>
+        public static bool GgMaskBound => COOK.getSF(GgMaskKey) == 2;
+        /// <summary>束缚·护符：其他护符直接无效。</summary>
+        public static bool GgCharmBound => COOK.getSF(GgCharmKey) == 2;
+        /// <summary>束缚·灵魂：灵魂上限降低为 30。</summary>
+        public static bool GgSoulBound => COOK.getSF(GgSoulKey) == 2;
+
+        /// <summary>
+        /// 每次读档后调用：四个束缚全部重置为未束缚（1），
+        /// 避免其他存档/上次会话的束缚状态影响本次读档后的游戏。
+        /// </summary>
+        public static void ResetGgRestrictionsOnLoad()
+        {
+            COOK.setSF(GgNailKey, 1);
+            COOK.setSF(GgMaskKey, 1);
+            COOK.setSF(GgCharmKey, 1);
+            COOK.setSF(GgSoulKey, 1);
+        }
+
+        /// <summary>当前是否小骑士模式。</summary>
+        public static bool IsKnightMode => KnightInCradlePlugin.KnightModeActive;
+
+        /// <summary>蜂群集结/蜂巢之血：蜂巢房间内魔物处于中立状态（不主动攻击）。</summary>
+        public static bool HiveNeutralActive()
+        {
+            return IsKnightMode && (IsEquipped(CollectorId) || IsEquipped(HiveId)) && CurrentRoomIsHive &&
+                !_hiveAggroTriggered;
+        }
+
+        /// <summary>蜂群集结：魔力草掉落的魔力只能由诺艾尔吸收，魔物无法吸收。</summary>
+        public static bool CollectorManaGuardActive()
+        {
+            return IsKnightMode && IsEquipped(CollectorId);
+        }
+
+        /// <summary>萨满之石：法术伤害每段提升 25%（四舍五入取整）。</summary>
+        public static int ScaleSpellDamage(int baseDmg)
+        {
+            int dmg = baseDmg;
+            if (!IsEquipped(ShamanId))
+            {
+                dmg = baseDmg;
+            }
+            else
+            {
+                dmg = Mathf.FloorToInt(baseDmg * 1.25f + 0.5f);
+            }
+            // 坚固贪婪：每持有 4 个物品，持有者造成的伤害降低 0.75%（法术属于持有者伤害）
+            return Mathf.Max(1, Mathf.FloorToInt(dmg * GreedDamageMultiplier() + 0.5f));
+        }
+
+        /// <summary>亡者之怒：装备亡者之怒且小骑士血量恰为 1 时生效。</summary>
+        public static bool IsFuryActive()
+        {
+            KnightEntity k = KnightEntity.Instance;
+            return k != null && k.FuryActive;
+        }
+
+        /// <summary>骨钉伤害（普攻 + 三剑技）：坚固力量 +50%；亡者之怒（1 血）额外 +75%，可叠加。</summary>
+        public static int ScaleNailDamage(int baseDmg)
+        {
+            float mul = 1f;
+            if (IsEquipped(PowerId))
+            {
+                mul *= 1.5f;
+            }
+            if (IsFuryActive())
+            {
+                mul *= 1.75f;
+            }
+            int dmg;
+            if (mul == 1f)
+            {
+                dmg = baseDmg;
+            }
+            else
+            {
+                dmg = Mathf.FloorToInt(baseDmg * mul + 0.5f);
+            }
+            // 坚固贪婪：每持有 4 个物品，持有者造成的伤害降低 0.75%（骨钉/技艺属于持有者伤害）
+            return Mathf.Max(1, Mathf.FloorToInt(dmg * GreedDamageMultiplier() + 0.5f));
+        }
+
+        /// <summary>
+        /// 坚固贪婪：每持有 4 个物品，小骑士造成的骨钉、法术、骨钉技艺伤害降低 0.75%。
+        /// 召唤物（编织者之歌、格林之子等）不经过此削减。
+        /// </summary>
+        public static float GreedDamageMultiplier()
+        {
+            if (!IsKnightMode || !IsEquipped(GreedId))
+            {
+                return 1f;
+            }
+            try
+            {
+                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
+                ItemStorage st = nM2D != null && nM2D.IMNG != null
+                    ? nM2D.IMNG.getInventory()
+                    : null;
+                if (st == null)
+                {
+                    return 1f;
+                }
+                int groups = st.getVisibleRowCount(false) / 4; // 每 4 个被填充的格子一组
+                return Mathf.Max(0f, 1f - groups * 0.0075f);
+            }
+            catch (Exception)
+            {
+                return 1f;
+            }
+        }
+
+        /// <summary>法术扭曲者：法术灵魂消耗从 30 降为 24。</summary>
+        public static int SpellSoulCost()
+        {
+            return IsEquipped(SpellTwisterId) ? 24 : 30;
+        }
+
+        /// <summary>普攻总时长/间隔：0.4s（快速劈砍 0.3s）。</summary>
+        public static float SlashAttackTime()
+        {
+            return IsEquipped(FastSlashId) ? SlashTimeQuick : SlashTimeBase;
+        }
+
+        /// <summary>快速劈砍：攻击动画播放速度倍率（0.4/0.3 ≈ 1.333）。</summary>
+        public static float SlashAnimSpeedMultiplier()
+        {
+            return IsEquipped(FastSlashId) ? (SlashTimeBase / SlashTimeQuick) : 1f;
+        }
+
+        /// <summary>修长之钉 / 骄傲印记：佩戴任意一个时，骨钉剑气渲染换成螳螂爪样式
+        /// （mantis_slash_left / mantis_up_slash / mantis_down_slash 帧）。</summary>
+        public static bool LongNailVisual()
+        {
+            return IsEquipped(LongNailId) || IsEquipped(PrideId);
+        }
+
+        /// <summary>长钉/骄傲印记：平砍判定/渲染长度倍率
+        /// （单戴 1.15 / 1.25，同戴 1.40）。</summary>
+        public static float LongRangeMultiplier()
+        {
+            bool a = IsEquipped(LongNailId);
+            bool b = IsEquipped(PrideId);
+            if (a && b)
+            {
+                return 1.40f;
+            }
+            if (a)
+            {
+                return 1.15f;
+            }
+            return b ? 1.25f : 1f;
+        }
+
+        /// <summary>长钉/骄傲印记：平砍判定/渲染高度倍率
+        /// （单戴 1.10 / 1.15，同戴 1.20）。</summary>
+        public static float LongRangeHeightMultiplier()
+        {
+            bool a = IsEquipped(LongNailId);
+            bool b = IsEquipped(PrideId);
+            if (a && b)
+            {
+                return 1.20f;
+            }
+            if (a)
+            {
+                return 1.10f;
+            }
+            return b ? 1.15f : 1f;
+        }
+
+        /// <summary>长钉/骄傲印记：平砍判定/渲染向面朝方向的平移量
+        /// 单位：格（= 坐标轴刻度 = 地图格）。调用处需经 KnightEntity.CellToUx 换算成 ux。
+        /// 绿框三轮微调后（面朝左为例，最后一轮向右平移 0.1/0/0.1）：
+        /// 单戴 0.0875 / 0.3125，同戴 0.5（正值 = 向攻击方向外伸）。</summary>
+        public static float LongRangeShift()
+        {
+            bool a = IsEquipped(LongNailId);
+            bool b = IsEquipped(PrideId);
+            if (a && b)
+            {
+                return 0.5f;
+            }
+            if (a)
+            {
+                return 0.0875f;
+            }
+            return b ? 0.3125f : 0f;
+        }
+
+        /// <summary>长钉/骄傲印记：平砍判定/渲染“只向身体方向拉伸”的量（格）。
+        /// 仅拉骑士侧的边缘（右拉），远侧边缘不动；中心随之移动拉伸量的一半。
+        /// 单戴：长钉 0 / 骄傲 0.2；同戴 0.1。</summary>
+        public static float LongRangeStretch()
+        {
+            bool a = IsEquipped(LongNailId);
+            bool b = IsEquipped(PrideId);
+            if (a && b)
+            {
+                return 0.1f;
+            }
+            if (a)
+            {
+                return 0f;
+            }
+            return b ? 0.2f : 0f;
+        }
+
+        /// <summary>长钉/骄傲印记：上劈判定/渲染高度向上拉伸量（格）。
+        /// 单戴 0.3 / 0.5，同戴 0.8。</summary>
+        public static float UpSlashStretchUp()
+        {
+            bool a = IsEquipped(LongNailId);
+            bool b = IsEquipped(PrideId);
+            if (a && b)
+            {
+                return 0.8f;
+            }
+            if (a)
+            {
+                return 0.3f;
+            }
+            return b ? 0.5f : 0f;
+        }
+
+        /// <summary>长钉/骄傲印记：下劈判定/渲染高度向下拉伸量（格）。
+        /// 单戴 0.2 / 0.3，同戴 0.5。</summary>
+        public static float DownSlashStretchDown()
+        {
+            bool a = IsEquipped(LongNailId);
+            bool b = IsEquipped(PrideId);
+            if (a && b)
+            {
+                return 0.5f;
+            }
+            if (a)
+            {
+                return 0.2f;
+            }
+            return b ? 0.3f : 0f;
+        }
+
+        /// <summary>
+        /// 沉重之击（普攻专属）：
+        /// - 普通敌人：普攻 8% 概率直接击杀并播放斩杀音效；
+        /// - BOSS（森之领主/山蜘蛛）：普攻 10% 概率额外造成其生命上限 1% 的伤害。
+        /// 通过改写本次攻击数据（Atk）实现：斩杀时把伤害抬到剩余血量，追加时加上限百分比。
+        /// </summary>
+        public static void ProcHeavyBlow(NelEnemy enemy, NelAttackInfo Atk)
+        {
+            if (!IsKnightMode || !IsEquipped(HeavyBlowId) || enemy == null || Atk == null)
+            {
+                return;
+            }
+            try
+            {
+                bool isBoss = enemy is NelNBoss_Nusi || enemy is NelNBossSpider;
+                if (isBoss)
+                {
+                    // BOSS：10% 概率额外 1% 生命上限伤害
+                    int maxHp = EnemyMaxHpField != null
+                        ? (int)EnemyMaxHpField.GetValue(enemy)
+                        : 0;
+                    if (maxHp <= 0 || X.XORSP() >= 0.10f)
+                    {
+                        return;
+                    }
+                    int extra = Mathf.FloorToInt(maxHp * 0.01f + 0.5f);
+                    if (extra > 0)
+                    {
+                        Atk.hpdmg_current += extra;
+                        Atk.hpdmg0 += extra;
+                    }
+                    return;
+                }
+                // 普通敌人：8% 概率直接击杀
+                int curHp = EnemyHpField != null
+                    ? (int)EnemyHpField.GetValue(enemy)
+                    : 0;
+                if (curHp > 0 && X.XORSP() < 0.08f)
+                {
+                    Atk.hpdmg_current = curHp;
+                    Atk.hpdmg0 = curHp;
+                    DashAudio.PlayHeavyKill(); // 斩杀音效
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>当前佩戴状态下实际生效的扩容值（兼容旧版 +100 存档）：按 row_max 反推。</summary>
+        private static int AppliedGreedBonus(int rowMax)
+        {
+            return rowMax >= GreedSlotBonus ? GreedSlotBonus
+                : rowMax >= OldGreedSlotBonus ? OldGreedSlotBonus : 0;
+        }
+
+        /// <summary>
+        /// 坚固贪婪：背包上限随装配/卸下同步 ±GreedSlotBonus（当前 +150）。
+        /// 基础容量始终从“当前 row_max”反推（已佩戴 → 含扩容加成；未佩戴 → 纯基础容量），
+        /// 兼容游戏内工作台升级背包（increaseCapacity 直接改 row_max）——升级后无论是否佩戴，
+        /// 下一次同步都会自动把新基础容量计算正确，不再使用首次装配时的旧快照。
+        /// </summary>
+        public static void SyncGreedCapacity()
+        {
+            try
+            {
+                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
+                ItemStorage st = nM2D != null && nM2D.IMNG != null
+                    ? nM2D.IMNG.getInventory()
+                    : null;
+                if (st == null)
+                {
+                    return;
+                }
+                bool equipped = IsEquipped(GreedId);
+                int stored = COOK.getSF(GreedBaseKey);
+                int baseCap;
+                if (_greedCapacityApplied == equipped)
+                {
+                    // 状态未变（例如佩戴中/未佩戴时升级了背包）：直接按当前容量反推
+                    baseCap = equipped ? st.row_max - AppliedGreedBonus(st.row_max) : st.row_max;
+                }
+                else if (equipped)
+                {
+                    // 刚佩戴：当前容量应尚未扩容；若恰好等于“历史基础+旧/新加成”，
+                    // 说明扩容其实已生效（标记异常），按历史基础处理，避免重复叠加。
+                    int applied = AppliedGreedBonus(st.row_max);
+                    baseCap = (stored > 0 && applied > 0 && st.row_max == stored + applied)
+                        ? stored : st.row_max;
+                }
+                else
+                {
+                    // 刚卸下：当前容量含扩容加成，反推基础容量
+                    baseCap = st.row_max - AppliedGreedBonus(st.row_max);
+                }
+                if (baseCap < 0)
+                {
+                    baseCap = stored > 0 ? stored : st.row_max; // 异常兜底
+                }
+                COOK.setSF(GreedBaseKey, baseCap); // 始终刷新快照，供后续同步/卸下判断使用
+                int want = equipped ? baseCap + GreedSlotBonus : baseCap;
+                if (st.row_max != want)
+                {
+                    st.increaseCapacity(want - st.row_max);
+                }
+                _greedCapacityApplied = equipped;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>坚固贪婪：能否卸下（背包占用数不得超过基础容量）。</summary>
+        public static bool CanUnequipGreed()
+        {
+            try
+            {
+                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
+                ItemStorage st = nM2D != null && nM2D.IMNG != null
+                    ? nM2D.IMNG.getInventory()
+                    : null;
+                if (st == null)
+                {
+                    return true;
+                }
+                // 基础容量优先按当前状态反推（已佩戴 → 当前容量含扩容加成），
+                // 保证升级背包后“占用了扩容格”的判定用的是最新基础容量。
+                int baseCap = _greedCapacityApplied
+                    ? st.row_max - AppliedGreedBonus(st.row_max) : st.row_max;
+                if (baseCap < 0)
+                {
+                    baseCap = COOK.getSF(GreedBaseKey);
+                }
+                if (baseCap < 0)
+                {
+                    return true; // 推定失败（旧版 +8 存档）：允许卸下，避免卡死
+                }
+                return st.getVisibleRowCount(false) <= baseCap;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// 读档后调用：把背包容量修正到与佩戴状态一致（佩戴=基础+GreedSlotBonus，未佩戴=基础）。
+        /// 基础容量一律从当前容量反推：佩戴 → 减去已生效加成（兼容旧版 +100 → 自动迁移到 +150）；
+        /// 未佩戴 → 就是当前容量。
+        /// 这样即使背包容量在佩戴状态下被工作台升级过，读档后也不会被旧快照改回去。
+        /// </summary>
+        public static void FixGreedCapacityAfterLoad()
+        {
+            try
+            {
+                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
+                ItemStorage st = nM2D != null && nM2D.IMNG != null
+                    ? nM2D.IMNG.getInventory()
+                    : null;
+                if (st == null)
+                {
+                    return;
+                }
+                bool equipped = IsEquipped(GreedId);
+                int baseCap = equipped
+                    ? st.row_max - AppliedGreedBonus(st.row_max) : st.row_max;
+                if (baseCap < 0)
+                {
+                    int stored = COOK.getSF(GreedBaseKey);
+                    baseCap = stored > 0 ? stored : st.row_max;
+                    // 推定异常（佩戴但容量不含任何已知加成的旧版存档）：以当前容量为基础
+                }
+                COOK.setSF(GreedBaseKey, baseCap);
+                int want = equipped ? baseCap + GreedSlotBonus : baseCap;
+                if (st.row_max != want)
+                {
+                    st.increaseCapacity(want - st.row_max);
+                }
+                _greedCapacityApplied = equipped;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>坚固贪婪：击杀魔物获得 5% 最大生命值的金币（四舍五入取整）。</summary>
+        private static void EnemyDiePostfix(NelEnemy __instance)
+        {
+            if (!IsKnightMode || !IsEquipped(GreedId) || __instance == null)
+            {
+                return;
+            }
+            if (!_greedGoldGranted.Add(__instance))
+            {
+                return;
+            }
+            if (_greedGoldGranted.Count > 128)
+            {
+                _greedGoldGranted.Clear();
+            }
+            try
+            {
+                int maxHp = 0;
+                if (EnemyMaxHpField != null)
+                {
+                    maxHp = (int)EnemyMaxHpField.GetValue(__instance);
+                }
+                if (maxHp <= 0)
+                {
+                    return;
+                }
+                int gold = Mathf.FloorToInt(maxHp * 0.05f + 0.5f); // 5% 四舍五入取整
+                if (gold > 0)
+                {
+                    CoinStorage.addCount(gold, CoinStorage.CTYPE.GOLD, true);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>骨钉技艺击杀：小骑士获得 10 灵魂（不限于已入战，也不受束缚·骨钉影响）。</summary>
+        private static void NailArtKillPostfix(NelEnemy __instance)
+        {
+            try
+            {
+                KnightEntity k = KnightEntity.Instance;
+                if (k != null && k.ConsumeNailArtKill(__instance))
+                {
+                    k.KnightAddSoul(10);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 坚固贪婪：配置了特殊掉落物品的魔物被击杀时，绝对以 ~25% 概率掉落
+        /// 特殊物品（不再依赖基础掉率/是否处于边界战斗）。星级提升走
+        /// GetItemDropGradePostfix（每颗星 50%）。
+        /// </summary>
+        private static bool CheckDropChancePrefix(NelEnemy __instance)
+        {
+            if (!IsKnightMode || !IsEquipped(GreedId) || __instance == null)
+            {
+                return true;
+            }
+            try
+            {
+                NelItem dropItem = null;
+                if (EnemyDropItemField != null)
+                {
+                    dropItem = (NelItem)EnemyDropItemField.GetValue(__instance);
+                }
+                if (dropItem == null && __instance.isOverDrive() &&
+                    EnemyOdField != null && OdDropItemOdField != null)
+                {
+                    object od = EnemyOdField.GetValue(__instance);
+                    if (od != null)
+                    {
+                        dropItem = (NelItem)OdDropItemOdField.GetValue(od);
+                    }
+                }
+                if (dropItem == null)
+                {
+                    return true; // 未配置特殊掉落：交给原逻辑（原逻辑同样不会掉落）
+                }
+                // 绝对 ~25% 掉落：跳过原判定，直接执行特殊掉落（含星级提升）
+                if (X.XORSP() < 0.25f && ExecuteDropItemMethod != null)
+                {
+                    object[] args = { dropItem };
+                    ExecuteDropItemMethod.Invoke(__instance, args);
+                }
+                return false; // 已处理，不再走原掉率判定
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// 坚固贪婪：掉落的特殊物品星级逐颗 50% 概率提升
+        /// （1星 → 2星 50%，→ 3星 25%，依此类推；上限 GRADE_MAX=5）。
+        /// </summary>
+        private static void GetItemDropGradePostfix(NelEnemy __instance, ref int __result)
+        {
+            if (!IsKnightMode || !IsEquipped(GreedId) || __instance == null)
+            {
+                return;
+            }
+            int grade = __result;
+            while (grade < NelItem.GRADE_MAX && X.XORSP() < 0.5f)
+            {
+                grade++;
+            }
+            __result = grade;
+        }
+
+        /// <summary>房间切换时更新蜂巢标记（含 honey 的 key 视为蜂巢房间）。</summary>
+        public static void UpdateHiveRoom(Map2d mp)
+        {
+            CurrentRoomIsHive = mp != null && mp.key != null &&
+                mp.key.IndexOf("honey", StringComparison.OrdinalIgnoreCase) >= 0;
+            _hiveAggroTriggered = false; // 换房后重新中立
+        }
+
+        /// <summary>
+        /// 小骑士攻击蜂巢房间内的魔物：全房魔物进入攻击状态（此后不再中立、正常攻击小骑士）。
+        /// </summary>
+        public static void TriggerHiveAggro()
+        {
+            if (!HiveNeutralActive())
+            {
+                return;
+            }
+            _hiveAggroTriggered = true;
+            try
+            {
+                PRNoel noel = KnightInCradleBehaviour.GetPrPublic();
+                if (noel == null || noel.Mp == null)
+                {
+                    return;
+                }
+                Map2d mp = noel.Mp;
+                for (int i = mp.count_movers - 1; i >= 0; i--)
+                {
+                    if (mp.getMv(i) is NelEnemy en && en.getAI() != null)
+                    {
+                        en.getAI().awakeInit(noel);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>是否处于战斗（AIC 召唤区域激活）。</summary>
+        public static bool IsInBattle()
+        {
+            return EnemySummoner.ActiveScript != null && EnemySummoner.isActiveBorder();
+        }
+
+        /// <summary>
+        /// 深度聚集：开启宝箱时，掉落转轮（Reel）速度降低 75%。
+        /// 真正的轮转速度是 ReelExecuter.reel_speed（由 fineSpeed 赋值），
+        /// 这里在赋值后保留其 25%。
+        /// </summary>
+        private static void ReelExecuterFineSpeedPostfix(ReelExecuter __instance)
+        {
+            if (!IsKnightMode || !IsEquipped(DeepGatherId))
+            {
+                return;
+            }
+            try
+            {
+                FieldInfo f = AccessTools.Field(typeof(ReelExecuter), "reel_speed");
+                if (f != null)
+                {
+                    float v = (float)f.GetValue(__instance);
+                    f.SetValue(__instance, v * 0.25f);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 坚固贪婪：击杀敌人掉落宝箱时，再掉落一个完全相同的宝箱。
+        /// dropMBoxReel 是击杀掉落宝箱的唯一入口（整批掉落与特殊宝箱共用），
+        /// 用防递归标记避免复制时再次触发本补丁。
+        /// </summary>
+        private static void DropMBoxReelPostfix(NelItemManager __instance, ReelManager.ItemReelDrop Reel,
+            float mapx, float mapy, float vx, float vy)
+        {
+            if (_greedReelDupGuard || !IsKnightMode || !IsEquipped(GreedId))
+            {
+                return;
+            }
+            try
+            {
+                _greedReelDupGuard = true;
+                __instance.dropMBoxReel(Reel, mapx, mapy, vx, vy);
+            }
+            catch (Exception)
+            {
+            }
+            finally
+            {
+                _greedReelDupGuard = false;
+            }
+        }
+
+        public static void Apply(Harmony harmony)
+        {
+            // 坚固贪婪：击杀敌人获得宝箱时，再掉落一个完全相同的宝箱
+            try
+            {
+                MethodInfo dropMBox = AccessTools.Method(typeof(NelItemManager), "dropMBoxReel",
+                    new[] { typeof(ReelManager.ItemReelDrop), typeof(float), typeof(float), typeof(float), typeof(float) });
+                if (dropMBox != null)
+                {
+                    harmony.Patch(dropMBox, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(DropMBoxReelPostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+            }
+            catch (Exception)
+            {
+            }
+            // 深度聚集：开启宝箱时，掉落转轮（Reel）速度降低 75%
+            try
+            {
+                MethodInfo fineSpeed = AccessTools.Method(typeof(ReelExecuter), "fineSpeed",
+                    new[] { typeof(float) });
+                if (fineSpeed != null)
+                {
+                    harmony.Patch(fineSpeed, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(ReelExecuterFineSpeedPostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+            }
+            catch (Exception)
+            {
+            }
+            // 指南针：小骑士模式 + 已装备时，地图快速旅行无需坐长椅。
+            // 每个补丁独立挂载并记录失败日志：任一补丁挂不上只会影响自身，
+            // 不会像以前那样一个异常就让整个指南针静默失效（小部分玩家环境差异的常见原因）。
+            PatchCompass(harmony);
+            try
+            {
+                // 护符2 蜂群集结：魔力草掉落的魔力魔物无法吸收（只能由诺艾尔吸收）
+                MethodInfo splashMana = AccessTools.Method(typeof(M2ManaWeed), "SplashMana",
+                    new[] { typeof(MANA_HIT), typeof(float), typeof(float) });
+                if (splashMana != null)
+                {
+                    harmony.Patch(splashMana, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(ManaWeedSplashPrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符2 蜂群集结：蜂巢房间内魔物不苏醒（含进入战斗后）
+                MethodInfo naiAwake = AccessTools.Method(typeof(NAI), "awakeInit",
+                    new[] { typeof(M2Attackable) });
+                if (naiAwake != null)
+                {
+                    harmony.Patch(naiAwake, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(NaiAwakeInitPrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符2 蜂群集结：中立期禁止魔物锁定目标
+                MethodInfo naiAimSet = AccessTools.PropertySetter(typeof(NAI), "AimPr");
+                if (naiAimSet != null)
+                {
+                    harmony.Patch(naiAimSet, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(NaiAimPrSetPrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符2 蜂群集结：小骑士攻击蜂巢房间魔物 → 全房魔物进入攻击状态
+                MethodInfo enemyDmg = AccessTools.Method(typeof(NelEnemy), "applyDamage",
+                    new[] { typeof(NelAttackInfo), typeof(bool) });
+                if (enemyDmg != null)
+                {
+                    harmony.Patch(enemyDmg, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(EnemyApplyDamagePrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符12 坚固贪婪：击杀魔物掉落 5% 最大生命值的金币
+                MethodInfo enemyDie = AccessTools.Method(typeof(NelEnemy), "changeStateToDie");
+                if (enemyDie != null)
+                {
+                    harmony.Patch(enemyDie, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(EnemyDiePostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 骨钉技艺击杀：小骑士获得 10 灵魂（被骨钉技艺命中的敌人死亡时）
+                if (enemyDie != null)
+                {
+                    harmony.Patch(enemyDie, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(NailArtKillPostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符12 坚固贪婪：特殊物品掉率 +25%（掷点缩小）
+                MethodInfo dropChance = AccessTools.Method(typeof(NelEnemy), "checkDropChance");
+                if (dropChance != null)
+                {
+                    harmony.Patch(dropChance, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(CheckDropChancePrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符12 坚固贪婪：特殊物品星级逐颗 50% 提升
+                MethodInfo dropGrade = AccessTools.Method(typeof(NelEnemy), "getItemDropGrade");
+                if (dropGrade != null)
+                {
+                    harmony.Patch(dropGrade, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(GetItemDropGradePostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>指南针补丁逐一挂载；任一补丁失败只影响自身并写警告日志。</summary>
+        private static void PatchCompass(Harmony harmony)
+        {
+            // M 键走 OPEN_MAP → GM.activateMap()（不经 activate()），两个入口都挂
+            TryPatchCompass(harmony, "UiGameMenu.activate",
+                AccessTools.Method(typeof(UiGameMenu), "activate"),
+                null,
+                new HarmonyMethod(typeof(CharmEffects).GetMethod(nameof(FastTravelPostfix),
+                    BindingFlags.Static | BindingFlags.NonPublic)));
+            TryPatchCompass(harmony, "UiGameMenu.activateMap",
+                AccessTools.Method(typeof(UiGameMenu), "activateMap"),
+                null,
+                new HarmonyMethod(typeof(CharmEffects).GetMethod(nameof(FastTravelPostfix),
+                    BindingFlags.Static | BindingFlags.NonPublic)));
+
+            // 地图界面出现时强制进入快速旅行模式（长椅图标可直接选中）
+            Type mapType = AccessTools.TypeByName("nel.gm.UiGMCMap");
+            TryPatchCompass(harmony, "UiGMCMap.initAppearMain",
+                mapType != null ? AccessTools.Method(mapType, "initAppearMain") : null,
+                null,
+                new HarmonyMethod(typeof(CharmEffects).GetMethod(nameof(MapAppearPostfix),
+                    BindingFlags.Static | BindingFlags.NonPublic)));
+            // 地图编辑中按下确认时：若光标附近有可传送图标而快速旅行模式被关闭
+            // （切世界地图再回来、误触快速旅行开关等），立即重新打开，保证点图标必能传送。
+            // 在空地提交仍走原标记选择，不影响放置标记。
+            TryPatchCompass(harmony, "UiGMCMap.runEdit",
+                mapType != null ? AccessTools.Method(mapType, "runEdit",
+                    new[] { typeof(float), typeof(bool) }) : null,
+                new HarmonyMethod(typeof(CharmEffects).GetMethod(nameof(CompassRunEditPrefix),
+                    BindingFlags.Static | BindingFlags.NonPublic)),
+                null);
+            // 确认传送时跳过“必须在椅子旁”的门控，直接执行
+            TryPatchCompass(harmony, "UiGMCMap.executeFastTravelConfirm",
+                mapType != null ? AccessTools.Method(mapType, "executeFastTravelConfirm") : null,
+                new HarmonyMethod(typeof(CharmEffects).GetMethod(nameof(FastTravelConfirmPrefix),
+                    BindingFlags.Static | BindingFlags.NonPublic)),
+                null);
+
+            // 快速旅行磁吸列表也加入战斗区域（ENEMY 图标）
+            Type wmSkinType = AccessTools.TypeByName("nel.ButtonSkinWholeMapArea");
+            if (wmSkinType != null)
+            {
+                PropertyInfo fta = AccessTools.Property(wmSkinType, "fast_travel_active");
+                TryPatchCompass(harmony, "ButtonSkinWholeMapArea.fast_travel_active.set",
+                    fta != null ? fta.GetSetMethod() : null,
+                    null,
+                    new HarmonyMethod(typeof(CharmEffects).GetMethod(nameof(EnemyIconsPostfix),
+                        BindingFlags.Static | BindingFlags.NonPublic)));
+                TryPatchCompass(harmony, "ButtonSkinWholeMapArea.setWholeMapTarget",
+                    AccessTools.Method(wmSkinType, "setWholeMapTarget",
+                        new[] { typeof(WholeMapItem), typeof(float), typeof(float) }),
+                    null,
+                    new HarmonyMethod(typeof(CharmEffects).GetMethod(nameof(EnemyIconsPostfix),
+                        BindingFlags.Static | BindingFlags.NonPublic)));
+            }
+
+            // 战斗区域传送收尾：AUTO_SAVE_BENCH 在无长椅处会报错
+            // （近場にベンチがありません）。跳过“附近有长椅”检查，
+            // 但仍执行自动存档与检查点更新，避免每次传送都生成错误报告。
+            TryPatchCompass(harmony, "NelM2DEventListener.EvtRead",
+                AccessTools.Method(typeof(NelM2DEventListener), "EvtRead"),
+                new HarmonyMethod(typeof(CharmEffects).GetMethod(nameof(AutoSaveBenchPrefix),
+                    BindingFlags.Static | BindingFlags.NonPublic)),
+                null);
+        }
+
+        private static void TryPatchCompass(Harmony harmony, string label, MethodBase method,
+            HarmonyMethod prefix, HarmonyMethod postfix)
+        {
+            try
+            {
+                if (method == null)
+                {
+                    return;
+                }
+                harmony.Patch(method, prefix: prefix, postfix: postfix);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 指南针：地图编辑中按下确认（提交）前，若光标附近有可传送图标而快速旅行模式
+        /// 处于关闭状态，则立即打开。这样即使误触了快速旅行开关 / 切图后模式被重置，
+        /// 点长椅或战斗地点也一定走传送；空地处提交不改变原标记选择行为。
+        /// </summary>
+        private static bool CompassRunEditPrefix(object __instance)
+        {
+            if (!IsKnightMode || !IsEquipped(CompassId) || IN.isUiShiftO() || !IN.isSubmit())
+            {
+                return true;
+            }
+            try
+            {
+                object skin = AccessTools.Field(__instance.GetType(), "WmSkin")?.GetValue(__instance);
+                if (skin == null)
+                {
+                    return true;
+                }
+                PropertyInfo pa = skin.GetType().GetProperty("fast_travel_active");
+                if (pa == null || (bool)pa.GetValue(skin))
+                {
+                    return true;
+                }
+                if (TryGetTeleportTarget(skin, out _))
+                {
+                    pa.SetValue(skin, true);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 取当前可传送目标：优先用地图磁吸焦点（FastTravelFocused）；
+        /// 磁吸未生效时（未按住等待 / 模式刚被关闭等），在当前区域光标附近
+        /// 找最近的长椅 / 战斗区域图标兜底。仅限当前区域（WM == CurWM），
+        /// 跨区域传送机制已移除，这里不放开。
+        /// </summary>
+        private static bool TryGetTeleportTarget(object skin, out WMIconPosition target)
+        {
+            target = default(WMIconPosition);
+            try
+            {
+                if (skin == null)
+                {
+                    return false;
+                }
+                FieldInfo ff = AccessTools.Field(skin.GetType(), "FastTravelFocused");
+                PropertyInfo fp = ff == null ? skin.GetType().GetProperty("FastTravelFocused") : null;
+                object boxed = ff != null ? ff.GetValue(skin) : fp != null ? fp.GetValue(skin) : null;
+                if (boxed is WMIconPosition focused && focused.valid)
+                {
+                    target = focused;
+                    return true;
+                }
+                // 兜底：只在当前区域找图标（跨区域传送机制已移除）
+                object wm = AccessTools.Field(skin.GetType(), "WM")?.GetValue(skin);
+                NelM2DBase nm2d = M2DBase.Instance as NelM2DBase;
+                if (wm == null || nm2d == null || nm2d.WM == null || wm != nm2d.WM.CurWM)
+                {
+                    return false;
+                }
+                MethodInfo getCursor = skin.GetType().GetMethod("getCursorMapPos");
+                MethodInfo getIcons = wm.GetType().GetMethod("getNoticedIconList",
+                    new[] { typeof(WMIcon.TYPE) });
+                if (getCursor == null || getIcons == null)
+                {
+                    return false;
+                }
+                object cur = getCursor.Invoke(skin, null);
+                if (!(cur is Vector2 cursor))
+                {
+                    return false;
+                }
+                WMIconPosition best = default(WMIconPosition);
+                float bestSq = 25f; // 兜底判定放宽到约 5 格（原版磁吸约 2 格），确认时按在图标附近即可传送
+                foreach (WMIcon.TYPE type in new[] { WMIcon.TYPE.BENCH, WMIcon.TYPE.ENEMY })
+                {
+                    object list = getIcons.Invoke(wm, new object[] { type });
+                    if (!(list is List<WMIconPosition> icons))
+                    {
+                        continue;
+                    }
+                    for (int i = 0; i < icons.Count; i++)
+                    {
+                        WMIconPosition pos = icons[i];
+                        float dx = pos.wmx - cursor.x;
+                        float dy = pos.wmy - cursor.y;
+                        float sq = dx * dx + dy * dy;
+                        if (sq <= bestSq)
+                        {
+                            bestSq = sq;
+                            best = pos;
+                        }
+                    }
+                }
+                if (best.valid)
+                {
+                    target = best;
+                    return true;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return false;
+        }
+
+        private static void EnemyIconsPostfix(object __instance)
+        {
+            if (!IsKnightMode || !IsEquipped(CompassId))
+            {
+                return;
+            }
+            try
+            {
+                Type t = __instance.GetType();
+                object wm = AccessTools.Field(t, "WM")?.GetValue(__instance);
+                object list = AccessTools.Field(t, "ABenchList")?.GetValue(__instance);
+                if (wm == null || !(list is System.Collections.Generic.List<WMIconPosition> l))
+                {
+                    return;
+                }
+                MethodInfo getIcons = wm.GetType().GetMethod("getNoticedIconList",
+                    new[] { typeof(WMIcon.TYPE) });
+                if (getIcons == null)
+                {
+                    return;
+                }
+                object enemies = getIcons.Invoke(wm, new object[] { WMIcon.TYPE.ENEMY });
+                if (enemies is System.Collections.Generic.List<WMIconPosition> el)
+                {
+                    bool added = false;
+                    foreach (WMIconPosition p in el)
+                    {
+                        if (!l.Contains(p))
+                        {
+                            l.Add(p);
+                            added = true;
+                        }
+                    }
+                    if (added)
+                    {
+                        AccessTools.Field(t, "ABenchList")?.SetValue(__instance, l);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static bool FastTravelConfirmPrefix(object __instance, ref bool __result)
+        {
+            if (!IsKnightMode || !IsEquipped(CompassId))
+            {
+                return true; // 走原逻辑
+            }
+            try
+            {
+                object skin = AccessTools.Field(__instance.GetType(), "WmSkin")?.GetValue(__instance);
+                if (skin == null)
+                {
+                    return true;
+                }
+                if (TryGetTeleportTarget(skin, out WMIconPosition pos))
+                {
+                    WMIcon ico = pos.get_Icon();
+                    if (ico != null && ico.type == WMIcon.TYPE.ENEMY)
+                    {
+                        // 战斗区域传送：目标=当前战斗区域时先终止战斗再传送；
+                        // 异区域由 HandleBattleBeforeTeleport 终止战斗。
+                        AutoSaveBenchSuppress = true;
+                        if (IsInBattle() && IsSameBattleArea(pos))
+                        {
+                            CloseCurrentBattle();
+                        }
+                        else
+                        {
+                            HandleBattleBeforeTeleport(pos);
+                        }
+                        BattleAreaFastTravel = true;
+                        ExecuteBattleAreaTransfer(pos);
+                    }
+                    else
+                    {
+                        AutoSaveBenchSuppress = false;
+                        BattleAreaFastTravel = false;
+                        HandleBattleBeforeTeleport(pos);
+                        UiBenchMenu.ExecuteFastTravel(pos, null, null, null);
+                    }
+                    __result = true;
+                    return false; // 跳过原方法（不再要求附近有椅子）
+                }
+                // 指南针已装备却找不到可传送目标（光标附近没有已发现图标等），
+                // 与失败前一样静默回退到原逻辑，不产生任何日志。
+            }
+            catch (Exception)
+            {
+            }
+            return true;
+        }
+
+        /// <summary>终止当前战斗区域的战斗（与跨区传送时的处理一致：清敌但不判胜利）。</summary>
+        private static void CloseCurrentBattle()
+        {
+            try
+            {
+                EnemySummoner active = EnemySummoner.ActiveScript;
+                if (active != null)
+                {
+                    active.close(true, false);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// AUTO_SAVE_BENCH 替代处理：战斗区域传送收尾时目标地没有长椅，
+        /// 原命令会报“近場にベンチがありません”。本前缀在目的地为战斗区域时
+        /// 跳过长椅检查，但仍执行自动存档与检查点更新（与原命令一致）。
+        /// </summary>
+        private static bool AutoSaveBenchPrefix(NelM2DEventListener __instance, StringHolder rER, ref bool __result)
+        {
+            if (!AutoSaveBenchSuppress || rER == null || rER.cmd != "AUTO_SAVE_BENCH")
+            {
+                return true;
+            }
+            try
+            {
+                AutoSaveBenchSuppress = false; // 只消费一次
+                NelM2DBase nM2D = __instance.nM2D;
+                Map2d curMap = nM2D != null ? nM2D.curMap : null;
+                if (curMap != null && curMap.Pr is PR pr)
+                {
+                    if (CFG.autosave_on_bench && SCN.canSave(true))
+                    {
+                        COOK.autoSave(nM2D, true, false);
+                    }
+                    BCCLine lastBCC = pr.getFootManager().get_LastBCC();
+                    nM2D.CheckPoint.fineFoot(pr, lastBCC, true);
+                }
+                __result = true;
+                return false;
+            }
+            catch (Exception)
+            {
+                return true; // 兜底走原逻辑（会报错但流程继续）
+            }
+        }
+
+        /// <summary>
+        /// 蜂群集结：破坏魔力草掉落的魔力直接给后台诺艾尔吸收（不再生成落地魔力），
+        /// 魔物始终无法获得。无论魔物还是小骑士破坏魔力草都生效；
+        /// 诺艾尔不可用时兜底走“仅诺艾尔可吸”的落地魔力。
+        /// </summary>
+        private static bool ManaWeedSplashPrefix(M2ManaWeed __instance, ref MANA_HIT mana_hit,
+            float cx, float cy)
+        {
+            if (!CollectorManaGuardActive())
+            {
+                return true;
+            }
+            try
+            {
+                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
+                if (nM2D != null)
+                {
+                    // 金额与原生一致：(20 + rand(0..10)) × 魔力草比例
+                    float amount = (20f + (float)X.xors(11)) * nM2D.NightCon.ManaWeedRatio();
+                    KnightInCradleBehaviour.GrantNoelMana(amount);
+                    return false; // 跳过原生：直接给后台诺艾尔吸收，不生成落地魔力
+                }
+            }
+            catch (Exception)
+            {
+            }
+            // 兜底：诺艾尔不可用时仍走原生落地，但保持仅诺艾尔可吸
+            mana_hit = (mana_hit & ~MANA_HIT.EN) | MANA_HIT.PR;
+            return true;
+        }
+
+        /// <summary>是否为蚂蟥/女王蚂蟥一族（含连接体变体）。</summary>
+        private static bool IsLeechFamily(NelEnemy en)
+        {
+            return en is NelNLeech || en is NelNLeechOdConnector ||
+                   en is NelNLeechQueen || en is NelNLeechQueenConnector;
+        }
+
+        /// <summary>是否为蘑菇一族（蘑菇及其变体）。</summary>
+        private static bool IsMushroomFamily(NelEnemy en)
+        {
+            return en is NelNMush;
+        }
+
+        /// <summary>
+        /// 幼虫之歌 / 蜕变挽歌：蚂蟥/女王蚂蟥不攻击持有者（被攻击也不反击）。
+        /// </summary>
+        public static bool GrubsongLeechPassive(NelEnemy en)
+        {
+            return IsKnightMode &&
+                (IsEquipped(GrubsongId) || IsEquipped(ElegyId)) && IsLeechFamily(en);
+        }
+
+        /// <summary>蘑菇孢子：蘑菇一族不攻击持有者（被攻击也不反击）。</summary>
+        public static bool MushroomPassive(NelEnemy en)
+        {
+            return IsKnightMode && IsEquipped(MushroomId) && IsMushroomFamily(en);
+        }
+
+        /// <summary>
+        /// 阻止魔物苏醒：蜂群集结中立期，或幼虫之歌对蚂蟥/女王蚂蟥生效。
+        /// 小骑士攻击挑衅后（蜂巢房间）放行；蚂蟥一族则始终不苏醒。
+        /// </summary>
+        private static bool NaiAwakeInitPrefix(NAI __instance, M2Attackable _AimPr)
+        {
+            if (HiveNeutralActive())
+            {
+                return false;
+            }
+            if (GrubsongLeechPassive(__instance.En))
+            {
+                return false;
+            }
+            if (MushroomPassive(__instance.En))
+            {
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 禁止魔物锁定目标（AimPr 赋值），允许清空（value==null）：
+        /// 蜂群集结中立期 / 幼虫之歌对蚂蟥、女王蚂蟥生效。
+        /// </summary>
+        private static bool NaiAimPrSetPrefix(NAI __instance, M2Attackable value)
+        {
+            if (value == null)
+            {
+                return true; // 允许清空
+            }
+            if (HiveNeutralActive())
+            {
+                return false;
+            }
+            if (GrubsongLeechPassive(__instance.En))
+            {
+                return false;
+            }
+            if (MushroomPassive(__instance.En))
+            {
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>中立期每帧清除蜂巢房间内魔物的锁定目标（AimPr=null）。</summary>
+        public static void ClearHiveEnemyAim()
+        {
+            if (!HiveNeutralActive())
+            {
+                return;
+            }
+            try
+            {
+                PRNoel noel = KnightInCradleBehaviour.GetPrPublic();
+                if (noel == null || noel.Mp == null)
+                {
+                    return;
+                }
+                Map2d mp = noel.Mp;
+                for (int i = mp.count_movers - 1; i >= 0; i--)
+                {
+                    if (mp.getMv(i) is NelEnemy en)
+                    {
+                        NAI ai = en.getAI();
+                        if (ai != null && ai.AimPr != null)
+                        {
+                            ai.AimPr = null; // set_AimPr 前缀放行 null → 清空目标
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>幼虫之歌：每帧清除蚂蟥/女王蚂蟥的锁定目标（确保始终中立）。</summary>
+        public static void ClearGrubsongLeechAim()
+        {
+            if (!IsKnightMode || (!IsEquipped(GrubsongId) && !IsEquipped(ElegyId)))
+            {
+                return;
+            }
+            try
+            {
+                PRNoel noel = KnightInCradleBehaviour.GetPrPublic();
+                if (noel == null || noel.Mp == null)
+                {
+                    return;
+                }
+                Map2d mp = noel.Mp;
+                for (int i = mp.count_movers - 1; i >= 0; i--)
+                {
+                    if (mp.getMv(i) is NelEnemy en && IsLeechFamily(en))
+                    {
+                        NAI ai = en.getAI();
+                        if (ai != null && ai.AimPr != null)
+                        {
+                            ai.AimPr = null; // set_AimPr 前缀放行 null → 清空目标
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static readonly FieldInfo RBaseAItemsField =
+            AccessTools.Field(typeof(RBase<M2Mana>), "AItems");
+        private static readonly FieldInfo RBaseLENField =
+            AccessTools.Field(typeof(RBase<M2Mana>), "LEN");
+
+        /// <summary>
+        /// 蜂群集结：AIC 的落地魔力超时（约 5 秒）没人收会被自动改成“谁都能吸（ALL）”，
+        /// 导致怪过一会儿仍能吸走。本方法在骑士模式下每帧检查，把含 PR 的魔力重新去掉 EN，
+        /// 保持“只能由诺艾尔吸收”，直到切出诺艾尔收走。
+        /// </summary>
+        public static void ProtectCollectorMana()
+        {
+            if (!CollectorManaGuardActive())
+            {
+                return;
+            }
+            try
+            {
+                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
+                if (nM2D == null || nM2D.Mana == null)
+                {
+                    return;
+                }
+                object items = RBaseAItemsField != null ? RBaseAItemsField.GetValue(nM2D.Mana) : null;
+                if (!(items is M2Mana[] arr))
+                {
+                    return;
+                }
+                int len = RBaseLENField != null ? (int)RBaseLENField.GetValue(nM2D.Mana) : arr.Length;
+                for (int i = 0; i < len; i++)
+                {
+                    M2Mana m = arr[i];
+                    if (m == null || m.only_effect)
+                    {
+                        continue;
+                    }
+                    if ((m.mana_hit & MANA_HIT.PR) != MANA_HIT.NOUSE &&
+                        (m.mana_hit & MANA_HIT.EN) != MANA_HIT.NOUSE)
+                    {
+                        // 超时被自动改成 ALL：重新去掉 EN，保持仅诺艾尔可吸
+                        m.mana_hit = (m.mana_hit & ~MANA_HIT.EN) | MANA_HIT.PR;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        // ---- 护符2 蜂群集结：自动拾取掉落物 ----
+        /// <summary>自动拾取半径（格）。</summary>
+        public const float CollectorPickupRadius = 3f;
+
+        // AIC 的掉落物表 / 存储区路由 / 拾取入口都不是 public，用反射取一次缓存住。
+        private static readonly FieldInfo ImngODropField =
+            AccessTools.Field(typeof(NelItemManager), "ODrop");
+        private static readonly MethodInfo ImngGetStorageForMethod =
+            AccessTools.Method(typeof(NelItemManager), "getStorageFor", new[] { typeof(NelItem) });
+        private static readonly MethodInfo ImngExecutePickUpMethod =
+            AccessTools.Method(typeof(NelItemManager), "executePickUp",
+                new[] { typeof(NelItemManager.NelItemDrop) });
+
+        /// <summary>
+        /// 蜂群集结：骑士模式下每帧检查，把 3 格内**已经落地可拾取**、且对应存储区还放得下的
+        /// 掉落物（史莱姆的假卵、剑山的刺…）直接交给游戏的拾取流程
+        /// <c>NelItemManager.executePickUp</c>，因此拾取音效 / 粒子 / 背包路由
+        /// （背包 / 贵重品 / 仓库 / 水壶）与手动按键拾取完全一致。
+        ///
+        /// 两个前置条件都沿用游戏自己的判据：
+        /// ① <c>NelItemDrop.canTalkable(false) == 1</c> —— 刚掉出来还在弹跳的物品不会被瞬间吸走；
+        /// ② <c>ItemStorage.getItemCapacity(...) &gt; 0</c> —— 没空位就不拾取（也不会弹原生的“装不下”提示）。
+        /// 一帧最多拾取一件（游戏自带的 pickup_delay 还会再限流），拾取后立刻结束枚举，
+        /// 避免边遍历边改写 ODrop。
+        /// </summary>
+        public static void TickCollectorAutoPickup()
+        {
+            if (!CollectorManaGuardActive())
+            {
+                return; // 仅小骑士模式 + 已装备护符2
+            }
+            KnightEntity k = KnightEntity.Instance;
+            if (k == null || !k.IsActive || ImngODropField == null || ImngExecutePickUpMethod == null)
+            {
+                return;
+            }
+            // 剧情/转场事件期间不打扰（此时玩家输入本来也是被禁的）
+            try
+            {
+                if (EV.isActive(false))
+                {
+                    return;
+                }
+            }
+            catch (Exception)
+            {
+                return;
+            }
+            try
+            {
+                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
+                NelItemManager imng = nM2D != null ? nM2D.IMNG : null;
+                if (imng == null)
+                {
+                    return;
+                }
+                // ODrop 是 Better.BDic<M2DropObject, NelItemDrop>：用非泛型 IDictionary 枚举，
+                // 这样不必引用 better.dll。
+                if (!(ImngODropField.GetValue(imng) is System.Collections.IDictionary drops))
+                {
+                    return;
+                }
+                float footY = k.FootY;
+                float r2 = CollectorPickupRadius * CollectorPickupRadius;
+                foreach (System.Collections.DictionaryEntry entry in drops)
+                {
+                    if (!(entry.Value is NelItemManager.NelItemDrop drop) || drop.destructed)
+                    {
+                        continue;
+                    }
+                    M2DropObject dro = drop.Dro;
+                    if (dro == null)
+                    {
+                        continue;
+                    }
+                    float dx = dro.x - k.X;
+                    float dy = dro.y - footY;
+                    if (dx * dx + dy * dy > r2)
+                    {
+                        continue;
+                    }
+                    if (drop.canTalkable(false) != 1)
+                    {
+                        continue; // 尚未落地 / 游戏自己也不允许拾取
+                    }
+                    if (!HasRoomForDrop(imng, drop.Itm))
+                    {
+                        continue; // 放不下：不拾取，等玩家腾出空间后再说
+                    }
+                    ImngExecutePickUpMethod.Invoke(imng, new object[] { drop });
+                    return; // 拾取会改动 ODrop，必须立刻结束枚举
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>掉落物对应的存储区（背包 / 贵重品 / 仓库…）里是否还放得下。</summary>
+        private static bool HasRoomForDrop(NelItemManager imng, NelItem itm)
+        {
+            if (itm == null)
+            {
+                return false;
+            }
+            try
+            {
+                ItemStorage st = null;
+                if (ImngGetStorageForMethod != null)
+                {
+                    st = ImngGetStorageForMethod.Invoke(imng, new object[] { itm }) as ItemStorage;
+                }
+                if (st == null)
+                {
+                    st = imng.getInventory(); // 兜底：反射失败时只看主背包
+                }
+                return st != null && st.getItemCapacity(itm, false, false) > 0;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 蜂群集结：小骑士（以诺艾尔为 Caster）在蜂巢房间攻击魔物时，
+        /// 触发全房魔物进入攻击状态。
+        /// 蜂巢之血为“友好”：被小骑士攻击也不会敌对，因此不触发。
+        /// </summary>
+        private static void EnemyApplyDamagePrefix(NelEnemy __instance, NelAttackInfo Atk, bool force)
+        {
+            if (Atk != null && Atk.Caster is PRNoel)
+            {
+                // 只有蜂群集结会在攻击后全房敌对；蜂巢之血保持友好
+                if (HiveNeutralActive() && IsEquipped(CollectorId))
+                {
+                    TriggerHiveAggro();
+                }
+                // 护符16 沉重之击：只对普攻有效（普攻不挂 PublishMagic，
+                // 法术/三剑技都会挂）：斩杀 / 上限百分比追加伤害
+                if (Atk.PublishMagic == null)
+                {
+                    ProcHeavyBlow(__instance, Atk);
+                }
+                // 友好动物（鸡/牛）攻击掉落：仅小骑士模式
+                if (IsKnightMode && KnightEntity.Instance != null && KnightEntity.Instance.IsActive)
+                {
+                    TryFarmAnimalDrop(__instance);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 友好动物攻击掉落：小骑士攻击“鸡”（NelNMgmFarmChicken）时 25% 获得“家禽蛋”
+        /// （仅限 mount_caravan_entrance_left 房间）；攻击“牛”（NelNMgmFarmCow）时 25%
+        /// 获得“魔族的肉”（任意房间）。星级随机 1~4。
+        /// </summary>
+        private static void TryFarmAnimalDrop(NelEnemy enemy)
+        {
+            try
+            {
+                if (enemy == null || enemy.destructed)
+                {
+                    return;
+                }
+                string itemKey = null;
+                if (enemy is nel.mgm.farm.NelNMgmFarmChicken)
+                {
+                    Map2d mp = (M2DBase.Instance as NelM2DBase)?.curMap;
+                    if (mp == null || mp.key != "mount_caravan_entrance_left")
+                    {
+                        return;
+                    }
+                    itemKey = "mtr_egg"; // 家禽蛋
+                }
+                else if (enemy is nel.mgm.farm.NelNMgmFarmCow)
+                {
+                    itemKey = "mtr_meat_demon0"; // 魔族的肉
+                }
+                else
+                {
+                    return;
+                }
+                if (UnityEngine.Random.value > 0.25f)
+                {
+                    return;
+                }
+                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
+                if (nM2D == null || nM2D.IMNG == null)
+                {
+                    return;
+                }
+                NelItem itm = NelItem.GetById(itemKey, true);
+                if (itm == null)
+                {
+                    return;
+                }
+                int grade = UnityEngine.Random.Range(1, 5); // 随机星级 1~4
+                nM2D.IMNG.getItem(itm, 1, grade, true);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>解析战斗区域中心并传送（优先召唤者地块中心，避免落到图标浮空点）。</summary>
+        private static void ExecuteBattleAreaTransfer(WMIconPosition pos)
+        {
+            BattleAreaFastTravel = true;
+            // 图标位置即战斗区域 focus 中心（mapfocx/mapfocy，危险等级显示处）。
+            // 统一走 ExecuteFastTravel 完整收尾（关菜单/黑屏/传送/骑士跟随）。
+            UiBenchMenu.ExecuteFastTravel(pos, null, null, null);
+        }
+
+        /// <summary>
+        /// 传送前处理战斗：若处于战斗且目标不在本战斗区域内，则先终止当前战斗。
+        /// 目标在本战斗区域内（同地图 + 在召唤区域矩形内）则保留战斗。
+        /// </summary>
+        private static void HandleBattleBeforeTeleport(WMIconPosition pos)
+        {
+            try
+            {
+                EnemySummoner active = EnemySummoner.ActiveScript;
+                M2LpSummon area = active != null ? active.getSummonedArea() : null;
+                if (area != null && !IsSameBattleArea(pos))
+                {
+                    active.close(true, false);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>目标是否位于当前战斗区域（同地图 + 在召唤区域矩形内）。</summary>
+        private static bool IsSameBattleArea(WMIconPosition pos)
+        {
+            try
+            {
+                if (!IsInBattle())
+                {
+                    return false;
+                }
+                EnemySummoner active = EnemySummoner.ActiveScript;
+                M2LpSummon area = active != null ? active.getSummonedArea() : null;
+                if (area == null)
+                {
+                    return false;
+                }
+                Map2d destMap = pos.getDepertureMap();
+                Vector2 dest = pos.getDepertureMapPos();
+                return destMap != null && active.Mp == destMap &&
+                    dest.x >= area.mapx && dest.x < area.mapx + area.mapw &&
+                    dest.y >= area.mapy && dest.y < area.mapy + area.maph;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static void MapAppearPostfix(object __instance)
+        {
+            if (!IsKnightMode || !IsEquipped(CompassId))
+            {
+                return;
+            }
+            try
+            {
+                Type t = __instance.GetType();
+                FieldInfo ctrF = AccessTools.Field(t, "WmCtr");
+                FieldInfo skinF = AccessTools.Field(t, "WmSkin");
+                object ctr = ctrF != null ? ctrF.GetValue(__instance) : null;
+                object skin = skinF != null ? skinF.GetValue(__instance) : null;
+                if (ctr != null)
+                {
+                    FieldInfo cc = AccessTools.Field(ctr.GetType(), "can_use_fasttravel");
+                    if (cc != null)
+                    {
+                        cc.SetValue(ctr, true);
+                    }
+                }
+                if (skin != null)
+                {
+                    PropertyInfo pa = skin.GetType().GetProperty("fast_travel_active");
+                    if (pa != null)
+                    {
+                        pa.SetValue(skin, true);
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static void FastTravelPostfix(UiGameMenu __instance)
+        {
+            if (!IsKnightMode || !IsEquipped(CompassId))
+            {
+                return;
+            }
+            try
+            {
+                FieldInfo f = AccessTools.Field(typeof(UiGameMenu), "can_use_fasttravel");
+                FieldInfo p = AccessTools.Field(typeof(UiGameMenu), "pr_on_bench");
+                if (f != null)
+                {
+                    f.SetValue(__instance, true);
+                }
+                if (p != null)
+                {
+                    p.SetValue(__instance, true);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+}

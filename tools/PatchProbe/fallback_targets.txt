@@ -1,0 +1,15 @@
+# 修正命名空间后的指南针目标
+nel.gm.UiGameMenu;activate
+nel.gm.UiGameMenu;activateMap
+nel.gm.UiGMCMap;initAppearMain
+nel.gm.UiGMCMap;runEdit;float,bool
+nel.gm.UiGMCMap;executeFastTravelConfirm
+nel.ButtonSkinWholeMapArea;setWholeMapTarget
+nel.NelM2DEventListener;EvtRead
+# 已有的“替代锚点”（0.29j 时代为绕开 IL 无法编译而改挂的入口）
+nel.FallenCutin;run;float
+nel.UIPictureBase;readFader
+nel.UIPicture;run
+nel.UIPictureBase;changeEmotDefault
+nel.UIPictureBase;applyDamage
+nel.PR;applyGasDamage

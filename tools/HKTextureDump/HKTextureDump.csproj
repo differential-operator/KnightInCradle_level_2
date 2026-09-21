@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>HKTextureDump</AssemblyName>
+    <RootNamespace>HKTextureDump</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="AssetStudio">
+      <HintPath>D:\Documents\AAA download\AssetStudio\AssetStudio.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="AssetStudioUtility">
+      <HintPath>D:\Documents\AAA download\AssetStudio\AssetStudioUtility.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="SixLabors.ImageSharp">
+      <HintPath>D:\Documents\AAA download\AssetStudio\SixLabors.ImageSharp.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

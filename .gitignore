@@ -1,0 +1,30 @@
+bin/
+obj/
+reference/
+*.user
+*.suo
+
+# ---- 本地/IDE ----
+.vs/
+.idea/
+
+# ---- 反编译参考（游戏本体版权，勿入库）----
+_decomp*/
+_tmp_*/
+
+# ---- 提取/调试工具的临时产物 ----
+tools/_tmp_*/
+
+# ---- 备份与本地快照 ----
+backup/
+backup-v2.2/
+*.prev
+*.bak
+*.bak-*
+
+# ---- 空洞骑士提取素材与音频（版权：仅自用，不公开分发）----
+assets/hk/
+audio_embed/
+AudioClip/
+charm_ui/
+CharmUiExport/

@@ -1,0 +1,23 @@
+# 新版（0.30g）实测挂载失败的 15 个 KIC 补丁
+m2d.M2PxlAnimatorRT;set_color
+m2d.M2PxlAnimatorRT;set_alpha
+nel.FallenCutin;setE
+nel.NelEnemy;initAbsorb
+nel.M2LpMapTransferBase;executeTransferFastTravel
+nel.gm.UiBenchMenu;ExecuteFastTravel
+nel.WholeMapManager;fnMgRun_initS_Sacred
+nel.M2LpSummon;deassignActiveWeed
+nel.M2PuncherCannon;applyHpDamage
+nel.MgBsSpiderTrap;run
+nel.NelNBossSpider;applyDamage
+nel.UIBase;fineHpMpRatio;float,float
+nel.UIPictureBase;changeEmotIn
+nel.UIPicture;applyGasDamage
+m2d.M2MvColliderCreatorAtk;recreateExecute
+# 指南针（护符1）挂载失败的 6 个
+nel.UiGameMenu;activate
+nel.gm.UiGMCMap;initAppearMain
+nel.gm.UiGMCMap;runEdit
+nel.gm.UiGMCMap;executeFastTravelConfirm
+nel.ButtonSkinWholeMapArea;setWholeMapTarget
+nel.NelM2DEventListener;EvtRead

@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>TexDump</AssemblyName>
+    <RootNamespace>TexDump</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="AssetStudio">
+      <HintPath>D:\Documents\AAA download\AssetStudio\AssetStudio.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="AssetStudioUtility">
+      <HintPath>D:\Documents\AAA download\AssetStudio\AssetStudioUtility.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>D:\Documents\AAA download\AssetStudio\Newtonsoft.Json.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="SixLabors.ImageSharp">
+      <HintPath>D:\Documents\AAA download\AssetStudio\SixLabors.ImageSharp.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="D:\Documents\AAA download\AssetStudio\*.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>

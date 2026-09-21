@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>PatchProbe</AssemblyName>
+    <RootNamespace>PatchProbe</RootNamespace>
+    <Nullable>disable</Nullable>
+    <!-- 联机/模组用的 HarmonyX 与 MonoMod 从这里取（默认=新版游戏的 BepInEx core） -->
+    <AicCore Condition="'$(AicCore)' == ''">D:\Documents\Knight In Cradle\New Version AIC\AliceInCradle Win ver030\AliceInCradle_ver030\BepInEx\core</AicCore>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="0Harmony">
+      <HintPath>$(AicCore)\0Harmony.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="MonoMod.Utils">
+      <HintPath>$(AicCore)\MonoMod.Utils.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="MonoMod.RuntimeDetour">
+      <HintPath>$(AicCore)\MonoMod.RuntimeDetour.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

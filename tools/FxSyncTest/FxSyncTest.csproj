@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    联机负载编解码回归测试（不参与插件编译：主 csproj 已 Compile Remove tools\**）。
+    跑法：在 KnightInCradle 目录执行 dotnet run -c Release -p tools/FxSyncTest/FxSyncTest.csproj
+    用途：改动 KnightFxSync 的负载布局（尤其拼刀用的 v5 “骨钉攻击判定箱”段）后，
+          先跑这里确认新旧格式仍然自洽，再去游戏里测手感。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>FxSyncTest</AssemblyName>
+    <RootNamespace>KnightInCradle.Tests</RootNamespace>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="..\..\src\KnightFxSync.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx">
+      <HintPath>D:\Documents\Knight In Cradle\AliceInCradle Win ver030\AliceInCradle_ver030\BepInEx\core\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

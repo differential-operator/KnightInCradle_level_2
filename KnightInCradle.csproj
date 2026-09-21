@@ -1,0 +1,178 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>KnightInCradle</AssemblyName>
+    <RootNamespace>KnightInCradle</RootNamespace>
+    <Version>0.2.0</Version>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+    <Nullable>disable</Nullable>
+    <!--
+      AIC 游戏根目录（引用它的 Managed DLL 与 BepInEx core）。
+      KIC 的 Harmony 补丁必须和“目标安装的游戏程序集”配套编译，否则运行时会
+      出现 `[KIC][补丁] … N 失败（HarmonyException: IL Compile Error）`。
+      默认按新版 0.30g 编译；给别的版本编译时用：
+        dotnet build -c Release -p:AicRoot="<那个安装的游戏根目录>"
+      编译目标会写进 DLL（AssemblyMetadata: AicCompileTarget），启动日志会打印，
+      方便确认“手上这份 DLL 到底配哪个游戏版本”。
+    -->
+    <AicRoot Condition="'$(AicRoot)' == ''">D:\Documents\AliceInCradle\AIC_MP\AliceInCradle Win ver030\AliceInCradle_ver030</AicRoot>
+    <AicAsmPath Condition="'$(AicAsmPath)' == ''">$(AicRoot)\AliceInCradle_Data\Managed\Assembly-CSharp.dll</AicAsmPath>
+    <!-- 注意：MSBuild 的属性函数不允许 File.ReadAllBytes，所以这里只记录文件时间；
+         大小在运行时由 RuntimeGameAssemblyStamp() 打印，用来互相对照。 -->
+    <AicAsmTime Condition="Exists('$(AicAsmPath)')">$([System.IO.File]::GetLastWriteTime('$(AicAsmPath)').ToString('yyyy-MM-dd HH:mm'))</AicAsmTime>
+    <AicCompileTarget>$(AicAsmTime) / $(AicRoot)</AicCompileTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>AicCompileTarget</_Parameter1>
+      <_Parameter2>$(AicCompileTarget)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <!-- 引用的游戏程序集不存在时给一条能看懂的报错（否则会是一堆 CS0246） -->
+  <Target Name="CheckAicRoot" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(AicAsmPath)')"
+           Text="找不到游戏程序集 $(AicAsmPath)。请用 -p:AicRoot=&quot;&lt;目标游戏根目录&gt;&quot; 指定要适配的安装（该目录需含 AliceInCradle_Data\Managed\Assembly-CSharp.dll）。KIC 的 DLL 必须与目标安装的游戏程序集配套编译。" />
+  </Target>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="unsafeAssem">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\unsafeAssem.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="pixelliner">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\pixelliner.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\UnityEngine.UIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.Physics2DModule">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\UnityEngine.Physics2DModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\UnityEngine.ImageConversionModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.InputSystem">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\Unity.InputSystem.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx">
+      <HintPath>$(AicRoot)\BepInEx\core\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(AicRoot)\BepInEx\core\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(AicRoot)\AliceInCradle_Data\Managed\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="reference\**" />
+    <None Remove="reference\**" />
+    <Compile Remove="tools\**" />
+    <None Remove="tools\**" />
+    <Compile Remove="_decomp\**" />
+    <None Remove="_decomp\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 音效嵌入 DLL，运行时用 winmm SND_MEMORY 直接播放内存中的 WAV，不依赖外部文件 -->
+    <EmbeddedResource Include="audio_embed\hero_dash.wav" LogicalName="KnightInCradle.hero_dash.wav" />
+    <EmbeddedResource Include="audio_embed\hero_shade_dash_1.wav" LogicalName="KnightInCradle.hero_shade_dash_1.wav" />
+    <EmbeddedResource Include="audio_embed\sword_2.wav" LogicalName="KnightInCradle.sword_2.wav" />
+    <EmbeddedResource Include="audio_embed\sword_3.wav" LogicalName="KnightInCradle.sword_3.wav" />
+    <EmbeddedResource Include="audio_embed\sword_4.wav" LogicalName="KnightInCradle.sword_4.wav" />
+    <EmbeddedResource Include="audio_embed\sword_hit_window_1.wav" LogicalName="KnightInCradle.sword_hit_window_1.wav" />
+    <EmbeddedResource Include="audio_embed\enemy_damage.wav" LogicalName="KnightInCradle.enemy_damage.wav" />
+    <EmbeddedResource Include="audio_embed\hero_wings.wav" LogicalName="KnightInCradle.hero_wings.wav" />
+    <!-- 受击/死亡音效（空洞骑士原版 hero_damage / hero_death_v2） -->
+    <EmbeddedResource Include="audio_embed\hero_damage.wav" LogicalName="KnightInCradle.hero_damage.wav" />
+    <EmbeddedResource Include="audio_embed\hero_death_v2.wav" LogicalName="KnightInCradle.hero_death_v2.wav" />
+    <!-- 凝聚持续音 + 回血完成音（空洞骑士原版 focus_health_charging / focus_health_heal） -->
+    <EmbeddedResource Include="audio_embed\focus_health_charging.wav" LogicalName="KnightInCradle.focus_health_charging.wav" />
+    <EmbeddedResource Include="audio_embed\focus_health_heal.wav" LogicalName="KnightInCradle.focus_health_heal.wav" />
+    <!-- 水晶之心（超级冲刺）音效（空洞骑士原版） -->
+    <EmbeddedResource Include="audio_embed\hero_super_dash_charge.wav" LogicalName="KnightInCradle.hero_super_dash_charge.wav" />
+    <EmbeddedResource Include="audio_embed\hero_super_dash_ready.wav" LogicalName="KnightInCradle.hero_super_dash_ready.wav" />
+    <EmbeddedResource Include="audio_embed\hero_super_dash_loop.wav" LogicalName="KnightInCradle.hero_super_dash_loop.wav" />
+    <EmbeddedResource Include="audio_embed\hero_super_dash_burst.wav" LogicalName="KnightInCradle.hero_super_dash_burst.wav" />
+    <EmbeddedResource Include="audio_embed\hero_super_dash_air_brake.wav" LogicalName="KnightInCradle.hero_super_dash_air_brake.wav" />
+    <EmbeddedResource Include="audio_embed\hero_super_dash_impact_wall.wav" LogicalName="KnightInCradle.hero_super_dash_impact_wall.wav" />
+    <!-- 下劈尖刺/荆棘的“叮”声（取自空洞骑士 sword_hit_reject：骨钉被弹开的声音） -->
+    <EmbeddedResource Include="audio_embed\spike_pogo.wav" LogicalName="KnightInCradle.spike_pogo.wav" />
+    <EmbeddedResource Include="audio_embed\shadow_soul.wav" LogicalName="KnightInCradle.shadow_soul.wav" />
+    <EmbeddedResource Include="audio_embed\shadow_quake.wav" LogicalName="KnightInCradle.shadow_quake.wav" />
+    <EmbeddedResource Include="audio_embed\dive_loop.wav" LogicalName="KnightInCradle.dive_loop.wav" />
+    <EmbeddedResource Include="audio_embed\scream.wav" LogicalName="KnightInCradle.scream.wav" />
+    <EmbeddedResource Include="audio_embed\nail_art_great_slash.wav" LogicalName="KnightInCradle.nail_art_great_slash.wav" />
+    <EmbeddedResource Include="audio_embed\nail_art_charge_initiate.wav" LogicalName="KnightInCradle.nail_art_charge_initiate.wav" />
+    <EmbeddedResource Include="audio_embed\nail_art_charge_complete.wav" LogicalName="KnightInCradle.nail_art_charge_complete.wav" />
+    <EmbeddedResource Include="audio_embed\nail_art_charge_loop.wav" LogicalName="KnightInCradle.nail_art_charge_loop.wav" />
+    <EmbeddedResource Include="audio_embed\nail_art_cyclone_slash.wav" LogicalName="KnightInCradle.nail_art_cyclone_slash.wav" />
+    <EmbeddedResource Include="audio_embed\dream_nail_charge.wav" LogicalName="KnightInCradle.dream_nail_charge.wav" />
+    <EmbeddedResource Include="audio_embed\dream_nail_slash.wav" LogicalName="KnightInCradle.dream_nail_slash.wav" />
+    <!-- 蜕变挽歌：满血普攻剑气发射音效（soul_totem_slash，已裁掉倒放的后半段） -->
+    <EmbeddedResource Include="audio_embed\soul_totem_slash.wav" LogicalName="KnightInCradle.soul_totem_slash.wav" />
+    <!-- 沉重之击：斩杀触发音效 -->
+    <EmbeddedResource Include="audio_embed\radiance_damage_from_hero_tentacle.wav" LogicalName="KnightInCradle.radiance_damage_from_hero_tentacle.wav" />
+    <!-- 吸虫之巢：释放音效 + 落地弹跳音效（12 个变体随机播放） -->
+    <EmbeddedResource Include="audio_embed\hero_fluke_cast.wav" LogicalName="KnightInCradle.hero_fluke_cast.wav" />
+    <EmbeddedResource Include="audio_embed\hero_fluke_bounce_1.wav" LogicalName="KnightInCradle.hero_fluke_bounce_1.wav" />
+    <EmbeddedResource Include="audio_embed\hero_fluke_bounce_2.wav" LogicalName="KnightInCradle.hero_fluke_bounce_2.wav" />
+    <EmbeddedResource Include="audio_embed\hero_fluke_bounce_3.wav" LogicalName="KnightInCradle.hero_fluke_bounce_3.wav" />
+    <EmbeddedResource Include="audio_embed\hero_fluke_bounce_4.wav" LogicalName="KnightInCradle.hero_fluke_bounce_4.wav" />
+    <EmbeddedResource Include="audio_embed\hero_fluke_bounce_5.wav" LogicalName="KnightInCradle.hero_fluke_bounce_5.wav" />
+    <EmbeddedResource Include="audio_embed\hero_fluke_bounce_6.wav" LogicalName="KnightInCradle.hero_fluke_bounce_6.wav" />
+    <EmbeddedResource Include="audio_embed\hero_fluke_bounce_7.wav" LogicalName="KnightInCradle.hero_fluke_bounce_7.wav" />
+    <EmbeddedResource Include="audio_embed\hero_fluke_bounce_8.wav" LogicalName="KnightInCradle.hero_fluke_bounce_8.wav" />
+    <EmbeddedResource Include="audio_embed\hero_fluke_bounce_9.wav" LogicalName="KnightInCradle.hero_fluke_bounce_9.wav" />
+    <EmbeddedResource Include="audio_embed\hero_fluke_bounce_10.wav" LogicalName="KnightInCradle.hero_fluke_bounce_10.wav" />
+    <EmbeddedResource Include="audio_embed\hero_fluke_bounce_11.wav" LogicalName="KnightInCradle.hero_fluke_bounce_11.wav" />
+    <EmbeddedResource Include="audio_embed\hero_fluke_bounce_12.wav" LogicalName="KnightInCradle.hero_fluke_bounce_12.wav" />
+    <!-- 发光子宫：幼体碰撞爆炸音效 -->
+    <EmbeddedResource Include="audio_embed\explosion_4_wet.wav" LogicalName="KnightInCradle.explosion_4_wet.wav" />
+  </ItemGroup>
+</Project>
