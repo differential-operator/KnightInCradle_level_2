@@ -268,18 +268,45 @@ namespace KnightInCradle.CharmUi
                     int hitMax = SturdyHitMax(_noelSturdyRealMaxHp);
                     int maxHp = (int)PrMaxHpField.GetValue(pr);
                     int hp = (int)PrHpField.GetValue(pr);
+                    bool changed = false;
                     if (maxHp != hitMax)
                     {
                         PrMaxHpField.SetValue(pr, hitMax);
+                        changed = true;
                     }
                     if (hp > hitMax)
                     {
                         PrHpField.SetValue(pr, hitMax);
+                        changed = true;
                     }
                     else if (hp < 0)
                     {
                         PrHpField.SetValue(pr, 0);
+                        changed = true;
                     }
+                    if (changed)
+                    {
+                        RefreshNoelHudHp();
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 改完 hp/maxhp 字段后必须主动让 HUD 重算比例：
+        /// AIC 只在受伤/治疗流程里调 `UIStatus.fineHpRatio`，我们直接写字段它不会自己刷新，
+        /// 表现就是"血条要等下一次全量刷新（例如切一次角色）才变"。
+        /// </summary>
+        private static void RefreshNoelHudHp()
+        {
+            try
+            {
+                if (UIStatus.Instance != null)
+                {
+                    UIStatus.Instance.fineHpRatio(false, false);
                 }
             }
             catch (Exception)
@@ -328,6 +355,7 @@ namespace KnightInCradle.CharmUi
             PrMaxHpField.SetValue(pr, hitMax);
             PrHpField.SetValue(pr, hp);
             _noelSturdyActive = true;
+            RefreshNoelHudHp();
         }
 
         /// <summary>退出伪次数血：把佩戴时寄存的真实 hp/maxhp 原样写回，清掉寄存键。</summary>
@@ -342,6 +370,7 @@ namespace KnightInCradle.CharmUi
             _noelSturdyActive = false;
             _noelSturdyRealMaxHp = -1;
             _noelSturdyRealHp = -1;
+            RefreshNoelHudHp();
         }
 
         /// <summary>

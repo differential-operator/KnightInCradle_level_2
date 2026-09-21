@@ -2539,3 +2539,16 @@ for each 落地魔力 m in nM2D.Mana:
 4. 佩戴期间的回血最多补满到次数上限（`maxhp` 已经是次数），且卸下时会回到佩戴前的血量。
 
 验证：`build=2026-09-22.13`，DLL SHA256 `9851E3781ED44D3C…`（9,036,800 B，两份 0.30g 安装已同步；只覆盖 DLL，未动素材）。
+
+### 22.5 四稿：补 HUD 刷新（build=2026-09-22.14）
+
+**现象**：佩戴/卸下坚硬外壳后，血条要**先切小骑士再切回诺艾尔**才变化。
+
+**原因**：我们直接改的是 `hp/maxhp` 字段，而 AIC 只在受伤/治疗流程里调 `UIStatus.fineHpRatio(…)`
+重算血条比例（`UIStatus.cs:1146`，内部把 `hp_ratio = Pr.hp_ratio` 并置 `redraw_hp/redraw_bar_num`）。
+不调用它，血条就一直用旧比例画，直到某次全量刷新（切角色正好会触发）。
+
+**修正**：新增 `CharmEffects.RefreshNoelHudHp()`（调 `UIStatus.Instance.fineHpRatio(false, false)`），
+在**佩戴换算、卸下还原、以及佩戴期间的钳制**这三处改完字段后立刻调用，血条即时更新。
+
+验证：`build=2026-09-22.14`，DLL SHA256 `B3FD8F4B0F3EA4E1…`（两份安装已同步；只覆盖 DLL）。
