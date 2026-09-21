@@ -2309,7 +2309,7 @@ if (!IsKnightMode || !IsEquipped(CompassId)) { return true; }   // 旧写法
 | 效果 | 实现 | 本轮改动 |
 |---|---|---|
 | 蜂巢怪不打（蜂巢房间魔物中立） | `HiveNeutralActive()` + 三个补丁（`NAI.AwakeInit` 阻止苏醒、`NAI.set_AimPr` 阻止锁定、`Enemy.applyDamage` 攻击后 `TriggerHiveAggro()` 解除中立）+ 每帧 `ClearHiveEnemyAim()` | 判定由"骑士模式 + 已装备"改成 `IsEquippedForCurrentPlayer(...)`；攻击触发敌对那一处同样按当前角色 |
-| 魔力不会被怪捡走 | `CollectorManaGuardActive()` 门控两处：`M2ManaWeed.SplashMana` 前缀（破坏魔力草时魔力直接给诺艾尔、不生成落地魔力）+ 每帧 `ProtectCollectorMana()`（落地魔力超时后会变成"谁都能吸"，这里把它重新剥掉 EN） | 同一个判定函数改成按当前角色 |
+| 魔力不会被怪捡走 | `CollectorManaGuardActive()` 门控两处：`M2ManaWeed.SplashMana` 前缀（剥掉 EN 位，让落地魔力只能由诺艾尔吸）+ 每帧 `ProtectCollectorMana()`（落地魔力超时后会变成"谁都能吸"，这里把它重新剥掉 EN） | 同一个判定函数改成按当前角色。**注：一稿这里顺手跳过了原生掉落（不生成落地魔力），三稿已改回正常掉落并补上"满魔力也吸"，见 21.6** |
 | 3 格内自动拾取 | `TickCollectorAutoPickup()`：沿用游戏自己的判据（`canTalkable` 已落地、`getItemCapacity` 放得下），走原生 `NelItemManager.executePickUp` | 拆出 `TickCollectorAutoPickup(px, footY)`，诺艾尔模式传她的坐标；原无参重载继续给骑士用 |
 
 **诺艾尔侧的每帧入口（本轮新增）**：骑士模式这三个"每帧维护"都在 `KnightEntity.Update` 里调用，
@@ -2331,10 +2331,57 @@ CharmEffects.TickCollectorAutoPickup(pr.x, pr.mbottom);   // ③ 自动拾取（
 **诺艾尔佩戴后的表现**：
 
 1. 蜂巢房间里魔物保持中立（不苏醒、不锁定她）；主动攻击其中一只 → 全房解除中立（与小骑士一致）；
-2. 破坏魔力草：魔力直接进诺艾尔（不生成落地魔力），魔物无论如何都吸不到；落地魔力超时后也不会变成"谁都能吸"；
+2. 破坏魔力草：魔力**照常落地**（三稿修正，见 21.6），但魔物无论如何都吸不到；落地魔力超时后也不会变成"谁都能吸"；
 3. 3 格内已落地、且背包放得下的掉落物自动收入（拾取音效/粒子/背包路由与手动拾取完全一致），一帧最多一件。
 
 > 与小骑士的唯一差别：小骑士破坏魔力草时额外 +1 灵魂（`KnightAddSoul(5)` vs 4）是**小骑士资源**上的加成；
 > 诺艾尔侧对应的是魔力本身（原生就给她），因此没有也不需要这一项。
 
 验证：`build=2026-09-22.5`，DLL SHA256 `DC178558E5C5A21A…`（9,034,752 B，两份 0.30g 安装已同步；只覆盖 DLL，未动素材）。
+
+### 21.6 三稿：蜂群集结的魔力"照常掉落 + 满魔力也吸"（build=2026-09-22.6）
+
+**现象（用户实测）**：带蜂群集结破坏魔力草后，**掉落的魔力整个消失了**（21.5 里 `SplashMana` 前缀直接跳过原生实现、
+把魔力用 `GrantNoelMana` 记到诺艾尔账上，地上不生成魔力球），看起来像"魔力凭空没了"，诺艾尔也没吃到。
+需求：**魔力仍然正常掉落**，但这些魔力**全部由诺艾尔吸收**（**哪怕魔力条已经满了**）。
+
+**改法 1：恢复原生掉落**。`ManaWeedSplashPrefix` 不再 `return false` 跳过原生，只改参数位：
+
+```csharp
+mana_hit = (mana_hit & ~MANA_HIT.EN) | MANA_HIT.PR;   // 只允许玩家吸
+return true;                                          // 仍然走原生：正常生成落地魔力
+```
+
+（滚动 21.5 的"直接给诺艾尔记账"路径不再使用；`GrantNoelMana` 作为工具方法保留。）
+
+**改法 2：满魔力也吸 —— 新增 `VacuumCollectorMana`**。原生的吸取链在满魔力时会自己断掉：
+
+```
+M2Mana.run:
+  if (TargetM.destructed || (Target.getMpDesireRatio(mana_hit, 0) >= 1f && !immediate_collect) || ...)
+      { Target = null; ... }        // ← 魔力条满时直接放弃锁定，站在球上也不会被吸走
+```
+
+而真正的吸收动作 `Target.addMpFromMana(this, 4f)` 本身**并不检查魔力是否满**
+（`PR.canGetMana` 只看 `MANA_HIT.PR` 位与接触范围）。所以新增的真空层绕开锁定流程：
+
+```csharp
+// 每帧（两种模式都跑，位置 = 当前操控角色所在处；骑士模式下宿主诺艾尔已被同步到小骑士位置）
+for each 落地魔力 m in nM2D.Mana:
+    条件：非空 / 非 only_effect / af >= 0 / 带 PR 位 / 不带 EN 位 / 与玩家距离 ≤ 3 格
+    → pr.addMpFromMana(m, 4f);   // 与原生吸收同一条入口、同一数值（4）
+      m.destruct();              // 吸掉就销毁，地上不留
+```
+
+- 4f 与 `M2Mana.run` 内部的 `Target.addMpFromMana(this, 4f)` 完全一致；
+- 半径 3 格与护符2 的自动拾取半径（`CollectorPickupRadius`）保持一致；
+- 满魔力时多出来的魔力照常"浪费掉"（`cureMp2` 自己会钳上限），不会堆在地上等魔物，也不会一直不消失；
+- 仍然不会吸"还允许魔物吸"的魔力（`EN` 位存在就跳过）——那类球由 `ProtectCollectorMana()` 先剥掉 EN，再被这里吸走。
+
+**两种模式的口径**：真空层每帧都跑（`KnightInCradleBehaviour.Update`）。骑士模式下被吸的是**宿主诺艾尔的真实魔力**
+（和 21.5 之前的"直接记账"效果等价），切回诺艾尔后魔力保留；诺艾尔模式就是吸给她本人。
+
+**修正后的表现**：破坏魔力草 → 魔力像原生一样正常弹出/落地 → 诺艾尔走近 3 格内就被吸走（**魔力条满也吸**，
+多余的浪费），魔物始终吸不到。
+
+验证：`build=2026-09-22.6`，DLL SHA256 `359E00CEDE515801…`（9,035,264 B，两份 0.30g 安装已同步；只覆盖 DLL，未动素材）。

@@ -1245,9 +1245,13 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
-        /// 蜂群集结：破坏魔力草掉落的魔力直接给后台诺艾尔吸收（不再生成落地魔力），
-        /// 魔物始终无法获得。无论魔物还是小骑士破坏魔力草都生效；
-        /// 诺艾尔不可用时兜底走“仅诺艾尔可吸”的落地魔力。
+        /// 蜂群集结：破坏魔力草掉落的魔力**照常生成**（视觉/物理与原生一致），
+        /// 但只允许诺艾尔吸收 —— 把原生参数里的 EN 位剥掉即可，魔物与其它魔物都吸不到。
+        ///
+        /// 之后的两件事由别处接住：
+        /// - `ProtectCollectorMana()` 每帧把"超时后变成谁都能吸"的落地魔力重新剥掉 EN（原生第 229 行会 `|= ALL`）；
+        /// - `VacuumCollectorMana()` 负责"满魔力也吸"（原生在 `Target.getMpDesireRatio(...) >= 1f`
+        ///   且非 immediate_collect 时会放弃锁定，满魔力站着不动是吸不到的）。
         /// </summary>
         private static bool ManaWeedSplashPrefix(M2ManaWeed __instance, ref MANA_HIT mana_hit,
             float cx, float cy)
@@ -1256,23 +1260,8 @@ namespace KnightInCradle.CharmUi
             {
                 return true;
             }
-            try
-            {
-                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
-                if (nM2D != null)
-                {
-                    // 金额与原生一致：(20 + rand(0..10)) × 魔力草比例
-                    float amount = (20f + (float)X.xors(11)) * nM2D.NightCon.ManaWeedRatio();
-                    KnightInCradleBehaviour.GrantNoelMana(amount);
-                    return false; // 跳过原生：直接给后台诺艾尔吸收，不生成落地魔力
-                }
-            }
-            catch (Exception)
-            {
-            }
-            // 兜底：诺艾尔不可用时仍走原生落地，但保持仅诺艾尔可吸
             mana_hit = (mana_hit & ~MANA_HIT.EN) | MANA_HIT.PR;
-            return true;
+            return true; // 仍然走原生实现：正常生成落地魔力
         }
 
         /// <summary>是否为蚂蟥/女王蚂蟥一族（含连接体变体）。</summary>
@@ -1465,6 +1454,67 @@ namespace KnightInCradle.CharmUi
         // ---- 护符2 蜂群集结：自动拾取掉落物 ----
         /// <summary>自动拾取半径（格）。</summary>
         public const float CollectorPickupRadius = 3f;
+
+        /// <summary>
+        /// 蜂群集结：把附近"仅诺艾尔可吸"的落地魔力**直接吸给当前操控角色** —— 满魔力也照吸，
+        /// 多余的魔力浪费掉（不会留在地上等魔物，也不会一直堆着不消失）。
+        ///
+        /// 为什么要单独做这一层：原生的吸取链在满魔力时会断掉——
+        /// `M2Mana.run` 里 `Target.getMpDesireRatio(mana_hit, 0) >= 1f` 且 `!immediate_collect`
+        /// 会直接放弃锁定目标，于是"站在魔力球上但魔力条是满的"就不会被吸走。
+        /// 这里不依赖那套锁定流程：距离够近就直连原生吸收入口
+        /// `PR.addMpFromMana(mana, 4f)`（与 `M2Mana.run` 内部 `Target.addMpFromMana(this, 4f)` 同一条），
+        /// 再 `destruct()` 掉这颗魔力球。
+        /// </summary>
+        public static void VacuumCollectorMana(PRNoel pr, float px, float footY, float radius)
+        {
+            if (!CollectorManaGuardActive() || pr == null)
+            {
+                return;
+            }
+            try
+            {
+                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
+                if (nM2D == null || nM2D.Mana == null)
+                {
+                    return;
+                }
+                object items = RBaseAItemsField != null ? RBaseAItemsField.GetValue(nM2D.Mana) : null;
+                if (!(items is M2Mana[] arr))
+                {
+                    return;
+                }
+                int len = RBaseLENField != null ? (int)RBaseLENField.GetValue(nM2D.Mana) : arr.Length;
+                float r2 = radius * radius;
+                for (int i = 0; i < len; i++)
+                {
+                    M2Mana m = arr[i];
+                    if (m == null || m.only_effect || m.af < 0f)
+                    {
+                        continue; // 空槽 / 纯表现 / 已销毁
+                    }
+                    if ((m.mana_hit & MANA_HIT.PR) == MANA_HIT.NOUSE)
+                    {
+                        continue; // 不是给玩家的魔力
+                    }
+                    if ((m.mana_hit & MANA_HIT.EN) != MANA_HIT.NOUSE)
+                    {
+                        continue; // 还允许魔物吸（正常不会：前缀与每帧守卫都剥掉 EN 了）
+                    }
+                    float dx = m.x - px;
+                    float dy = m.y - footY;
+                    if (dx * dx + dy * dy > r2)
+                    {
+                        continue;
+                    }
+                    pr.addMpFromMana(m, 4f); // 与原生吸收同一条入口、同一数值
+                    m.destruct();
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
 
         // AIC 的掉落物表 / 存储区路由 / 拾取入口都不是 public，用反射取一次缓存住。
         private static readonly FieldInfo ImngODropField =
