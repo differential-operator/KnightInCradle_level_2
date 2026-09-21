@@ -201,8 +201,8 @@ namespace KnightInCradle.CharmUi
         //   ① 血条变成"次数血"：上限 = floor(真实最大生命 / 45)；
         //   ② 掉血后 2 秒内血量不再降低。
 
-        /// <summary>多少点"真实最大生命"折算成 1 次。</summary>
-        public const int SturdyHpPerHit = 45;
+        /// <summary>多少点"真实最大生命"折算成 1 次。（2026-09-22 二稿：45 → 35）</summary>
+        public const int SturdyHpPerHit = 35;
         /// <summary>掉 1 次血之后的免掉间隔（秒）。</summary>
         public const float SturdyHitInterval = 2f;
         /// <summary>真实最大生命寄存键（COOK SF，随存档序列化）：
