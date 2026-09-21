@@ -1,4 +1,4 @@
-<#
+﻿<#
   build_and_deploy.ps1 —— 按“目标游戏安装”编译并部署 KnightInCradle
 
   为什么必须按目标安装编译：
@@ -75,7 +75,7 @@ if (Test-Path -LiteralPath $StrayDll) {
 Copy-Item -LiteralPath $SourceDll -Destination (Join-Path $DstDir "KnightInCradle.dll") -Force
 Write-Host "已部署 DLL -> $(Join-Path $DstDir 'KnightInCradle.dll')" -ForegroundColor Green
 
-# 素材（只补缺失的文件，不动已有内容）
+# 素材（以工程为准整体覆盖：工程 assets/hk 是唯一素材源）
 $SrcAssets = Join-Path $ProjectRoot "assets\hk"
 $DstAssets = Join-Path $DstDir "assets\hk"
 if (Test-Path -LiteralPath $SrcAssets) {
@@ -83,12 +83,27 @@ if (Test-Path -LiteralPath $SrcAssets) {
     Copy-Item -Path (Join-Path $SrcAssets "*") -Destination $DstAssets -Recurse -Force
     $n = (Get-ChildItem -LiteralPath $DstAssets -Recurse -File | Measure-Object).Count
     Write-Host "已同步素材 -> $DstAssets（$n 个文件）" -ForegroundColor Green
+} else {
+    Write-Warning "工程里没有 assets\hk（$SrcAssets），跳过素材同步。"
 }
 
-# 键位.txt：目标没有才放一份，避免覆盖你已经改好的键位
+# 护符 UI：CharmUiLoader 运行时读插件目录下 charm_ui\layout.json + images\*.png，
+# 不同步会表现为“护符界面空白 / 素材缺失”。同样以工程为准整体覆盖。
+$SrcCharmUi = Join-Path $ProjectRoot "charm_ui"
+$DstCharmUi = Join-Path $DstDir "charm_ui"
+if (Test-Path -LiteralPath $SrcCharmUi) {
+    New-Item -ItemType Directory -Path $DstCharmUi -Force | Out-Null
+    Copy-Item -Path (Join-Path $SrcCharmUi "*") -Destination $DstCharmUi -Recurse -Force
+    $n = (Get-ChildItem -LiteralPath $DstCharmUi -Recurse -File | Measure-Object).Count
+    Write-Host "已同步护符 UI -> $DstCharmUi（$n 个文件）" -ForegroundColor Green
+} else {
+    Write-Warning "工程里没有 charm_ui（$SrcCharmUi），跳过护符 UI 同步。"
+}
+
+# 键位.txt：目标没有才放一份，避免覆盖你在游戏目录里改好的键位（来源 = 工程根目录的 键位.txt）
 $DstKey = Join-Path $DstDir "键位.txt"
 if (-not (Test-Path -LiteralPath $DstKey)) {
-    $SrcKey = Join-Path $ProjectRoot "..\桌面文件\键位.txt"
+    $SrcKey = Join-Path $ProjectRoot "键位.txt"
     if (Test-Path -LiteralPath $SrcKey) {
         Copy-Item -LiteralPath $SrcKey -Destination $DstKey -Force
         Write-Host "已放置键位.txt（来自 $SrcKey）" -ForegroundColor Green

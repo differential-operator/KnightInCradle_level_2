@@ -1955,7 +1955,8 @@ namespace KnightInCradle
                 {
                 }
                 KnightInCradlePlugin.PluginLog?.LogInfo(
-                    "[KIC][补丁] KnightInCradle build=" + SelfBuildTag + " " + CombatGuard.GetPatchResult() +
+                    "[KIC][补丁] KnightInCradle build=" + SelfBuildTag + " 提交=" + SourceRevisionStamp() + " " +
+                    CombatGuard.GetPatchResult() +
                     " dll=" + selfDll + " (" + selfDllTime + ")" +
                     " 编译目标=" + CompileTargetStamp() + " 运行时游戏程序集=" + RuntimeGameAssemblyStamp());
                 KnightInCradlePlugin.PluginLog?.LogInfo(
@@ -2028,6 +2029,37 @@ namespace KnightInCradle
                 }
                 var fi = new FileInfo(path);
                 return fi.LastWriteTime.ToString("yyyy-MM-dd HH:mm") + " / " + fi.Length + " bytes";
+            }
+            catch (Exception)
+            {
+            }
+            return "(读取失败)";
+        }
+
+        /// <summary>
+        /// 本次 DLL 内嵌的源码提交号（csproj 未关闭 SourceRevisionId 时，
+        /// AssemblyInformationalVersion 会写成 "0.2.0+&lt;git 提交&gt;"）。
+        /// 和 build= 标记、dll 路径/文件时间放在同一行，用来回答“这局跑的到底是哪次提交”。
+        /// 工程还没有 git 仓库、或用了 -p:IncludeSourceRevisionInInformationalVersion=false 时显示 (无)。
+        /// </summary>
+        private static string SourceRevisionStamp()
+        {
+            try
+            {
+                var attr = (AssemblyInformationalVersionAttribute)Attribute.GetCustomAttribute(
+                    Assembly.GetExecutingAssembly(), typeof(AssemblyInformationalVersionAttribute));
+                string v = attr != null ? attr.InformationalVersion : null;
+                if (string.IsNullOrEmpty(v))
+                {
+                    return "(无)";
+                }
+                int i = v.IndexOf('+');
+                if (i < 0 || i + 1 >= v.Length)
+                {
+                    return "(无)";
+                }
+                string rev = v.Substring(i + 1);
+                return rev.Length > 7 ? rev.Substring(0, 7) : rev;
             }
             catch (Exception)
             {

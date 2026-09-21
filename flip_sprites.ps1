@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string[]]$Name,
     [string]$SpriteDir = "assets\hk\sprites",
     [string]$GameSpritesDir = "..\AliceInCradle_ver029\BepInEx\plugins\KnightInCradle\assets\hk\sprites"
