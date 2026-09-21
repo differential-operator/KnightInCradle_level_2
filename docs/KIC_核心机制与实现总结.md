@@ -2573,3 +2573,24 @@ st.redraw_bar_num = true;   // "hp/maxhp" 数字文本
 并在**伤害前缀里也调用一次**（因为原版受伤流程不会置 `redraw_bar_num`，掉血后数字同样会滞后）。
 
 验证：`build=2026-09-22.15`，DLL SHA256 `27C0B9F45BC7D1C9…`（两份安装已同步；只覆盖 DLL）。
+
+---
+
+## 23. 诺艾尔的护符第二部分（4）：灵魂捕手（2026-09-22，build=2026-09-22.17）
+
+**需求**：诺艾尔用法术攻击敌人时，立即获得 **6 MP**。
+
+**实现**：接在已有的敌人受伤前缀 `EnemyApplyDamagePrefix`（`NelEnemy.applyDamage(NelAttackInfo, bool)` 的 prefix，
+`nel/NelEnemy.cs:1796` 的 2 参重载会转发到 3 参重载）里，判断 `Atk.Caster is PRNoel` 之后调用
+`TryGrantSoulCatcherMp(Atk)`：
+
+| 环节 | 判据 |
+|---|---|
+| "法术" | `Atk.PublishMagic != null` 且 `kind` 在**诺艾尔法术段** `MGKIND 0..FLOWERYCIRCLE`（WHITEARROW / FIREBALL / DROPBOMB / THUNDERBOLT / POWERBOMB / WATERSHARD / BLACKHOLE / FLOWERYCIRCLE）。她的物理技是 `PR_*`（9000+），**不算** |
+| 模式 | **只在诺艾尔模式**结算：骑士模式里小骑士的攻击也把 `Caster` 设成诺艾尔，不隔离会连带改变小骑士那套（小骑士的灵魂捕手另有实现） |
+| 去重 | 同一次命中同一帧只结算一次（`(Atk 引用, Time.frameCount)`） |
+| 加魔 | 走现成的 `KnightInCradleBehaviour.GrantNoelMana(6f)`（会钳到上限），并调 `RefreshNoelHudMp()` 让魔力条与"mp/maxmp"数字立刻重绘（同 22.6 的道理） |
+
+**多目标**：一次法术同时命中 3 个敌人 = 3 × 6 = 18 MP（按命中次数结算）。
+
+验证：`build=2026-09-22.17`，DLL SHA256 `779441964E5E1989…`（两份安装已同步；只覆盖 DLL）。

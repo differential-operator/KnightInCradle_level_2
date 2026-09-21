@@ -321,6 +321,72 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        /// <summary>同理：改完 mp 字段后要让魔力条与"mp/maxmp"数字重绘。</summary>
+        private static void RefreshNoelHudMp()
+        {
+            try
+            {
+                UIStatus st = UIStatus.Instance;
+                if (st == null)
+                {
+                    return;
+                }
+                st.fineMpRatio(false, false);
+                st.redraw_mp = true;
+                st.redraw_bar_num = true;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        // ================= 护符4 灵魂捕手（诺艾尔侧：法术命中敌人回 MP） =================
+        /// <summary>用法术命中敌人时立即回复的 MP。</summary>
+        public const float SoulCatcherMp = 6f;
+
+        private static object _soulCatcherLastAtk;
+        private static int _soulCatcherLastFrame = -100;
+
+        /// <summary>
+        /// 护符4 灵魂捕手（**诺艾尔侧**）：诺艾尔用法术命中敌人时立刻回 6 MP。
+        ///
+        /// "法术"的判据：这次攻击挂了 `PublishMagic`，且它的 kind 属于**诺艾尔的法术段**
+        /// （`MGKIND` 0..FLOWERYCIRCLE：WHITEARROW / FIREBALL / DROPBOMB / THUNDERBOLT /
+        /// POWERBOMB / WATERSHARD / BLACKHOLE / FLOWERYCIRCLE）；她的物理技在 `PR_*` 段（9000+），不算。
+        ///
+        /// 只在**诺艾尔模式**结算：骑士模式里小骑士的攻击也把 Caster 设成诺艾尔，
+        /// 不隔离的话会连带改变小骑士那套（小骑士的灵魂捕手是另一套实现）。
+        /// 同一次命中同一帧只结算一次。
+        /// </summary>
+        private static void TryGrantSoulCatcherMp(NelAttackInfo Atk)
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, SoulCatcherId))
+                {
+                    return;
+                }
+                MagicItem mg = Atk.PublishMagic;
+                if (mg == null || (int)mg.kind >= (int)MGKIND.PR_PUNCH)
+                {
+                    return; // 不是法术（近战/技艺）
+                }
+                if (ReferenceEquals(_soulCatcherLastAtk, Atk) && _soulCatcherLastFrame == Time.frameCount)
+                {
+                    return; // 同一帧同一次命中只给一次
+                }
+                _soulCatcherLastAtk = Atk;
+                _soulCatcherLastFrame = Time.frameCount;
+                if (KnightInCradleBehaviour.GrantNoelMana(SoulCatcherMp))
+                {
+                    RefreshNoelHudMp();
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         /// <summary>进入伪次数血：真实 hp/maxhp 寄存在 SF，字段换成次数。</summary>
         private static void ActivateNoelSturdy(PRNoel pr)
         {
@@ -1861,6 +1927,8 @@ namespace KnightInCradle.CharmUi
                 {
                     TryFarmAnimalDrop(__instance);
                 }
+                // 护符4 灵魂捕手（诺艾尔侧）：用法术命中敌人 → 立刻回 6 MP
+                TryGrantSoulCatcherMp(Atk);
             }
         }
 
