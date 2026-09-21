@@ -203,8 +203,8 @@ namespace KnightInCradle.CharmUi
         //   ③ 无论上面记成 0 还是 1，受击后都立刻获得 2 秒无敌（走 AIC 原生 NoDamage）；
         //   ④ 卸下立即回到"佩戴前的血量"（佩戴时的 hp/maxhp 原样寄存）。
 
-        /// <summary>血量上限折算除数：floor(最大生命 / 35)。</summary>
-        public const int SturdyHpPerHit = 35;
+        /// <summary>血量上限折算除数：floor(最大生命 / 50)。（2026-09-22 六稿：35 → 50）</summary>
+        public const int SturdyHpPerHit = 50;
         /// <summary>伤害阈值：≤ 20 记 0，&gt; 20 记 1。</summary>
         public const int SturdyDamageThreshold = 20;
         /// <summary>受击后的无敌时长（帧，60fps 基准）：2 秒 = 120 帧。</summary>
