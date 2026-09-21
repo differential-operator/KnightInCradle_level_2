@@ -425,8 +425,8 @@ namespace KnightInCradle.CharmUi
         // ================= 护符10 蜕变挽歌（诺艾尔侧） =================
         /// <summary>剑气飞行速度（格/秒）——与小骑士的挽歌剑气一致。</summary>
         public const float ElegySpeed = 30f;
-        /// <summary>剑气射程（格）。</summary>
-        public const float ElegyRange = 4f;
+        /// <summary>剑气射程（格）。（2026-09-22 二稿：4 → 8）</summary>
+        public const float ElegyRange = 8f;
         /// <summary>剑气判定箱（世界单位）——与小骑士一致。</summary>
         public const float ElegyHitboxW = 2.0f;
         public const float ElegyHitboxH = 1.4f;
