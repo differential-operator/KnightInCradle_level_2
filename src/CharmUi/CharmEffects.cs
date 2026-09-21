@@ -65,6 +65,9 @@ namespace KnightInCradle.CharmUi
         /// <summary>快速劈砍（护符17）：普攻总时长/间隔（秒）。</summary>
         public const float SlashTimeQuick = 0.3f;
         private const string GreedBaseKey = "kic_greed_base"; // 背包基础容量快照
+        /// <summary>上次扩容时生效的"层数"（0/1/2）：用来从当前 row_max 正确反推基础容量。
+        /// 存层数而不是存加成值，是因为 COOK SF 是 0~255 的字节，两层加成 300 存不下。</summary>
+        private const string GreedStackKey = "kic_greed_stack";
         /// <summary>坚固贪婪：佩戴时背包上限加成（当前版本 +150）。</summary>
         private const int GreedSlotBonus = 150;
         /// <summary>旧版加成（+100 时期）——用于识别并迁移旧存档。</summary>
@@ -1518,38 +1521,27 @@ namespace KnightInCradle.CharmUi
                     return;
                 }
                 int stacks = GreedStacks();
-                bool equipped = stacks > 0;
-                int stored = COOK.getSF(GreedBaseKey);
-                int baseCap;
-                if (_greedCapacityApplied == equipped)
+                // 幂等重算：按"上次写入时生效的层数"从当前 row_max 反推基础容量。
+                // 这样无论哪一边的护符变化、层数怎么变，结果都一致；
+                // 游戏内工作台升级背包（increaseCapacity 直接改 row_max）也会被算进基础容量。
+                int lastStacks = COOK.getSF(GreedStackKey);
+                if (lastStacks > 2)
                 {
-                    // 状态未变（例如佩戴中/未佩戴时升级了背包）：直接按当前容量反推
-                    baseCap = equipped ? st.row_max - AppliedGreedBonus(st.row_max) : st.row_max;
+                    lastStacks = 2;
                 }
-                else if (equipped)
-                {
-                    // 刚佩戴：当前容量应尚未扩容；若恰好等于“历史基础+旧/新加成”，
-                    // 说明扩容其实已生效（标记异常），按历史基础处理，避免重复叠加。
-                    int applied = AppliedGreedBonus(st.row_max);
-                    baseCap = (stored > 0 && applied > 0 && st.row_max == stored + applied)
-                        ? stored : st.row_max;
-                }
-                else
-                {
-                    // 刚卸下：当前容量含扩容加成，反推基础容量
-                    baseCap = st.row_max - AppliedGreedBonus(st.row_max);
-                }
+                int baseCap = st.row_max - GreedSlotBonus * lastStacks;
                 if (baseCap < 0)
                 {
-                    baseCap = stored > 0 ? stored : st.row_max; // 异常兜底
+                    baseCap = st.row_max; // 异常兜底：当前容量就当基础
                 }
-                COOK.setSF(GreedBaseKey, baseCap); // 始终刷新快照，供后续同步/卸下判断使用
-                int want = equipped ? baseCap + GreedSlotBonus * stacks : baseCap;
+                int want = baseCap + GreedSlotBonus * stacks;
                 if (st.row_max != want)
                 {
                     st.increaseCapacity(want - st.row_max);
                 }
-                _greedCapacityApplied = equipped;
+                COOK.setSF(GreedBaseKey, baseCap);
+                COOK.setSF(GreedStackKey, stacks);
+                _greedCapacityApplied = stacks > 0;
             }
             catch (Exception)
             {
@@ -1597,37 +1589,9 @@ namespace KnightInCradle.CharmUi
         /// </summary>
         public static void FixGreedCapacityAfterLoad()
         {
-            try
-            {
-                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
-                ItemStorage st = nM2D != null && nM2D.IMNG != null
-                    ? nM2D.IMNG.getInventory()
-                    : null;
-                if (st == null)
-                {
-                    return;
-                }
-                int stacks = GreedStacks();
-                bool equipped = stacks > 0;
-                int baseCap = equipped
-                    ? st.row_max - AppliedGreedBonus(st.row_max) : st.row_max;
-                if (baseCap < 0)
-                {
-                    int stored = COOK.getSF(GreedBaseKey);
-                    baseCap = stored > 0 ? stored : st.row_max;
-                    // 推定异常（佩戴但容量不含任何已知加成的旧版存档）：以当前容量为基础
-                }
-                COOK.setSF(GreedBaseKey, baseCap);
-                int want = equipped ? baseCap + GreedSlotBonus * stacks : baseCap;
-                if (st.row_max != want)
-                {
-                    st.increaseCapacity(want - st.row_max);
-                }
-                _greedCapacityApplied = equipped;
-            }
-            catch (Exception)
-            {
-            }
+            // 读档后与"佩戴状态变化"是同一件事：统一走幂等的 SyncGreedCapacity
+            //（它会按 SF 里记的"上次层数"反推基础容量，再套用当前层数）。
+            SyncGreedCapacity();
         }
 
         /// <summary>坚固贪婪：击杀魔物获得 5% 最大生命值的金币（四舍五入取整）。</summary>
