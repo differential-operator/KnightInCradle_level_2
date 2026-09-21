@@ -1081,6 +1081,34 @@ namespace KnightInCradle.CharmUi
         /// <summary>法术伤害倍率（+25%）。</summary>
         public const float ShamanDamageMult = 1.25f;
 
+        // ================= 护符14 法术扭曲者（诺艾尔侧：起手耗魔 -10） =================
+        /// <summary>起手消耗的减免量（需求：-10）。</summary>
+        public const int SpellTwisterMpReduce = 10;
+
+        /// <summary>
+        /// 护符14 法术扭曲者（诺艾尔侧）：诺艾尔施法时的**起手消耗**减 10（不低于 1）。
+        /// 起手扣除点是 `M2PrSkill.cs:2813` 的 `Pr.applyBurstMpDamage((int)magicItem.reduce_mp)`；
+        /// 这里挂它的前缀改参数，蓄力/命中追加等其它扣魔点不动（按用户选择：只减起手）。
+        /// </summary>
+        private static bool SpellTwisterBurstMpPrefix(PR __instance, ref int val)
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, SpellTwisterId) || !(__instance is PRNoel))
+                {
+                    return true;
+                }
+                if (val > 0)
+                {
+                    val = Mathf.Max(1, val - SpellTwisterMpReduce);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return true;
+        }
+
         // ================= 护符13 坚固力量（诺艾尔侧：骨钉系技能最终伤害 +25%） =================
         /// <summary>坚固力量：下列招式的最终伤害倍率（需求：+25%）。</summary>
         public const float PowerDamageMult = 1.25f;
@@ -1975,6 +2003,14 @@ namespace KnightInCradle.CharmUi
                     {
                         harmony.Patch(smallAttack, postfix: new HarmonyMethod(
                             typeof(CharmEffects).GetMethod(nameof(ElegyExecuteSmallAttackPostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    // 护符14 法术扭曲者（诺艾尔侧）：施法起手消耗 -10
+                    MethodInfo burstMp = AccessTools.Method(typeof(PR), "applyBurstMpDamage");
+                    if (burstMp != null)
+                    {
+                        harmony.Patch(burstMp, prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(SpellTwisterBurstMpPrefix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
                     }
                     // 护符5 萨满之石（诺艾尔侧）：法术最终伤害 +25%（前缀抬高、后缀还原）
