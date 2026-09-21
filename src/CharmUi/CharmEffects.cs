@@ -423,8 +423,8 @@ namespace KnightInCradle.CharmUi
         }
 
         // ================= 护符7 冲刺大师（诺艾尔侧） =================
-        /// <summary>佩戴后跑步速度倍率（需求：降低 20%）。</summary>
-        public const float DashmasterRunSpeedMult = 0.8f;
+        /// <summary>佩戴后跑步速度倍率（需求：降低 10%）。</summary>
+        public const float DashmasterRunSpeedMult = 0.9f;
 
         private static readonly FieldInfo MoverRunSpeedField = AccessTools.Field(typeof(M2MoverPr), "runSpeed");
 
