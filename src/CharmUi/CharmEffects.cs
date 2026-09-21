@@ -422,9 +422,11 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        // ================= 护符7 冲刺大师（诺艾尔侧） =================
-        /// <summary>佩戴后跑步速度倍率（需求：降低 10%）。</summary>
+        // ========== 护符7 冲刺大师 / 护符8 飞毛腿（诺艾尔侧：都改 walkSpeed/runSpeed） ==========
+        /// <summary>冲刺大师：佩戴后跑步速度倍率（需求：降低 10%）。</summary>
         public const float DashmasterRunSpeedMult = 0.9f;
+        /// <summary>飞毛腿：佩戴后走路与跑步速度倍率（需求：提升 10%）。</summary>
+        public const float SprintmasterSpeedMult = 1.1f;
 
         /// <summary>
         /// 冲刺大师：松开方向键**立刻停住**（去掉跑动的"急停滑行"）。
@@ -452,43 +454,69 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        private static readonly FieldInfo MoverWalkSpeedField = AccessTools.Field(typeof(M2MoverPr), "walkSpeed");
         private static readonly FieldInfo MoverRunSpeedField = AccessTools.Field(typeof(M2MoverPr), "runSpeed");
 
+        /// <summary>冲刺大师是否生效（供 isRunning / calcWalkSpeed 两个补丁判断）。</summary>
         private static bool _noelDashmasterActive;
-        private static float _noelDashmasterRunSpeedOrig = -1f;
+        private static bool _noelSpeedCharmsActive;
+        private static float _noelBaseWalkSpeed = -1f;
+        private static float _noelBaseRunSpeed = -1f;
 
-        /// <summary>每帧维护（诺艾尔模式调用）：佩戴期间把跑步速度压到 80%，卸下/切模式时还原。</summary>
-        public static void TickNoelDashmasterCharm(PRNoel pr)
+        /// <summary>
+        /// 每帧维护（诺艾尔模式调用）：冲刺大师（跑速 ×0.9）与飞毛腿（走/跑 ×1.1）**统一计算**。
+        ///
+        /// 两个护符改的是同一对字段（`M2MoverPr.walkSpeed` / `runSpeed`，protected，用反射），
+        /// 各改各的会互相把对方的结果当成"原值"，所以这里只保留一份基础值：
+        /// 首次佩戴任一护符时寄存 `walkSpeed/runSpeed` 原值，之后
+        /// `目标走速 = 原值 × 飞毛腿倍率`、`目标跑速 = 原值 × 飞毛腿倍率 × 冲刺大师倍率`；
+        /// 两个都卸下（或切到骑士模式）时把原值写回。
+        /// </summary>
+        public static void TickNoelMoveSpeedCharms(PRNoel pr)
         {
             try
             {
-                if (pr == null || MoverRunSpeedField == null)
+                if (pr == null || MoverWalkSpeedField == null || MoverRunSpeedField == null)
                 {
                     return;
                 }
-                bool want = !IsKnightMode && IsEquipped(CharmOwner.Noel, DashmasterId);
-                if (want)
+                bool dash = !IsKnightMode && IsEquipped(CharmOwner.Noel, DashmasterId);
+                bool sprint = !IsKnightMode && IsEquipped(CharmOwner.Noel, RunnerId);
+                _noelDashmasterActive = dash;
+                if (!dash && !sprint)
                 {
-                    float cur = (float)MoverRunSpeedField.GetValue(pr);
-                    if (!_noelDashmasterActive)
+                    if (_noelSpeedCharmsActive)
                     {
-                        _noelDashmasterActive = true;
-                        _noelDashmasterRunSpeedOrig = cur;
+                        if (_noelBaseWalkSpeed > 0f)
+                        {
+                            MoverWalkSpeedField.SetValue(pr, _noelBaseWalkSpeed);
+                        }
+                        if (_noelBaseRunSpeed > 0f)
+                        {
+                            MoverRunSpeedField.SetValue(pr, _noelBaseRunSpeed);
+                        }
+                        _noelSpeedCharmsActive = false;
+                        _noelBaseWalkSpeed = -1f;
+                        _noelBaseRunSpeed = -1f;
                     }
-                    float target = _noelDashmasterRunSpeedOrig * DashmasterRunSpeedMult;
-                    if (Mathf.Abs(cur - target) > 0.0001f)
-                    {
-                        MoverRunSpeedField.SetValue(pr, target);
-                    }
+                    return;
                 }
-                else if (_noelDashmasterActive)
+                if (!_noelSpeedCharmsActive)
                 {
-                    if (_noelDashmasterRunSpeedOrig > 0f)
-                    {
-                        MoverRunSpeedField.SetValue(pr, _noelDashmasterRunSpeedOrig);
-                    }
-                    _noelDashmasterActive = false;
-                    _noelDashmasterRunSpeedOrig = -1f;
+                    _noelSpeedCharmsActive = true;
+                    _noelBaseWalkSpeed = (float)MoverWalkSpeedField.GetValue(pr);
+                    _noelBaseRunSpeed = (float)MoverRunSpeedField.GetValue(pr);
+                }
+                float walkTarget = _noelBaseWalkSpeed * (sprint ? SprintmasterSpeedMult : 1f);
+                float runTarget = _noelBaseRunSpeed * (sprint ? SprintmasterSpeedMult : 1f) *
+                    (dash ? DashmasterRunSpeedMult : 1f);
+                if (Mathf.Abs((float)MoverWalkSpeedField.GetValue(pr) - walkTarget) > 0.0001f)
+                {
+                    MoverWalkSpeedField.SetValue(pr, walkTarget);
+                }
+                if (Mathf.Abs((float)MoverRunSpeedField.GetValue(pr) - runTarget) > 0.0001f)
+                {
+                    MoverRunSpeedField.SetValue(pr, runTarget);
                 }
             }
             catch (Exception)
