@@ -422,6 +422,63 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        // ================= 护符9 幼虫之歌（诺艾尔侧） =================
+        /// <summary>受到伤害时回复的 MP。</summary>
+        public const float GrubsongDamageMp = 20f;
+
+        private static int _grubsongLastFrame = -100;
+
+        /// <summary>
+        /// 护符9 幼虫之歌（诺艾尔侧）：诺艾尔受到伤害时立刻回 20 MP。
+        /// 由伤害前缀 `SturdyHpDamagePrefix`（挂在 `M2Attackable.applyHpDamage`）在**原始伤害 &gt; 0** 时调用，
+        /// 因此即使同一次伤害被坚硬外壳改写成 0/1，回魔依然按"确实挨了一下"结算；同一帧只结算一次。
+        /// </summary>
+        private static void TryGrantGrubsongMp()
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, GrubsongId))
+                {
+                    return;
+                }
+                if (_grubsongLastFrame == Time.frameCount)
+                {
+                    return; // 同一帧的多次伤害入口只结算一次
+                }
+                _grubsongLastFrame = Time.frameCount;
+                if (KnightInCradleBehaviour.GrantNoelMana(GrubsongDamageMp))
+                {
+                    RefreshNoelHudMp();
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 护符9 幼虫之歌（诺艾尔侧）：诺艾尔不会被虫墙/虫巢抓取。
+        /// `M2WormTrap` 决定是否拉扯玩家时读 `PR.canPullByWorm()`（`nel/M2WormTrap.cs:111,148`），
+        /// 这里对本地诺艾尔直接返回 false。
+        /// 骑士模式下另有 CombatGuard 的同名补丁（它会先返回 false 拦掉），两者按各自模式生效、互不冲突。
+        /// </summary>
+        private static bool GrubsongCanPullByWormPrefix(PR __instance, ref bool __result)
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, GrubsongId) || !(__instance is PRNoel))
+                {
+                    return true;
+                }
+                __result = false;
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
         // ========== 护符7 冲刺大师 / 护符8 飞毛腿（诺艾尔侧：都改 walkSpeed/runSpeed） ==========
         /// <summary>冲刺大师：佩戴后跑步速度倍率（需求：降低 10%）。</summary>
         public const float DashmasterRunSpeedMult = 0.9f;
@@ -692,7 +749,13 @@ namespace KnightInCradle.CharmUi
         /// </summary>
         private static bool SturdyHpDamagePrefix(M2Attackable __instance, ref int val)
         {
-            if (!_noelSturdyActive || !(__instance is PRNoel noel) || val <= 0)
+            if (!(__instance is PRNoel noel) || val <= 0)
+            {
+                return true;
+            }
+            // 护符9 幼虫之歌：受到伤害 → 立刻回 20MP（用"原始伤害"判断，先于坚硬外壳的改写）
+            TryGrantGrubsongMp();
+            if (!_noelSturdyActive)
             {
                 return true;
             }
@@ -1427,6 +1490,14 @@ namespace KnightInCradle.CharmUi
                     {
                         harmony.Patch(calcWalk, postfix: new HarmonyMethod(
                             typeof(CharmEffects).GetMethod(nameof(DashmasterCalcWalkSpeedPostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    // 护符9 幼虫之歌（诺艾尔侧）：诺艾尔不会被虫墙/虫巢抓取
+                    MethodInfo canPullByWorm = AccessTools.Method(typeof(PR), "canPullByWorm");
+                    if (canPullByWorm != null)
+                    {
+                        harmony.Patch(canPullByWorm, prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(GrubsongCanPullByWormPrefix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
                     }
                     // 护符5 萨满之石（诺艾尔侧）：法术最终伤害 +25%（前缀抬高、后缀还原）

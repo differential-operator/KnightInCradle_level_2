@@ -2697,3 +2697,22 @@ public const float DashmasterRunSpeedMult = 0.8f;   // 0.17 → 0.136，仍快�
 只对诺艾尔模式 + 本地诺艾尔生效（`__instance is PRNoel`），敌人/其它 mover 不受影响。
 
 验证：`build=2026-09-22.24`，DLL SHA256 `14EF47AEB1EB4799…`（两份安装已同步；只覆盖 DLL）。
+
+### 25.1 后续同批完成（build=2026-09-22.31）
+
+| 护符 | 效果 | 实现要点 |
+|---|---|---|
+| 8 飞毛腿 | 走路与跑步速度 +20% | `M2MoverPr.walkSpeed/runSpeed` ×1.2；与冲刺大师**统一成一份基础值再连乘**（见下），倍率 `SprintmasterSpeedMult = 1.2`（先试过 1.1 手感不明显、1.5 过强） |
+| 9 幼虫之歌 | ① 受到伤害时获得 20 MP；② 不会被虫墙/虫巢抓取 | ① 在伤害前缀 `SturdyHpDamagePrefix`（`M2Attackable.applyHpDamage`）里用**原始伤害 > 0** 触发 `TryGrantGrubsongMp()`（同帧去重），因此即便被坚硬外壳改写成 0/1 也照样回魔；② 对本地诺艾尔 patch `PR.canPullByWorm` → false（`M2WormTrap.cs:111,148` 用它决定是否拉扯玩家） |
+
+**速度类护符的统一口径**（冲刺大师 0.9 × 飞毛腿 1.2，都改同一对字段）：
+
+```
+目标走速 = 基础走速 × 飞毛腿倍率
+目标跑速 = 基础跑速 × 飞毛腿倍率 × 冲刺大师倍率
+```
+
+基础值在"首次佩戴任一速度护符"时寄存（反射读 `walkSpeed/runSpeed`），两个都卸下时写回；
+若各改各的，第二个护符会把第一个的结果当成"原值"，乘出来是错的。
+
+验证：`build=2026-09-22.31`，DLL SHA256 `347614A5DD6A3126…`（两份安装已同步；只覆盖 DLL）。
