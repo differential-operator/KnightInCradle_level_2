@@ -304,10 +304,17 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (UIStatus.Instance != null)
+                UIStatus st = UIStatus.Instance;
+                if (st == null)
                 {
-                    UIStatus.Instance.fineHpRatio(false, false);
+                    return;
                 }
+                st.fineHpRatio(false, false); // 同步 hp_ratio（比例真的变了时它自己会置脏）
+                // 关键：伪次数血经常是"满血 → 满血"，比例没变，但 HUD 上的 **hp/maxhp 数字**变了。
+                // 原版只在受伤/治疗流程里刷，且那条路走的是 cushion 分支、不会置 redraw_bar_num，
+                // 所以必须手动把这两个重绘标记置脏（UIStatus.redraw_hp / redraw_bar_num 都是 public）。
+                st.redraw_hp = true;
+                st.redraw_bar_num = true;
             }
             catch (Exception)
             {
@@ -389,6 +396,8 @@ namespace KnightInCradle.CharmUi
             }
             // ≤ 20 → 0；> 20 → 1
             val = val <= SturdyDamageThreshold ? 0 : 1;
+            // 掉血后 HUD 的数字也要立刻更新（原版受伤流程走 cushion 分支，不会置 redraw_bar_num）
+            RefreshNoelHudHp();
             // 无论记成 0 还是 1，都立刻给 2 秒无敌
             try
             {

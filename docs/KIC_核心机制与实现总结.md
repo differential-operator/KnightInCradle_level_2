@@ -2552,3 +2552,24 @@ for each 落地魔力 m in nM2D.Mana:
 在**佩戴换算、卸下还原、以及佩戴期间的钳制**这三处改完字段后立刻调用，血条即时更新。
 
 验证：`build=2026-09-22.14`，DLL SHA256 `B3FD8F4B0F3EA4E1…`（两份安装已同步；只覆盖 DLL）。
+
+### 22.6 五稿：血条**数字**重绘（build=2026-09-22.15）
+
+**现象**：22.5 的刷新之后，仍然"要切一次小骑士才变"。
+
+**真正的原因**：AIC 的 HUD 血条分两部分——**比例条**（`UIStatus.hp_ratio`）和 **"hp/maxhp" 数字文本**
+（`UIStatus.redrawBarNumber`，`UIStatus.cs:2122-2137` 里拼 `(int)get_hp() + "/" + (int)get_maxhp()`）。
+伪次数血大多是"满血 → 满血"（`hp_ratio` 都是 1.0），所以 `UIStatus.fineHpRatio()` 里
+`num2 = 新比例 - 旧比例` 为 0，**一个重绘标记都不会置**；而原版受伤流程走的是 `use_cushion=true` 分支，
+把差值塞进缓冲条、同样不置 `redraw_bar_num`。于是数字文本一直显示旧值，直到某次全量刷新（切角色）。
+
+**修正**：`RefreshNoelHudHp()` 除了 `fineHpRatio(false,false)` 之外，再**直接置脏两个 public 标记**：
+
+```csharp
+st.redraw_hp = true;        // 血条本体
+st.redraw_bar_num = true;   // "hp/maxhp" 数字文本
+```
+
+并在**伤害前缀里也调用一次**（因为原版受伤流程不会置 `redraw_bar_num`，掉血后数字同样会滞后）。
+
+验证：`build=2026-09-22.15`，DLL SHA256 `27C0B9F45BC7D1C9…`（两份安装已同步；只覆盖 DLL）。
