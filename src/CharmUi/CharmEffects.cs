@@ -422,6 +422,338 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        // ================= 护符10 蜕变挽歌（诺艾尔侧） =================
+        /// <summary>剑气飞行速度（格/秒）——与小骑士的挽歌剑气一致。</summary>
+        public const float ElegySpeed = 30f;
+        /// <summary>剑气射程（格）。</summary>
+        public const float ElegyRange = 4f;
+        /// <summary>剑气判定箱（世界单位）——与小骑士一致。</summary>
+        public const float ElegyHitboxW = 2.0f;
+        public const float ElegyHitboxH = 1.4f;
+        /// <summary>剑气伤害：需求为 20 **真实伤害**（`fix_damage`，不按非满血减伤打折）。</summary>
+        public const int ElegyDamage = 20;
+        /// <summary>剑气贴图（与小骑士同款）。</summary>
+        public const string ElegySprite = "slashes_effect0001";
+        /// <summary>剑气渲染尺寸系数（取小骑士 `SlashFxScale` 的同一数值，保证"大小一致"）。</summary>
+        public const float ElegyFxScale = 1.5f;
+
+        private sealed class NoelElegyBlade
+        {
+            public float X;
+            public float Y;
+            public float Dir;
+            public float Traveled;
+            public readonly HashSet<NelEnemy> Hits = new HashSet<NelEnemy>();
+        }
+
+        private static readonly List<NoelElegyBlade> _noelElegyBlades = new List<NoelElegyBlade>();
+        private static MeshDrawer _noelElegyMesh;
+        private static Material _noelElegyMat;
+        private static M2RenderTicket _noelElegyTicket;
+        private static Map2d _noelElegyMap;
+        private static Texture2D _noelElegyTex;
+        private static int _noelElegyMask = -1;
+
+        /// <summary>
+        /// 护符10 蜕变挽歌（诺艾尔侧）：诺艾尔**轻攻击**时向前发射一道剑气。
+        /// 轻攻击 = `M2PrSkill.executeSmallAttack` 产出的 `MGKIND.PR_PUNCH`
+        /// （`nel/M2PrSkill.cs:2705`：`mgkind = (CurMg == null) ? PR_PUNCH : PR_SHOTGUN`），
+        /// 因此魔法霰弹（PR_SHOTGUN）与各种技艺不会误触发。
+        /// **不需要满血**（与小骑士的挽歌不同，这里没有血量条件）。
+        /// </summary>
+        private static void ElegyExecuteSmallAttackPostfix(MagicItem __result)
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, ElegyId))
+                {
+                    return;
+                }
+                if (__result == null || __result.kind != MGKIND.PR_PUNCH)
+                {
+                    return;
+                }
+                PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+                if (pr == null || !pr.is_alive)
+                {
+                    return;
+                }
+                float dir = pr.mpf_is_right;
+                _noelElegyBlades.Add(new NoelElegyBlade
+                {
+                    X = pr.x + dir * 0.5f,   // 从中心略前方发射
+                    Y = pr.y - 0.5f,         // 判定/渲染整体上移 0.5 格（与小骑士一致）
+                    Dir = dir,
+                    Traveled = 0f,
+                });
+                try
+                {
+                    DashAudio.PlayElegyBlade();
+                }
+                catch (Exception)
+                {
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>每帧推进（诺艾尔模式调用）：直线飞行、命中判定、超射程移除、票据维护。</summary>
+        public static void TickNoelElegyCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    return;
+                }
+                bool want = !IsKnightMode && IsEquipped(CharmOwner.Noel, ElegyId);
+                if (_noelElegyBlades.Count > 0)
+                {
+                    float dt = Time.deltaTime;
+                    for (int i = _noelElegyBlades.Count - 1; i >= 0; i--)
+                    {
+                        NoelElegyBlade b = _noelElegyBlades[i];
+                        float step = ElegySpeed * dt;
+                        b.X += b.Dir * step;
+                        b.Traveled += step;
+                        CheckNoelElegyHit(pr, b);
+                        if (b.Traveled >= ElegyRange)
+                        {
+                            _noelElegyBlades.RemoveAt(i);
+                        }
+                    }
+                }
+                EnsureNoelElegyTicket(pr, want);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static int NoelElegyOverlapMask()
+        {
+            if (_noelElegyMask >= 0)
+            {
+                return _noelElegyMask;
+            }
+            int mask = LayerMask.GetMask("EnemySelf", "Enemy", "AttackHitable");
+            foreach (string name in new[] { "Ignore Raycast", "Water", "TransparentFX", "Default" })
+            {
+                int layer = LayerMask.NameToLayer(name);
+                if (layer >= 0)
+                {
+                    mask |= 1 << layer;
+                }
+            }
+            if (mask != 0)
+            {
+                _noelElegyMask = mask;
+            }
+            return mask;
+        }
+
+        private static void CheckNoelElegyHit(PRNoel pr, NoelElegyBlade b)
+        {
+            Map2d mp = pr.Mp;
+            if (mp == null)
+            {
+                return;
+            }
+            int mask = NoelElegyOverlapMask();
+            if (mask == 0)
+            {
+                return;
+            }
+            float hx = b.X + (b.Dir < 0f ? -1.2f : 0.2f); // 与小骑士的剑气判定偏移一致
+            float hy = b.Y + 0.5f;
+            float ux = mp.pixel2ux(hx * mp.CLEN);
+            float uy = mp.pixel2uy(hy * mp.CLEN);
+            Vector2 center = mp.gameObject.transform.TransformPoint(new Vector2(ux, uy));
+            Collider2D[] hits = Physics2D.OverlapBoxAll(center,
+                new Vector2(ElegyHitboxW, ElegyHitboxH), 0f, mask);
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Collider2D c = hits[i];
+                if (c == null)
+                {
+                    continue;
+                }
+                NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
+                if (enemy == null || !b.Hits.Add(enemy))
+                {
+                    continue; // 每只魔物只会被这一道剑气打中一次
+                }
+                ApplyNoelElegyDamage(pr, enemy);
+            }
+        }
+
+        /// <summary>剑气伤害：固定 20 点真实伤害（`fix_damage`），走 AIC 完整受击管线。</summary>
+        private static void ApplyNoelElegyDamage(PRNoel pr, NelEnemy enemy)
+        {
+            try
+            {
+                var atk = new NelAttackInfo();
+                atk.hpdmg_current = ElegyDamage;
+                atk.hpdmg0 = ElegyDamage;
+                atk.fix_damage = true;
+                atk.CenterXy(enemy.x, enemy.y, 0f);
+                atk.Caster = pr;
+                enemy.applyDamage(atk, false);
+                try
+                {
+                    DashAudio.PlayEnemyHit();
+                }
+                catch (Exception)
+                {
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>剑气票据：绑当前地图的 MovRenderer；换图/失效时重建，剑气打完且未佩戴时释放。</summary>
+        private static void EnsureNoelElegyTicket(PRNoel pr, bool want)
+        {
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null)
+            {
+                return;
+            }
+            bool need = want || _noelElegyBlades.Count > 0;
+            if (!need)
+            {
+                ReleaseNoelElegyTicket();
+                return;
+            }
+            if (_noelElegyTex == null)
+            {
+                _noelElegyTex = LoadNoelElegyTexture();
+            }
+            if (_noelElegyTex == null)
+            {
+                return; // 素材缺失：判定照常，只是不显示
+            }
+            if (_noelElegyMesh != null && _noelElegyMap == mp && _noelElegyTicket != null)
+            {
+                return;
+            }
+            ReleaseNoelElegyTicket();
+            _noelElegyMap = mp;
+            _noelElegyMesh = new MeshDrawer(null, 4 * 16, 6 * 16);
+            _noelElegyMesh.draw_gl_only = true;
+            _noelElegyMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _noelElegyMat.EnableKeyword("NO_PIXELSNAP");
+            _noelElegyMesh.activate("noel_elegy_blade", _noelElegyMat, false, MTRX.ColWhite, null);
+            _noelElegyTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR1, null, PrepareNoelElegyMesh, _noelElegyMesh, null, null);
+        }
+
+        private static void ReleaseNoelElegyTicket()
+        {
+            try
+            {
+                if (_noelElegyTicket != null && _noelElegyMap != null && _noelElegyMap.MovRenderer != null)
+                {
+                    _noelElegyMap.MovRenderer.deassignDrawable(_noelElegyTicket, -1);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (_noelElegyMat != null)
+                {
+                    IN.DestroyOne(_noelElegyMat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _noelElegyTicket = null;
+            _noelElegyMesh = null;
+            _noelElegyMat = null;
+            _noelElegyMap = null;
+        }
+
+        /// <summary>剑气绘制：矩阵锚定诺艾尔中心，每道剑气按相对偏移画一个四边形（同小骑士的做法）。</summary>
+        private static bool PrepareNoelElegyMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelElegyMap;
+            if (mp == null || _noelElegyMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelElegyMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || _noelElegyTex == null || _noelElegyBlades.Count == 0)
+            {
+                MdOut = _noelElegyMesh;
+                return true;
+            }
+            float scale = KnightInCradlePlugin.ScaleConfig != null ? KnightInCradlePlugin.ScaleConfig.Value : 0.325f;
+            float w = _noelElegyTex.width * scale * ElegyFxScale;
+            float h = _noelElegyTex.height * scale * ElegyFxScale;
+            float mx = mp.pixel2ux(pr.x * mp.CLEN);
+            float my = mp.pixel2uy(pr.y * mp.CLEN);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mx, my, 0f));
+            for (int i = 0; i < _noelElegyBlades.Count; i++)
+            {
+                NoelElegyBlade b = _noelElegyBlades[i];
+                float dx = (b.X + 1f - pr.x) * mp.CLEN;
+                float dy = -(b.Y - 0.5f - pr.y) * mp.CLEN;
+                _noelElegyMesh.Col = MTRX.ColWhite;
+                _noelElegyMesh.initForImgAndTexture(_noelElegyTex);
+                _noelElegyMesh.uv_top = 0f;
+                _noelElegyMesh.uv_height = 1f;
+                if (b.Dir > 0f)
+                {
+                    _noelElegyMesh.uv_left = 1f;
+                    _noelElegyMesh.uv_width = -1f;
+                }
+                else
+                {
+                    _noelElegyMesh.uv_left = 0f;
+                    _noelElegyMesh.uv_width = 1f;
+                }
+                _noelElegyMesh.Rect(dx - w * 0.5f, dy - h * 0.5f, w, h, false);
+            }
+            MdOut = _noelElegyMesh;
+            return true;
+        }
+
+        private static Texture2D LoadNoelElegyTexture()
+        {
+            try
+            {
+                string path = System.IO.Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "assets", "hk",
+                    "sprites", ElegySprite + ".png");
+                if (!System.IO.File.Exists(path))
+                {
+                    return null;
+                }
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (!ImageConversion.LoadImage(tex, System.IO.File.ReadAllBytes(path)))
+                {
+                    UnityEngine.Object.Destroy(tex);
+                    return null;
+                }
+                tex.filterMode = FilterMode.Point;
+                tex.wrapMode = TextureWrapMode.Clamp;
+                return tex;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         // ================= 护符9 幼虫之歌（诺艾尔侧） =================
         /// <summary>受到伤害时回复的 MP。</summary>
         public const float GrubsongDamageMp = 20f;
@@ -1498,6 +1830,14 @@ namespace KnightInCradle.CharmUi
                     {
                         harmony.Patch(canPullByWorm, prefix: new HarmonyMethod(
                             typeof(CharmEffects).GetMethod(nameof(GrubsongCanPullByWormPrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    // 护符10 蜕变挽歌（诺艾尔侧）：轻攻击（PR_PUNCH）时发射剑气
+                    MethodInfo smallAttack = AccessTools.Method(typeof(M2PrSkill), "executeSmallAttack");
+                    if (smallAttack != null)
+                    {
+                        harmony.Patch(smallAttack, postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(ElegyExecuteSmallAttackPostfix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
                     }
                     // 护符5 萨满之石（诺艾尔侧）：法术最终伤害 +25%（前缀抬高、后缀还原）
