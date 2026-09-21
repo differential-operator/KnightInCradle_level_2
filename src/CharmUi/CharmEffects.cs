@@ -1081,6 +1081,32 @@ namespace KnightInCradle.CharmUi
         /// <summary>法术伤害倍率（+25%）。</summary>
         public const float ShamanDamageMult = 1.25f;
 
+        // ================= 护符13 坚固力量（诺艾尔侧：骨钉系技能最终伤害 +25%） =================
+        /// <summary>坚固力量：下列招式的最终伤害倍率（需求：+25%）。</summary>
+        public const float PowerDamageMult = 1.25f;
+
+        /// <summary>
+        /// 坚固力量覆盖的招式（按 `MGKIND` 判定）：
+        /// PR_PUNCH（轻攻击 Punch，凌空横斩 Airpunch 走的也是这个 kind）、
+        /// PR_SHOTGUN（魔法霰弹）、PR_WHEEL（旋风斩击 / 轮舞斩击）、PR_COMET（彗星俯冲）、
+        /// PR_DASHPUNCH（突进冲击）、PR_SMASH（会心重击）。
+        /// </summary>
+        private static bool IsPowerBoostKind(MGKIND kind)
+        {
+            switch (kind)
+            {
+                case MGKIND.PR_PUNCH:
+                case MGKIND.PR_SHOTGUN:
+                case MGKIND.PR_WHEEL:
+                case MGKIND.PR_COMET:
+                case MGKIND.PR_DASHPUNCH:
+                case MGKIND.PR_SMASH:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         /// <summary>CircleCast 期间临时抬高的伤害值，调用结束原样还原（避免污染可复用的 Atk）。</summary>
         private sealed class ShamanBoostState
         {
@@ -1101,18 +1127,33 @@ namespace KnightInCradle.CharmUi
             __state = null;
             try
             {
-                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, ShamanId))
+                if (IsKnightMode ||
+                    !(IsEquipped(CharmOwner.Noel, ShamanId) || IsEquipped(CharmOwner.Noel, PowerId)))
                 {
                     return;
                 }
-                if (Mg == null || Atk == null || !(Mg.Caster is PRNoel) || !IsPlayerMagicKind(Mg.kind))
+                if (Mg == null || Atk == null || !(Mg.Caster is PRNoel))
+                {
+                    return;
+                }
+                // 萨满之石（法术）与坚固力量（骨钉系技能）都抬高这一发的基准伤害，两者同时满足就连乘
+                float mult = 1f;
+                if (IsPlayerMagicKind(Mg.kind))
+                {
+                    mult *= ShamanDamageMult;
+                }
+                if (IsEquipped(CharmOwner.Noel, PowerId) && IsPowerBoostKind(Mg.kind))
+                {
+                    mult *= PowerDamageMult;
+                }
+                if (mult <= 1f)
                 {
                     return;
                 }
                 var st = new ShamanBoostState { Hp0 = Atk.hpdmg0 };
                 if (st.Hp0 > 0f)
                 {
-                    Atk.hpdmg0 = Mathf.FloorToInt(st.Hp0 * ShamanDamageMult + 0.5f);
+                    Atk.hpdmg0 = Mathf.FloorToInt(st.Hp0 * mult + 0.5f);
                 }
                 __state = st;
             }
