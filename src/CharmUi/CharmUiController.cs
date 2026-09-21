@@ -152,6 +152,18 @@ namespace KnightInCradle.CharmUi
             {
                 return false;
             }
+            // 诺艾尔没有固定虚空之心（见 ApplyEquippedFromSave）：布局里为它在**已装备栏**
+            // 准备的那张静态图标（CharmUi/Charms/Image (39) = 40_VOID.png）要一并隐藏，
+            // 否则会露在第一个槽位上、被装上去的护符盖住。
+            if (Owner == CharmOwner.Noel)
+            {
+                CharmData fixedCd = CharmDatabase.Get(CharmDatabase.FixedCharmId);
+                if (fixedCd != null &&
+                    file.StartsWith(fixedCd.IconFile, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
             foreach (int id in _equippedIds)
             {
                 CharmData cd = CharmDatabase.Get(id);

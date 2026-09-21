@@ -376,6 +376,16 @@ namespace KnightInCradle.CharmUi
                 {
                     continue;
                 }
+                // 诺艾尔没有固定虚空之心：该侧装备栏完全由 DrawEquippedBar 动态绘制，
+                // 布局里那两个"槽位样例"（Equipment/charm_up (1)/(2)）不再静态绘制，
+                // 否则空装备栏会多出一个槽位孔（它们的作用只是给动态槽位提供位置/间距基准，
+                // GetBaseSlotRects 仍会读取它们的矩形，不受这里影响）。
+                if (Controller != null && Controller.Owner == CharmOwner.Noel &&
+                    el.kind == "image" &&
+                    el.path.IndexOf("charm_up", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    continue;
+                }
                 // 寻神者模式选择器：sign 第 4 次点击前不显示（解锁后由 IsIconHidden 在装备时隐藏）
                 if (Controller != null && !Controller.IsGgSelectorShown &&
                     el.kind == "image" && el.image != null && !string.IsNullOrEmpty(el.image.file) &&
