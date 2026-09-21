@@ -1088,6 +1088,7 @@ namespace KnightInCradle.CharmUi
             CurrentRoomIsHive = mp != null && mp.key != null &&
                 mp.key.IndexOf("honey", StringComparison.OrdinalIgnoreCase) >= 0;
             _hiveAggroTriggered = false; // 换房后重新中立
+            _hiveOdDiagLogged.Clear();   // 换房后诊断去重也重置
         }
 
         /// <summary>
@@ -1728,6 +1729,7 @@ namespace KnightInCradle.CharmUi
             {
                 // 例外：即将因雷雨变成"汚染体（OverDrive）"的魔物**必须先苏醒**才能转化，
                 // 一直压着不苏醒会导致它永远不转化、也打不动（实测 bug）。
+                LogHiveOdDiag(__instance.En);
                 if (WillThunderOverdrive(__instance.En))
                 {
                     return true;
@@ -1765,6 +1767,32 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        /// <summary>诊断用：每个魔物只打一行（换房清空），用来确认"雷雨汚染候选"的字段状态。</summary>
+        private static readonly HashSet<NelEnemy> _hiveOdDiagLogged = new HashSet<NelEnemy>();
+
+        private static void LogHiveOdDiag(NelEnemy en)
+        {
+            try
+            {
+                if (en == null || !_hiveOdDiagLogged.Add(en))
+                {
+                    return;
+                }
+                OverDriveManager od = en.getOdManager();
+                bool cand = od != null && od.thunder_overdrive;
+                KnightInCradlePlugin.PluginLog?.LogInfo(
+                    "[KIC][蜂巢中立] " + en.GetType().Name + " id=" + en.id +
+                    " OD管理器=" + (od != null ? "有" : "无") +
+                    " 雷雨汚染候选=" + (cand ? "是" : "否") +
+                    " 已汚染=" + (en.isOverDrive() ? "是" : "否") +
+                    " 已苏醒=" + (en.is_awaken ? "是" : "否") +
+                    " 房间=" + ((en.Mp != null && en.Mp.key != null) ? en.Mp.key : "?"));
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         /// <summary>
         /// 禁止魔物锁定目标（AimPr 赋值），允许清空（value==null）：
         /// 蜂群集结中立期 / 幼虫之歌对蚂蟥、女王蚂蟥生效。
@@ -1777,7 +1805,9 @@ namespace KnightInCradle.CharmUi
             }
             if (HiveNeutralActive())
             {
-                return false;
+                // 汚染体（雷雨 OverDrive）候选：**整体放行**，让它像普通魔物一样行动，
+                // 否则它既不会转化、也无法被攻击（见 WillThunderOverdrive 的说明）。
+                return WillThunderOverdrive(__instance.En);
             }
             if (GrubsongLeechPassive(__instance.En))
             {
@@ -1809,6 +1839,10 @@ namespace KnightInCradle.CharmUi
                 {
                     if (mp.getMv(i) is NelEnemy en)
                     {
+                        if (WillThunderOverdrive(en))
+                        {
+                            continue; // 汚染体候选：不清它的锁定目标，让它正常行动并完成转化
+                        }
                         NAI ai = en.getAI();
                         if (ai != null && ai.AimPr != null)
                         {
