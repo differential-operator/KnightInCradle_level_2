@@ -422,6 +422,107 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        // ================= 护符11 坚固心脏（诺艾尔侧：生命上限 +120） =================
+        /// <summary>佩戴后提升的生命上限。</summary>
+        public const int HeartMaxHpBonus = 120;
+        /// <summary>基础上限寄存键（COOK SF，随存档序列化）：用来区分"存档里已经带上 +120 了"。</summary>
+        private const string HeartBaseMaxHpKey = "kic_noel_heart_base";
+
+        private static bool _noelHeartActive;
+        private static int _noelHeartBaseMaxHp = -1;
+
+        /// <summary>读档/换存档后重置会话状态（SF 里的基础上限保留，下一次 tick 会据此重新激活）。</summary>
+        public static void ResetNoelHeartOnLoad()
+        {
+            _noelHeartActive = false;
+            _noelHeartBaseMaxHp = -1;
+        }
+
+        /// <summary>
+        /// 每帧维护（诺艾尔模式）：佩戴坚固心脏时生命上限 = 基础上限 + 120。
+        /// 佩戴瞬间把新增的 120 直接补成当前血量（同 HK 佩戴该护符的观感）；
+        /// 卸下时把上限还原并把当前血量钳回去。
+        /// 读档后靠 SF 里的"基础上限"判断存档是否已经带上加成，避免重复 +120。
+        /// </summary>
+        public static void TickNoelHeartCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null || PrMaxHpField == null || PrHpField == null)
+                {
+                    return;
+                }
+                bool want = !IsKnightMode && IsEquipped(CharmOwner.Noel, HeartId);
+                if (want && !_noelHeartActive)
+                {
+                    ActivateNoelHeart(pr);
+                }
+                else if (!want && _noelHeartActive)
+                {
+                    DeactivateNoelHeart(pr);
+                }
+                else if (want)
+                {
+                    int target = _noelHeartBaseMaxHp + HeartMaxHpBonus;
+                    if ((int)PrMaxHpField.GetValue(pr) != target)
+                    {
+                        PrMaxHpField.SetValue(pr, target);
+                        RefreshNoelHudHp();
+                    }
+                    if ((int)PrHpField.GetValue(pr) > target)
+                    {
+                        PrHpField.SetValue(pr, target);
+                        RefreshNoelHudHp();
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static void ActivateNoelHeart(PRNoel pr)
+        {
+            int saved = COOK.getSF(HeartBaseMaxHpKey);
+            int baseMax;
+            if (saved > 0)
+            {
+                baseMax = saved; // 读档回到"已佩戴"：基础上限记在 SF 里
+            }
+            else
+            {
+                baseMax = (int)PrMaxHpField.GetValue(pr);
+                if (baseMax <= 0)
+                {
+                    return;
+                }
+                COOK.setSF(HeartBaseMaxHpKey, Mathf.Clamp(baseMax, 0, 255));
+                int hp = (int)PrHpField.GetValue(pr);
+                PrHpField.SetValue(pr, hp + HeartMaxHpBonus); // 新增的上限直接补满
+            }
+            _noelHeartBaseMaxHp = baseMax;
+            PrMaxHpField.SetValue(pr, baseMax + HeartMaxHpBonus);
+            _noelHeartActive = true;
+            RefreshNoelHudHp();
+        }
+
+        private static void DeactivateNoelHeart(PRNoel pr)
+        {
+            int baseMax = _noelHeartBaseMaxHp > 0
+                ? _noelHeartBaseMaxHp
+                : Mathf.Max(1, (int)PrMaxHpField.GetValue(pr) - HeartMaxHpBonus);
+            PrMaxHpField.SetValue(pr, baseMax);
+            int hp = (int)PrHpField.GetValue(pr);
+            if (hp > baseMax)
+            {
+                PrHpField.SetValue(pr, baseMax);
+            }
+            COOK.setSF(HeartBaseMaxHpKey, 0);
+            _noelHeartActive = false;
+            _noelHeartBaseMaxHp = -1;
+            RefreshNoelHudHp();
+        }
+
         // ================= 护符10 蜕变挽歌（诺艾尔侧） =================
         /// <summary>剑气飞行速度（格/秒）——与小骑士的挽歌剑气一致。</summary>
         public const float ElegySpeed = 30f;
