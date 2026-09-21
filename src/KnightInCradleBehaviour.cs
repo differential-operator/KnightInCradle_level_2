@@ -20,7 +20,7 @@ namespace KnightInCradle
         /// 构建标记：每次部署时手动更新，日志 `[KIC][补丁] build=…` 会打印；
         /// 配合后面的 `dll=路径 (文件时间)` 可以立刻确认游戏实际加载的是哪一份 DLL。
         /// </summary>
-        internal const string SelfBuildTag = "2026-09-22.8";
+        internal const string SelfBuildTag = "2026-09-22.10";
 
         private static bool _harmonyApplied;
         private static bool _seriousInitApplied; // 启动时是否已应用过一次布局（防止残留居中布局）
@@ -163,12 +163,7 @@ namespace KnightInCradle
                 }
             }
 
-            // 护符2 蜂群集结：把附近"仅诺艾尔可吸"的落地魔力直接吸给当前操控角色
-            // （满魔力也吸，多余的浪费掉）。两种模式都跑：骑士模式下吸的是宿主诺艾尔的真实魔力，
-            // 切回诺艾尔后魔力保留。未装备护符时是立即返回的空操作。
-            TickCollectorManaVacuum();
-
-            // 诺艾尔模式：护符效果里"每帧维护"的部分（目前是护符2 蜂群集结的三件事）。
+            // 诺艾尔模式：护符效果里"每帧维护"的部分（目前是护符2 蜂群集结的两件事）。
             // 未装备护符时这些调用都是立即返回的空操作。
             if (!_knightMode)
             {
@@ -429,32 +424,11 @@ namespace KnightInCradle
         private static Map2d _noelCharmMap;
 
         /// <summary>
-        /// 护符2 蜂群集结：把附近"仅诺艾尔可吸"的落地魔力直接吸给诺艾尔（满魔力也吸）。
-        /// 位置用当前诺艾尔实体的坐标：骑士模式下宿主诺艾尔每帧被同步到小骑士位置，
-        /// 因此两种模式都是"以当前操控角色所在位置为圆心"。
-        /// </summary>
-        private static void TickCollectorManaVacuum()
-        {
-            try
-            {
-                PRNoel pr = GetPr();
-                if (pr == null || !pr.is_alive)
-                {
-                    return;
-                }
-                CharmEffects.VacuumCollectorMana(pr, pr.x, pr.mbottom, CharmEffects.CollectorPickupRadius);
-            }
-            catch (Exception)
-            {
-            }
-        }
-
-        /// <summary>
         /// 诺艾尔模式下"每帧维护"的护符效果，与骑士模式里 KnightEntity.Update 调用的那几个一一对应：
         /// ① 换图时重算蜂巢房间标记（骑士模式由 KnightEntity 的换图分支调 UpdateHiveRoom）；
-        /// ② 护符2 蜂群集结：把落地魔力重新限制为"仅诺艾尔可吸"（防超时后魔物也能吸）；
-        /// ③ 护符2 蜂群集结：蜂巢中立期每帧清除魔物的锁定目标；
-        /// ④ 护符2 蜂群集结：按诺艾尔坐标做 3 格内自动拾取。
+        /// ② 护符2 蜂群集结：蜂巢中立期每帧清除魔物的锁定目标；
+        /// ③ 护符2 蜂群集结：按诺艾尔坐标做 3 格内自动拾取。
+        /// （魔力相关的那两项只服务小骑士侧，见 CharmEffects.CollectorManaGuardActive 的注释。）
         /// </summary>
         private static void TickNoelCharmEffects()
         {
@@ -470,7 +444,6 @@ namespace KnightInCradle
                     _noelCharmMap = pr.Mp;
                     CharmEffects.UpdateHiveRoom(pr.Mp);
                 }
-                CharmEffects.ProtectCollectorMana();
                 CharmEffects.ClearHiveEnemyAim();
                 CharmEffects.TickCollectorAutoPickup(pr.x, pr.mbottom);
             }

@@ -2434,3 +2434,32 @@ for each 落地魔力 m in nM2D.Mana:
 - 仍然不生成落地魔力球，所以魔物没有可抢的东西。
 
 验证：`build=2026-09-22.8`，DLL SHA256 `B895A30BA048C408…`（9,035,776 B，两份 0.30g 安装已同步；只覆盖 DLL，未动素材）。
+
+### 21.9 六稿（收官）：诺艾尔的蜂群集结只保留「自动拾取 + 蜂巢怪不打」（build=2026-09-22.10）
+
+**用户决定**：魔力那一整套（掉落球 / 只给诺艾尔 / 满魔力也吸 / 固定回魔）反复出问题，**诺艾尔侧直接不要了**，
+蜂群集结只保留两项效果。以下是最终形态，**21.6～21.8 关于魔力的三稿在诺艾尔侧全部作废**（小骑士侧回到模组原有实现）。
+
+**诺艾尔侧（最终）**：
+
+| 效果 | 实现 |
+|---|---|
+| 蜂巢怪不打 | `HiveNeutralActive()`（按当前操控角色判断）+ 每帧 `ClearHiveEnemyAim()`；攻击蜂巢魔物 → `TriggerHiveAggro()` 全房解除中立 |
+| 3 格自动拾取 | `TickCollectorAutoPickup(px, footY)`，走原生 `NelItemManager.executePickUp`，判据仍是游戏自己的 `canTalkable` + `getItemCapacity` |
+| ~~魔力草相关~~ | **不做**：诺艾尔模式下破坏魔力草完全走原版（正常掉落、谁都能吸） |
+
+**代码改动**：
+
+1. `CollectorManaGuardActive()` 恢复为 `IsKnightMode && IsEquipped(CollectorId)`——**只服务小骑士侧**（回到模组原有行为）；
+2. `ManaWeedSplashPrefix` 恢复原来的金额算法 `(20 + rand(0..10)) × NightCon.ManaWeedRatio()`，
+   仍是"小骑士破坏 → 不生成落地魔力、直接给后台诺艾尔记账；诺艾尔不可用时兜底走仅诺艾尔可吸的落地魔力"；
+3. 删掉 `VacuumCollectorMana`（21.6 新增）与它的每帧调用；`TickNoelCharmEffects()` 只剩三件事：
+   换图重算蜂巢标记、`ClearHiveEnemyAim()`、`TickCollectorAutoPickup(pr.x, pr.mbottom)`；
+4. **顺手修掉一个连带 bug**：`TickCollectorAutoPickup` 原先用 `CollectorManaGuardActive()` 做门控，
+   而它现在是"小骑士专有"——若不改，诺艾尔的自动拾取会静默失效。已改为 `IsEquippedForCurrentPlayer(CollectorId)`。
+
+> 教训记一笔：这一族效果的"门控函数"混用了两种语义（**魔力保护的开关** vs **蜂群集结的开关**）。
+> 两者在 21.5 之后被合并成一个 `IsEquippedForCurrentPlayer` 判断，等到 21.9 把魔力保护改回小骑士专有时，
+> 自动拾取就被一起带走了。**以后新增/修改门控函数时，务必检查所有调用点是否仍符合语义**。
+
+验证：`build=2026-09-22.10`，DLL SHA256 `DBEE6CA0B4303002…`（9,035,264 B，两份 0.30g 安装已同步；只覆盖 DLL，未动素材）。

@@ -190,7 +190,10 @@ namespace KnightInCradle.CharmUi
         /// <summary>蜂群集结：魔力草掉落的魔力只能由诺艾尔吸收，魔物无法吸收。</summary>
         public static bool CollectorManaGuardActive()
         {
-            return IsEquippedForCurrentPlayer(CollectorId);
+            // 注意：**这一项只服务小骑士侧**（沿用模组原有行为）。
+            // 诺艾尔侧的蜂群集结只保留"自动拾取 + 蜂巢怪不打"两项（2026-09-22 用户定），
+            // 魔力草在诺艾尔手里完全走原版：正常掉落、谁都能吸。
+            return IsKnightMode && IsEquipped(CollectorId);
         }
 
         /// <summary>萨满之石：法术伤害每段提升 25%（四舍五入取整）。</summary>
@@ -1245,17 +1248,12 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
-        /// 蜂群集结：破坏一棵魔力草直接给诺艾尔补的魔力值。
-        /// 需求（2026-09-22 用户定）：**不再生成落地魔力球**，直接回固定 30 MP，
-        /// 免得魔力球被魔物吸走（剥 EN 位在实际时序下仍可能被抢，索性不生成）。
-        /// 数值参考原生：一棵草的原生总量是 `(20 + xors(11)) × ManaWeedRatio()` ≈ 20~30（还会随夜间比例缩放）。
-        /// 注意是**每棵草**结算一次：一次攻击同时打到多棵草就按棵数累加。
-        /// </summary>
-        public const float CollectorManaWeedMp = 30f;
-
-        /// <summary>
-        /// 蜂群集结：破坏魔力草**跳过原生掉落**，直接把 30 MP 记到诺艾尔账上。
-        /// 诺艾尔不可用时兜底走"仅诺艾尔可吸"的原生落地魔力。
+        /// 蜂群集结（**仅小骑士侧**）：破坏魔力草掉落的魔力直接给后台诺艾尔吸收（不生成落地魔力），
+        /// 魔物始终拿不到。无论魔物还是小骑士破坏魔力草都生效；诺艾尔不可用时兜底走"仅诺艾尔可吸"的落地魔力。
+        ///
+        /// 金额与原生一致：`(20 + rand(0..10)) × 魔力草比例`（随夜间比例缩放）。
+        /// **诺艾尔侧的蜂群集结不含这一项**（只保留"自动拾取 + 蜂巢怪不打"，2026-09-22 用户定）：
+        /// 诺艾尔模式下破坏魔力草走原版——正常掉落、谁都能吸。
         /// </summary>
         private static bool ManaWeedSplashPrefix(M2ManaWeed __instance, ref MANA_HIT mana_hit,
             float cx, float cy)
@@ -1264,11 +1262,22 @@ namespace KnightInCradle.CharmUi
             {
                 return true;
             }
-            if (KnightInCradleBehaviour.GrantNoelMana(CollectorManaWeedMp))
+            try
             {
-                return false; // 跳过原生实现：不生成落地魔力球
+                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
+                if (nM2D != null)
+                {
+                    float amount = (20f + (float)X.xors(11)) * nM2D.NightCon.ManaWeedRatio();
+                    if (KnightInCradleBehaviour.GrantNoelMana(amount))
+                    {
+                        return false; // 跳过原生：直接给后台诺艾尔吸收，不生成落地魔力
+                    }
+                }
             }
-            // 兜底（诺艾尔不可用）：仍走原生落地，但保持"仅诺艾尔可吸"
+            catch (Exception)
+            {
+            }
+            // 兜底：诺艾尔不可用时仍走原生落地，但保持仅诺艾尔可吸
             mana_hit = (mana_hit & ~MANA_HIT.EN) | MANA_HIT.PR;
             return true;
         }
@@ -1464,67 +1473,6 @@ namespace KnightInCradle.CharmUi
         /// <summary>自动拾取半径（格）。</summary>
         public const float CollectorPickupRadius = 3f;
 
-        /// <summary>
-        /// 蜂群集结：把附近"仅诺艾尔可吸"的落地魔力**直接吸给当前操控角色** —— 满魔力也照吸，
-        /// 多余的魔力浪费掉（不会留在地上等魔物，也不会一直堆着不消失）。
-        ///
-        /// 为什么要单独做这一层：原生的吸取链在满魔力时会断掉——
-        /// `M2Mana.run` 里 `Target.getMpDesireRatio(mana_hit, 0) >= 1f` 且 `!immediate_collect`
-        /// 会直接放弃锁定目标，于是"站在魔力球上但魔力条是满的"就不会被吸走。
-        /// 这里不依赖那套锁定流程：距离够近就直连原生吸收入口
-        /// `PR.addMpFromMana(mana, 4f)`（与 `M2Mana.run` 内部 `Target.addMpFromMana(this, 4f)` 同一条），
-        /// 再 `destruct()` 掉这颗魔力球。
-        /// </summary>
-        public static void VacuumCollectorMana(PRNoel pr, float px, float footY, float radius)
-        {
-            if (!CollectorManaGuardActive() || pr == null)
-            {
-                return;
-            }
-            try
-            {
-                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
-                if (nM2D == null || nM2D.Mana == null)
-                {
-                    return;
-                }
-                object items = RBaseAItemsField != null ? RBaseAItemsField.GetValue(nM2D.Mana) : null;
-                if (!(items is M2Mana[] arr))
-                {
-                    return;
-                }
-                int len = RBaseLENField != null ? (int)RBaseLENField.GetValue(nM2D.Mana) : arr.Length;
-                float r2 = radius * radius;
-                for (int i = 0; i < len; i++)
-                {
-                    M2Mana m = arr[i];
-                    if (m == null || m.only_effect || m.af < 0f)
-                    {
-                        continue; // 空槽 / 纯表现 / 已销毁
-                    }
-                    if ((m.mana_hit & MANA_HIT.PR) == MANA_HIT.NOUSE)
-                    {
-                        continue; // 不是给玩家的魔力
-                    }
-                    if ((m.mana_hit & MANA_HIT.EN) != MANA_HIT.NOUSE)
-                    {
-                        continue; // 还允许魔物吸（正常不会：前缀与每帧守卫都剥掉 EN 了）
-                    }
-                    float dx = m.x - px;
-                    float dy = m.y - footY;
-                    if (dx * dx + dy * dy > r2)
-                    {
-                        continue;
-                    }
-                    pr.addMpFromMana(m, 4f); // 与原生吸收同一条入口、同一数值
-                    m.destruct();
-                }
-            }
-            catch (Exception)
-            {
-            }
-        }
-
         // AIC 的掉落物表 / 存储区路由 / 拾取入口都不是 public，用反射取一次缓存住。
         private static readonly FieldInfo ImngODropField =
             AccessTools.Field(typeof(NelItemManager), "ODrop");
@@ -1563,7 +1511,9 @@ namespace KnightInCradle.CharmUi
         /// </summary>
         public static void TickCollectorAutoPickup(float px, float footY)
         {
-            if (!CollectorManaGuardActive())
+            // 注意：这里不能用 CollectorManaGuardActive()——那个只服务小骑士侧的"魔力保护"，
+            // 自动拾取是**两个角色都有**的效果，因此按当前操控角色判断。
+            if (!IsEquippedForCurrentPlayer(CollectorId))
             {
                 return; // 当前操控角色没装备护符2
             }
