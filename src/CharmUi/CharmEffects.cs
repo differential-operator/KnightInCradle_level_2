@@ -89,6 +89,25 @@ namespace KnightInCradle.CharmUi
         // 坚固贪婪“击杀掉落宝箱复制”防递归标记
         private static bool _greedReelDupGuard;
         private static readonly HashSet<NelEnemy> _greedGoldGranted = new HashSet<NelEnemy>();
+
+        /// <summary>
+        /// 坚固贪婪的佩戴层数：小骑士与诺艾尔**各自算一层**（需求：两边同时佩戴时效果叠加）。
+        /// 所有坚固贪婪的效果都按这个层数放大（背包上限 +150/层、金币 5%/层、掉率与品级加成叠层，
+        /// 伤害惩罚 -0.75%/层每 4 格）。
+        /// </summary>
+        public static int GreedStacks()
+        {
+            int n = 0;
+            if (IsEquipped(GreedId))
+            {
+                n++; // 小骑士那一套
+            }
+            if (IsEquipped(CharmOwner.Noel, GreedId))
+            {
+                n++; // 诺艾尔那一套
+            }
+            return n;
+        }
         private static readonly FieldInfo EnemyMaxHpField =
             AccessTools.Field(typeof(M2Attackable), "maxhp");
         private static readonly FieldInfo EnemyDropItemField =
@@ -1267,7 +1286,8 @@ namespace KnightInCradle.CharmUi
         /// </summary>
         public static float GreedDamageMultiplier()
         {
-            if (!IsKnightMode || !IsEquipped(GreedId))
+            int stacks = GreedStacks();
+            if (stacks <= 0)
             {
                 return 1f;
             }
@@ -1282,7 +1302,7 @@ namespace KnightInCradle.CharmUi
                     return 1f;
                 }
                 int groups = st.getVisibleRowCount(false) / 4; // 每 4 个被填充的格子一组
-                return Mathf.Max(0f, 1f - groups * 0.0075f);
+                return Mathf.Max(0f, 1f - groups * 0.0075f * stacks);
             }
             catch (Exception)
             {
@@ -1472,8 +1492,10 @@ namespace KnightInCradle.CharmUi
         /// <summary>当前佩戴状态下实际生效的扩容值（兼容旧版 +100 存档）：按 row_max 反推。</summary>
         private static int AppliedGreedBonus(int rowMax)
         {
-            return rowMax >= GreedSlotBonus ? GreedSlotBonus
-                : rowMax >= OldGreedSlotBonus ? OldGreedSlotBonus : 0;
+            int bonus = GreedSlotBonus * Mathf.Max(1, GreedStacks());
+            int oldBonus = OldGreedSlotBonus * Mathf.Max(1, GreedStacks());
+            return rowMax >= bonus ? bonus
+                : rowMax >= oldBonus ? oldBonus : 0;
         }
 
         /// <summary>
@@ -1494,7 +1516,8 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                bool equipped = IsEquipped(GreedId);
+                int stacks = GreedStacks();
+                bool equipped = stacks > 0;
                 int stored = COOK.getSF(GreedBaseKey);
                 int baseCap;
                 if (_greedCapacityApplied == equipped)
@@ -1520,7 +1543,7 @@ namespace KnightInCradle.CharmUi
                     baseCap = stored > 0 ? stored : st.row_max; // 异常兜底
                 }
                 COOK.setSF(GreedBaseKey, baseCap); // 始终刷新快照，供后续同步/卸下判断使用
-                int want = equipped ? baseCap + GreedSlotBonus : baseCap;
+                int want = equipped ? baseCap + GreedSlotBonus * stacks : baseCap;
                 if (st.row_max != want)
                 {
                     st.increaseCapacity(want - st.row_max);
@@ -1583,7 +1606,8 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                bool equipped = IsEquipped(GreedId);
+                int stacks = GreedStacks();
+                bool equipped = stacks > 0;
                 int baseCap = equipped
                     ? st.row_max - AppliedGreedBonus(st.row_max) : st.row_max;
                 if (baseCap < 0)
@@ -1593,7 +1617,7 @@ namespace KnightInCradle.CharmUi
                     // 推定异常（佩戴但容量不含任何已知加成的旧版存档）：以当前容量为基础
                 }
                 COOK.setSF(GreedBaseKey, baseCap);
-                int want = equipped ? baseCap + GreedSlotBonus : baseCap;
+                int want = equipped ? baseCap + GreedSlotBonus * stacks : baseCap;
                 if (st.row_max != want)
                 {
                     st.increaseCapacity(want - st.row_max);
@@ -1608,7 +1632,7 @@ namespace KnightInCradle.CharmUi
         /// <summary>坚固贪婪：击杀魔物获得 5% 最大生命值的金币（四舍五入取整）。</summary>
         private static void EnemyDiePostfix(NelEnemy __instance)
         {
-            if (!IsKnightMode || !IsEquipped(GreedId) || __instance == null)
+            if (GreedStacks() <= 0 || __instance == null)
             {
                 return;
             }
@@ -1665,7 +1689,7 @@ namespace KnightInCradle.CharmUi
         /// </summary>
         private static bool CheckDropChancePrefix(NelEnemy __instance)
         {
-            if (!IsKnightMode || !IsEquipped(GreedId) || __instance == null)
+            if (GreedStacks() <= 0 || __instance == null)
             {
                 return true;
             }
@@ -1709,14 +1733,18 @@ namespace KnightInCradle.CharmUi
         /// </summary>
         private static void GetItemDropGradePostfix(NelEnemy __instance, ref int __result)
         {
-            if (!IsKnightMode || !IsEquipped(GreedId) || __instance == null)
+            int stacks = GreedStacks();
+            if (stacks <= 0 || __instance == null)
             {
                 return;
             }
             int grade = __result;
-            while (grade < NelItem.GRADE_MAX && X.XORSP() < 0.5f)
+            for (int s = 0; s < stacks; s++)   // 多层：每层都按同样规则升一次星
             {
-                grade++;
+                while (grade < NelItem.GRADE_MAX && X.XORSP() < 0.5f)
+                {
+                    grade++;
+                }
             }
             __result = grade;
         }
@@ -1799,7 +1827,7 @@ namespace KnightInCradle.CharmUi
         private static void DropMBoxReelPostfix(NelItemManager __instance, ReelManager.ItemReelDrop Reel,
             float mapx, float mapy, float vx, float vy)
         {
-            if (_greedReelDupGuard || !IsKnightMode || !IsEquipped(GreedId))
+            if (_greedReelDupGuard || GreedStacks() <= 0)
             {
                 return;
             }
