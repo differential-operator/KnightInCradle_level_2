@@ -426,6 +426,32 @@ namespace KnightInCradle.CharmUi
         /// <summary>佩戴后跑步速度倍率（需求：降低 10%）。</summary>
         public const float DashmasterRunSpeedMult = 0.9f;
 
+        /// <summary>
+        /// 冲刺大师：松开方向键**立刻停住**（去掉跑动的"急停滑行"）。
+        ///
+        /// 滑行来自 `M2MoverPr.calcWalkSpeed` 的 `move_aim_ex == 0` 分支：
+        /// `isRunning() && run_continue_time_ >= 0` → `X.VALWALK(num, 0f, accel_run_break)`
+        /// （`unsafeAssem/m2d/M2MoverPr.cs:1467-1470`），结果随后写回 `Phy.walk_xspeed`（`:601-602`）。
+        /// 因此只要在该函数返回后把结果清零，松手那一帧水平速度就归零、不再滑行。
+        /// </summary>
+        private static void DashmasterCalcWalkSpeedPostfix(M2MoverPr __instance, int move_aim_ex, ref float __result)
+        {
+            try
+            {
+                if (!_noelDashmasterActive || IsKnightMode || !(__instance is PRNoel))
+                {
+                    return;
+                }
+                if (move_aim_ex == 0)
+                {
+                    __result = 0f;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         private static readonly FieldInfo MoverRunSpeedField = AccessTools.Field(typeof(M2MoverPr), "runSpeed");
 
         private static bool _noelDashmasterActive;
@@ -1365,6 +1391,14 @@ namespace KnightInCradle.CharmUi
                     {
                         harmony.Patch(isRunning, postfix: new HarmonyMethod(
                             typeof(CharmEffects).GetMethod(nameof(DashmasterIsRunningPostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    // 护符7 冲刺大师（诺艾尔侧）：松开方向键立刻停（去掉急停滑行）
+                    MethodInfo calcWalk = AccessTools.Method(typeof(M2MoverPr), "calcWalkSpeed");
+                    if (calcWalk != null)
+                    {
+                        harmony.Patch(calcWalk, postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(DashmasterCalcWalkSpeedPostfix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
                     }
                     // 护符5 萨满之石（诺艾尔侧）：法术最终伤害 +25%（前缀抬高、后缀还原）
