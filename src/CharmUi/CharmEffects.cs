@@ -425,8 +425,8 @@ namespace KnightInCradle.CharmUi
         // ========== 护符7 冲刺大师 / 护符8 飞毛腿（诺艾尔侧：都改 walkSpeed/runSpeed） ==========
         /// <summary>冲刺大师：佩戴后跑步速度倍率（需求：降低 10%）。</summary>
         public const float DashmasterRunSpeedMult = 0.9f;
-        /// <summary>飞毛腿：佩戴后走路与跑步速度倍率（先按 +10% 做过，实测手感不明显，改为 +50% 试值）。</summary>
-        public const float SprintmasterSpeedMult = 1.5f;
+        /// <summary>飞毛腿：佩戴后走路与跑步速度倍率（+10% 手感不明显、+50% 过强，最终取 +20%）。</summary>
+        public const float SprintmasterSpeedMult = 1.2f;
 
         /// <summary>
         /// 冲刺大师：松开方向键**立刻停住**（去掉跑动的"急停滑行"）。
