@@ -2223,3 +2223,80 @@ mtr_noel_milk 0 3 4 {          // <key> <Rarely> <Price> <スタック最大>
 > 后者是槽位几何基准；误删会导致小骑士侧装备栏没有槽底或槽位错位。
 
 验证：`build=2026-09-22.3`，DLL SHA256 `2EE369BAA652A565…`（9,034,752 B，两份安装已同步；只覆盖 DLL，未动素材）。
+
+---
+
+## 21. "诺艾尔的护符"第二部分：护符效果（2026-09-22，build=2026-09-22.4）
+
+**目标**：让诺艾尔佩戴的护符产生与描述一致的效果。
+**本轮完成**：护符 **1 任性的指南针**（需求：与小骑士佩戴时效果相同）。
+
+### 21.1 机制：效果查询按"归属 / 当前操控角色"分流
+
+一稿里所有护符效果都写成"骑士模式 + 已装备"两个条件：
+
+```csharp
+if (!IsKnightMode || !IsEquipped(CompassId)) { return true; }   // 旧写法
+```
+
+第二部分统一改成按"当前操控角色"判断。`CharmEffects` 新增两个入口：
+
+| 入口 | 语义 |
+|---|---|
+| `IsEquipped(CharmOwner owner, int id)` | 指定归属是否装备了某护符。小骑士侧沿用原规则（虚空之心恒为装备、束缚让其它护符失效）；诺艾尔侧直接读她自己那份列表 |
+| `IsEquippedForCurrentPlayer(int id)` | 当前操控角色是否装备：骑士模式 → 小骑士那套；诺艾尔模式 → 诺艾尔那套 |
+
+于是"两个角色都能用"的效果只要把 `!IsKnightMode || !IsEquipped(id)` 换成 `!IsEquippedForCurrentPlayer(id)`，
+**同一份效果代码同时服务两个角色**，不需要复制一套。
+
+### 21.2 任性的指南针（id 1）改了什么
+
+指南针的效果全部是"地图/菜单门控"，实现在 `CharmEffects.PatchCompass` 挂的 7 个补丁里。本轮把其中 5 个的判断改成 `IsEquippedForCurrentPlayer`：
+
+| 补丁点 | 作用 |
+|---|---|
+| `UiGMCMap.runEdit`（`CompassRunEditPrefix`） | 光标附近有可传送图标时自动打开快速旅行模式（防误触开关/切图重置） |
+| `ButtonSkinWholeMapArea.fast_travel_active.set` / `setWholeMapTarget`（`EnemyIconsPostfix`） | 把战斗区域（ENEMY 图标）也加入快速旅行磁吸列表 |
+| `UiGMCMap.executeFastTravelConfirm`（`FastTravelConfirmPrefix`） | 确认传送时跳过"必须在长椅旁"直接执行（战斗区域目标会先终止当前战斗） |
+| `UiGMCMap.initAppearMain`（`MapAppearPostfix`） | 地图出现即强制 `can_use_fasttravel = true`、`fast_travel_active = true` |
+| `UiGameMenu.activate` / `activateMap`（`FastTravelPostfix`） | 游戏菜单/地图激活后把 `can_use_fasttravel`、`pr_on_bench` 置真 |
+
+另外 `KnightInCradleBehaviour.TryOpenGameMenuWithEsc` 里的"战斗中也能打开菜单"绕过
+（原来写死 `KnightModeActive && IsEquipped(1)`）也改成 `IsEquippedForCurrentPlayer(CompassId)`。
+
+**诺艾尔佩戴指南针后的表现（与小骑士一致）**：
+
+1. 地图上可直接选长椅图标传送，**不需要先坐到椅子上**；
+2. 战斗区域（魔物图标）也能作为传送目标（会先终止当前战斗）；
+3. 战斗中也能按 ESC 打开菜单去传送（绕过 `can_open_gamemenu` 禁用标记）；
+4. 目的地没有长椅时不再报 `近場にベンチがありません`（沿用 `AutoSaveBenchPrefix`，与角色无关）。
+
+> 传送本体仍走 AIC 原生 `UiBenchMenu.ExecuteFastTravel`，诺艾尔作为本体自己走过去/被传送；
+> 小骑士模式那套"骑士跟随"逻辑不参与（诺艾尔模式下小骑士实体是停用状态）。
+
+### 21.3 验证方法
+
+1. 诺艾尔**不装**指南针：地图上点长椅图标应无法传送（原版行为，需要先坐长椅）；
+2. 诺艾尔**装上**指南针（坐长椅时装配）→ 起身 → 打开地图 → 选另一个长椅图标 → 应能直接传送；
+3. 战斗中按 ESC：装了指南针应能打开菜单（不装时不能）；
+4. 切到小骑士：骑士那套指南针行为不变；两边互不影响（各读各的装备列表）。
+
+### 21.4 第二部分后续待办
+
+`CharmEffects` 里还有若干"骑士模式 + 已装备"写死的效果点，按 21.1 的套路逐个改成按归属/当前角色判断即可：
+
+| 护符 | 相关效果点 |
+|---|---|
+| 2 蜂群集结 / 31 蜂巢之血 | `ShouldProtectManaWeed` / `ShouldAutoPickup`（原为骑士模式专用） |
+| 12 坚固贪婪 | 掉率提升、宝箱复制、背包容量（多处） |
+| 16 沉重之击 | 普攻 8% 斩杀 |
+| 27 深度聚集 | 宝箱轮转减速 |
+| 32 蘑菇孢子 | 对蘑菇家族增伤 |
+| 9 幼虫之歌 / 10 蜕变挽歌 | 受伤回魂 / 满血剑气 |
+| 1 任性的指南针 | ✅ 本轮完成 |
+
+> **另一类效果要注意**：速度、冲刺、法术伤害、召唤物（编织者/格林之子/子宫/孢子）这类效果**实现写在 `KnightEntity` 里**，
+> 依赖小骑士自己的物理与状态机；诺艾尔侧没有对应机制，需要另设计（例如改诺艾尔的 `walkSpeed`、或给诺艾尔加一套轻量技能层）。
+> 这部分等排到具体护符时再定方案。
+
+验证：`build=2026-09-22.4`，DLL SHA256 `0ACFD6CD68D41A87…`（9,034,752 B，两份 0.30g 安装已同步；只覆盖 DLL，未动素材）。

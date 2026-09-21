@@ -133,6 +133,29 @@ namespace KnightInCradle.CharmUi
             return CharmSave.HasEquipped(CharmOwner.Knight, id);
         }
 
+        /// <summary>指定归属是否装备了某护符（第二部分：诺艾尔侧的护符效果用）。
+        /// 小骑士侧沿用上面的规则（虚空之心恒为装备、束缚会让其它护符失效）；
+        /// 诺艾尔侧没有固定虚空之心、也没有束缚自限，直接读她自己那份装备列表。</summary>
+        public static bool IsEquipped(CharmOwner owner, int id)
+        {
+            if (id <= 0)
+            {
+                return false;
+            }
+            if (owner == CharmOwner.Noel)
+            {
+                return CharmSave.HasEquipped(CharmOwner.Noel, id);
+            }
+            return IsEquipped(id);
+        }
+
+        /// <summary>当前操控角色是否装备了某护符：骑士模式看小骑士那一套，诺艾尔模式看诺艾尔那一套。
+        /// 第二部分里"两个角色都能用"的护符效果统一走这个入口。</summary>
+        public static bool IsEquippedForCurrentPlayer(int id)
+        {
+            return IsEquipped(IsKnightMode ? CharmOwner.Knight : CharmOwner.Noel, id);
+        }
+
         /// <summary>束缚·骨钉：无加成骨钉伤害降低为 30。</summary>
         public static bool GgNailBound => COOK.getSF(GgNailKey) == 2;
         /// <summary>束缚·外壳：无加成血量上限降低为 4。</summary>
@@ -973,7 +996,7 @@ namespace KnightInCradle.CharmUi
         /// </summary>
         private static bool CompassRunEditPrefix(object __instance)
         {
-            if (!IsKnightMode || !IsEquipped(CompassId) || IN.isUiShiftO() || !IN.isSubmit())
+            if (!IsEquippedForCurrentPlayer(CompassId) || IN.isUiShiftO() || !IN.isSubmit())
             {
                 return true;
             }
@@ -1078,7 +1101,7 @@ namespace KnightInCradle.CharmUi
 
         private static void EnemyIconsPostfix(object __instance)
         {
-            if (!IsKnightMode || !IsEquipped(CompassId))
+            if (!IsEquippedForCurrentPlayer(CompassId))
             {
                 return;
             }
@@ -1122,7 +1145,7 @@ namespace KnightInCradle.CharmUi
 
         private static bool FastTravelConfirmPrefix(object __instance, ref bool __result)
         {
-            if (!IsKnightMode || !IsEquipped(CompassId))
+            if (!IsEquippedForCurrentPlayer(CompassId))
             {
                 return true; // 走原逻辑
             }
@@ -1702,7 +1725,7 @@ namespace KnightInCradle.CharmUi
 
         private static void MapAppearPostfix(object __instance)
         {
-            if (!IsKnightMode || !IsEquipped(CompassId))
+            if (!IsEquippedForCurrentPlayer(CompassId))
             {
                 return;
             }
@@ -1737,7 +1760,7 @@ namespace KnightInCradle.CharmUi
 
         private static void FastTravelPostfix(UiGameMenu __instance)
         {
-            if (!IsKnightMode || !IsEquipped(CompassId))
+            if (!IsEquippedForCurrentPlayer(CompassId))
             {
                 return;
             }

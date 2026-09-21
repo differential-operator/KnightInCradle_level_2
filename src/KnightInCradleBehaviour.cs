@@ -20,7 +20,7 @@ namespace KnightInCradle
         /// 构建标记：每次部署时手动更新，日志 `[KIC][补丁] build=…` 会打印；
         /// 配合后面的 `dll=路径 (文件时间)` 可以立刻确认游戏实际加载的是哪一份 DLL。
         /// </summary>
-        internal const string SelfBuildTag = "2026-09-22.3";
+        internal const string SelfBuildTag = "2026-09-22.4";
 
         private static bool _harmonyApplied;
         private static bool _seriousInitApplied; // 启动时是否已应用过一次布局（防止残留居中布局）
@@ -1421,8 +1421,9 @@ namespace KnightInCradle
                 {
                     return;
                 }
-                // 指南针：战斗中也能打开地图传送（绕过菜单禁用标记）
-                bool compassOpen = KnightInCradlePlugin.KnightModeActive && CharmEffects.IsEquipped(1);
+                // 指南针：战斗中也能打开地图传送（绕过菜单禁用标记）。
+                // 按"当前操控角色"判断：骑士模式看小骑士那套，诺艾尔模式看诺艾尔那套。
+                bool compassOpen = CharmEffects.IsEquippedForCurrentPlayer(CharmEffects.CompassId);
                 if (!compassOpen && !nm2d.can_open_gamemenu)
                 {
                     return;
