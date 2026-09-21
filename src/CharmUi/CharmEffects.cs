@@ -196,38 +196,45 @@ namespace KnightInCradle.CharmUi
             return IsKnightMode && IsEquipped(CollectorId);
         }
 
-        // ================= 护符3 坚硬外壳（**诺艾尔专属**：次数血） =================
+        // ================= 护符3 坚硬外壳（**诺艾尔专属**：伪次数血） =================
         // 与小骑士的"延长无敌时间"完全不同，诺艾尔侧的效果是：
-        //   ① 血条变成"次数血"：上限 = floor(真实最大生命 / 45)；
-        //   ② 掉血后 2 秒内血量不再降低。
+        //   ① 佩戴后血量上限直接除以 35 向下取整（伪次数血）；
+        //   ② 受到的伤害 ≤ 20 记 0、> 20 一律记 1；
+        //   ③ 无论上面记成 0 还是 1，受击后都立刻获得 2 秒无敌（走 AIC 原生 NoDamage）；
+        //   ④ 卸下立即回到"佩戴前的血量"（佩戴时的 hp/maxhp 原样寄存）。
 
-        /// <summary>多少点"真实最大生命"折算成 1 次。（2026-09-22 二稿：45 → 35）</summary>
+        /// <summary>血量上限折算除数：floor(最大生命 / 35)。</summary>
         public const int SturdyHpPerHit = 35;
-        /// <summary>掉 1 次血之后的免掉间隔（秒）。</summary>
-        public const float SturdyHitInterval = 2f;
-        /// <summary>真实最大生命寄存键（COOK SF，随存档序列化）：
-        /// 次数血把 maxhp 字段改小了，读档时只能靠它还原真实上限。</summary>
+        /// <summary>伤害阈值：≤ 20 记 0，&gt; 20 记 1。</summary>
+        public const int SturdyDamageThreshold = 20;
+        /// <summary>受击后的无敌时长（帧，60fps 基准）：2 秒 = 120 帧。</summary>
+        public const float SturdyInvincibleFrames = 120f;
+        /// <summary>佩戴时寄存的"真实上限 / 真实血量"（COOK SF，随存档序列化）：
+        /// 伪次数血把 hp/maxhp 字段改小了，读档与"卸下还原"都只能靠它们。</summary>
         private const string SturdyRealMaxHpKey = "kic_noel_sturdy_maxhp";
+        private const string SturdyRealHpKey = "kic_noel_sturdy_hp";
 
         private static readonly FieldInfo PrHpField = AccessTools.Field(typeof(M2Attackable), "hp");
         private static readonly FieldInfo PrMaxHpField = AccessTools.Field(typeof(M2Attackable), "maxhp");
+        /// <summary>M2Attackable.NoDamage 是 protected 字段，用反射取。</summary>
+        private static readonly FieldInfo PrNoDamageField = AccessTools.Field(typeof(M2Attackable), "NoDamage");
 
         private static bool _noelSturdyActive;
         private static int _noelSturdyRealMaxHp = -1;
-        private static float _noelSturdyLastHitTime = -999f;
+        private static int _noelSturdyRealHp = -1;
 
-        /// <summary>次数血是否生效中。</summary>
+        /// <summary>伪次数血是否生效中。</summary>
         public static bool NoelSturdyActive => _noelSturdyActive;
 
-        /// <summary>读档/换存档后重置会话状态（SF 里的真实上限保留，下一次每帧 tick 会据此重新激活）。</summary>
+        /// <summary>读档/换存档后重置会话状态（SF 里寄存的真实值保留，下一次每帧 tick 会据此重新激活）。</summary>
         public static void ResetNoelSturdyOnLoad()
         {
             _noelSturdyActive = false;
             _noelSturdyRealMaxHp = -1;
-            _noelSturdyLastHitTime = -999f;
+            _noelSturdyRealHp = -1;
         }
 
-        /// <summary>次数血上限：floor(真实最大生命 / 45)，至少 1。</summary>
+        /// <summary>伪次数血上限：floor(真实最大生命 / 35)，至少 1。</summary>
         public static int SturdyHitMax(int realMaxHp)
         {
             return Mathf.Max(1, realMaxHp / SturdyHpPerHit);
@@ -235,9 +242,9 @@ namespace KnightInCradle.CharmUi
 
         /// <summary>
         /// 每帧维护（诺艾尔模式调用）：
-        /// - 装备状态变化时做"真值 ↔ 次数"换算（装备时 maxhp 变 floor(maxhp/45)、hp 按比例折算；
-        ///   卸下时按剩余次数折回真实生命）；
-        /// - 装备期间保证 maxhp == 次数上限、hp ∈ [0, maxhp]（被别处改写也拉回来）。
+        /// - 佩戴状态变化时立即换算：佩戴 → maxhp 变 floor(maxhp/35)、hp 按比例折算成次数；
+        ///   卸下 → 把佩戴时寄存的真实 hp/maxhp 原样写回；
+        /// - 佩戴期间保证 maxhp == 次数上限、hp ∈ [0, maxhp]（被别处改写也拉回来）。
         /// </summary>
         public static void TickNoelSturdyCharm(PRNoel pr)
         {
@@ -280,78 +287,91 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        /// <summary>进入次数血：真实上限记进 SF，字段换成次数量。</summary>
+        /// <summary>进入伪次数血：真实 hp/maxhp 寄存在 SF，字段换成次数。</summary>
         private static void ActivateNoelSturdy(PRNoel pr)
         {
             int savedRealMax = COOK.getSF(SturdyRealMaxHpKey);
+            int savedRealHp = COOK.getSF(SturdyRealHpKey);
+            bool fromSave = savedRealMax > 0;
             int realMax;
-            if (savedRealMax > 0)
+            int realHp;
+            if (fromSave)
             {
-                // 读档回到"已装备"状态：字段里已经是次数，真实上限从 SF 取回
+                // 读档回到"已佩戴"状态：字段里已经是次数，真实值从 SF 取回
                 realMax = savedRealMax;
+                realHp = savedRealHp;
             }
             else
             {
                 realMax = (int)PrMaxHpField.GetValue(pr);
+                realHp = (int)PrHpField.GetValue(pr);
                 if (realMax <= 0)
                 {
                     return;
                 }
                 COOK.setSF(SturdyRealMaxHpKey, Mathf.Clamp(realMax, 0, 255));
+                COOK.setSF(SturdyRealHpKey, Mathf.Clamp(realHp, 0, 255));
             }
             int hitMax = SturdyHitMax(realMax);
-            int hp = (int)PrHpField.GetValue(pr);
-            if (savedRealMax > 0)
+            int hp;
+            if (fromSave)
             {
-                hp = Mathf.Clamp(hp, 0, hitMax);
+                hp = Mathf.Clamp((int)PrHpField.GetValue(pr), 0, hitMax);
             }
             else
             {
-                // 首次装备：真实生命按比例折算成次数（还剩血就至少 1 次）
-                hp = Mathf.Clamp(Mathf.CeilToInt(hp * (float)hitMax / Mathf.Max(1, realMax)), 0, hitMax);
+                // 首次佩戴：当前血量按比例折算成次数（还剩血就至少 1 次）
+                hp = Mathf.Clamp(Mathf.CeilToInt(realHp * (float)hitMax / Mathf.Max(1, realMax)), 0, hitMax);
             }
             _noelSturdyRealMaxHp = realMax;
+            _noelSturdyRealHp = Mathf.Clamp(realHp, 0, realMax);
             PrMaxHpField.SetValue(pr, hitMax);
             PrHpField.SetValue(pr, hp);
             _noelSturdyActive = true;
-            _noelSturdyLastHitTime = -999f;
         }
 
-        /// <summary>退出次数血：按剩余次数折回真实生命，清掉寄存键。</summary>
+        /// <summary>退出伪次数血：把佩戴时寄存的真实 hp/maxhp 原样写回，清掉寄存键。</summary>
         private static void DeactivateNoelSturdy(PRNoel pr)
         {
             int realMax = _noelSturdyRealMaxHp > 0 ? _noelSturdyRealMaxHp : 150;
-            int hitMax = Mathf.Max(1, (int)PrMaxHpField.GetValue(pr));
-            int hits = Mathf.Clamp((int)PrHpField.GetValue(pr), 0, hitMax);
-            int realHp = Mathf.Clamp(Mathf.CeilToInt(hits * (float)realMax / hitMax), 0, realMax);
+            int realHp = _noelSturdyRealHp >= 0 ? _noelSturdyRealHp : realMax;
             PrMaxHpField.SetValue(pr, realMax);
-            PrHpField.SetValue(pr, realHp);
+            PrHpField.SetValue(pr, Mathf.Clamp(realHp, 0, realMax));
             COOK.setSF(SturdyRealMaxHpKey, 0);
+            COOK.setSF(SturdyRealHpKey, 0);
             _noelSturdyActive = false;
             _noelSturdyRealMaxHp = -1;
-            _noelSturdyLastHitTime = -999f;
+            _noelSturdyRealHp = -1;
         }
 
         /// <summary>
-        /// 护符3 坚硬外壳（诺艾尔专属）：把"一次伤害"固定变成掉 1 次血，且掉血后 2 秒内不再掉。
+        /// 护符3 坚硬外壳（诺艾尔专属）：受到的伤害 ≤ 20 记 0、&gt; 20 一律记 1；
+        /// 无论记成 0 还是 1，都立刻给诺艾尔 2 秒无敌（走 AIC 原生 `NoDamage`，
+        /// 后续伤害由游戏自己挡掉，而不是模组另做一套计时）。
         /// 挂在 `M2Attackable.applyHpDamage` 上——它是玩家受伤干线的最后一站
         /// （`M2PrADmg.applyHpDamageSimple` → `GSaver.applyHpDamage` → `Pr.applyHpDamage`），
         /// 只对本地诺艾尔生效，敌人/其它可攻击物不受影响。
         /// </summary>
         private static bool SturdyHpDamagePrefix(M2Attackable __instance, ref int val)
         {
-            if (!_noelSturdyActive || !(__instance is PRNoel) || val <= 0)
+            if (!_noelSturdyActive || !(__instance is PRNoel noel) || val <= 0)
             {
                 return true;
             }
-            float now = Time.unscaledTime;
-            if (now - _noelSturdyLastHitTime < SturdyHitInterval)
+            // ≤ 20 → 0；> 20 → 1
+            val = val <= SturdyDamageThreshold ? 0 : 1;
+            // 无论记成 0 还是 1，都立刻给 2 秒无敌
+            try
             {
-                val = 0; // 2 秒内：血量不再降低
-                return true;
+                if (PrNoDamageField != null &&
+                    PrNoDamageField.GetValue(noel) is M2NoDamageManager nd)
+                {
+                    nd.Add(SturdyInvincibleFrames);
+                }
             }
-            _noelSturdyLastHitTime = now;
-            val = 1;     // 一次伤害 = 掉 1 次
+            catch (Exception)
+            {
+            }
             return true;
         }
 

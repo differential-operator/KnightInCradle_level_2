@@ -2509,3 +2509,33 @@ for each 落地魔力 m in nM2D.Mana:
 > 即 150 上限 → 4 次、200 上限 → 5 次。其余机制与 22.1/22.2 完全不变。
 
 验证：`build=2026-09-22.12`，DLL SHA256 `3FD33ECE33C6EF3E…`（两份 0.30g 安装已同步；只覆盖 DLL，未动素材）。
+
+### 22.4 三稿：改为"**伪次数血**"（build=2026-09-22.13）
+
+用户重新定义了逻辑，**22.1～22.3 的规则作废**，以本节为准：
+
+| 项目 | 规则 |
+|---|---|
+| 佩戴瞬间 | `maxhp` 直接 `floor(maxhp / 35)`（至少 1）；当前 hp 按比例折算成次数（还剩血就至少 1 次） |
+| 伤害判定 | 前缀补丁（`M2Attackable.applyHpDamage`）：`val ≤ 20 → 0`，`val > 20 → 1` |
+| 受击之后 | 无论记成 0 还是 1，**立刻** `NoDamage.Add(120f)` —— 用 AIC 原生无敌系统给 2 秒全属性无敌。因此"2 秒内不会再掉血"由**游戏自己的无敌判定**实现，模组不再另做计时器 |
+| 卸下瞬间 | 把佩戴时寄存的真实 hp/maxhp **原样写回**（不再按剩余次数折算）；佩戴期间掉的血在卸下时被丢弃——这是用户要求的语义 |
+| 寄存 | 真实 hp / maxhp 写进 COOK SF 的 `kic_noel_sturdy_maxhp` / `kic_noel_sturdy_hp`（随存档序列化），卸下时清零 |
+| 读档 | `RestoreAfterLoad()` → `ResetNoelSturdyOnLoad()`；下一次每帧 tick 从 SF 取回真实值并重新激活（存档里的 hp 已经是次数量，直接沿用） |
+
+实现位置（全在 `src/CharmUi/CharmEffects.cs` 的"护符3 坚硬外壳"段）：
+
+- 常量：`SturdyHpPerHit = 35`、`SturdyDamageThreshold = 20`、`SturdyInvincibleFrames = 120f`（帧，60fps）；
+- `SturdyHpDamagePrefix`：伤害规则 + 给无敌；
+- `TickNoelSturdyCharm`：佩戴/卸下的即时换算与佩戴期间的钳制；
+- `PrNoDamageField`：`M2Attackable.NoDamage` 是 **protected** 字段（`unsafeAssem/m2d/M2Attackable.cs:1411`），用反射取；
+  无敌时长走 `M2NoDamageManager.Add(NDMG.DEFAULT, time)`，它会把 `active_bits |= 16383`（点亮全部 14 个 key）= 全属性无敌。
+
+注意事项：
+
+1. 阈值比较的是**最终伤害**（已经过 `MDAT.getPrDamageVal`、非满血减伤、`GSaver` 缓冲之后、传进 `applyHpDamage` 的那个值）；
+2. 记 0 的攻击**仍然会**打断凝聚/触发受击演出（我们只改血量，不改受击流程）；
+3. 无敌是全属性的，2 秒内连"原本可穿无敌"的少数攻击也进不来；
+4. 佩戴期间的回血最多补满到次数上限（`maxhp` 已经是次数），且卸下时会回到佩戴前的血量。
+
+验证：`build=2026-09-22.13`，DLL SHA256 `9851E3781ED44D3C…`（9,036,800 B，两份 0.30g 安装已同步；只覆盖 DLL，未动素材）。
