@@ -1245,13 +1245,15 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
-        /// 蜂群集结：破坏魔力草掉落的魔力**照常生成**（视觉/物理与原生一致），
-        /// 但只允许诺艾尔吸收 —— 把原生参数里的 EN 位剥掉即可，魔物与其它魔物都吸不到。
-        ///
-        /// 之后的两件事由别处接住：
-        /// - `ProtectCollectorMana()` 每帧把"超时后变成谁都能吸"的落地魔力重新剥掉 EN（原生第 229 行会 `|= ALL`）；
-        /// - `VacuumCollectorMana()` 负责"满魔力也吸"（原生在 `Target.getMpDesireRatio(...) >= 1f`
-        ///   且非 immediate_collect 时会放弃锁定，满魔力站着不动是吸不到的）。
+        /// 蜂群集结：破坏一棵魔力草直接给诺艾尔补的魔力值。
+        /// 需求（2026-09-22 用户定）：**不再生成落地魔力球**，直接回固定 50 MP，
+        /// 免得魔力球被魔物吸走（剥 EN 位在实际时序下仍可能被抢，索性不生成）。
+        /// </summary>
+        public const float CollectorManaWeedMp = 50f;
+
+        /// <summary>
+        /// 蜂群集结：破坏魔力草**跳过原生掉落**，直接把 50 MP 记到诺艾尔账上。
+        /// 诺艾尔不可用时兜底走"仅诺艾尔可吸"的原生落地魔力。
         /// </summary>
         private static bool ManaWeedSplashPrefix(M2ManaWeed __instance, ref MANA_HIT mana_hit,
             float cx, float cy)
@@ -1260,8 +1262,13 @@ namespace KnightInCradle.CharmUi
             {
                 return true;
             }
+            if (KnightInCradleBehaviour.GrantNoelMana(CollectorManaWeedMp))
+            {
+                return false; // 跳过原生实现：不生成落地魔力球
+            }
+            // 兜底（诺艾尔不可用）：仍走原生落地，但保持"仅诺艾尔可吸"
             mana_hit = (mana_hit & ~MANA_HIT.EN) | MANA_HIT.PR;
-            return true; // 仍然走原生实现：正常生成落地魔力
+            return true;
         }
 
         /// <summary>是否为蚂蟥/女王蚂蟥一族（含连接体变体）。</summary>

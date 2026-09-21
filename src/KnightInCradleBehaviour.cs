@@ -20,7 +20,7 @@ namespace KnightInCradle
         /// 构建标记：每次部署时手动更新，日志 `[KIC][补丁] build=…` 会打印；
         /// 配合后面的 `dll=路径 (文件时间)` 可以立刻确认游戏实际加载的是哪一份 DLL。
         /// </summary>
-        internal const string SelfBuildTag = "2026-09-22.6";
+        internal const string SelfBuildTag = "2026-09-22.7";
 
         private static bool _harmonyApplied;
         private static bool _seriousInitApplied; // 启动时是否已应用过一次布局（防止残留居中布局）
@@ -1397,40 +1397,61 @@ namespace KnightInCradle
         }
 
         /// <summary>
-        /// 蜂群集结：破坏魔力草掉落的魔力直接给后台诺艾尔吸收。
-        /// 骑士模式下诺艾尔 MP 字段每帧被 RestoreNoelSnapshot 拉回快照值，
-        /// 因此这里同时更新快照与真实字段，切回诺艾尔后魔力保留。
+        /// 蜂群集结：把魔力直接记到诺艾尔账上（破坏魔力草时 +50 MP，见
+        /// CharmEffects.CollectorManaWeedMp）。成功返回 true。
+        ///
+        /// - 骑士模式：诺艾尔 MP 字段每帧被 RestoreNoelSnapshot 拉回快照值，
+        ///   因此同时更新快照与真实字段，切回诺艾尔后魔力保留；
+        /// - 诺艾尔模式：直接用她的真实 hp/mp 字段（快照机制不参与，避免读到过期快照）。
         /// </summary>
-        public static void GrantNoelMana(float amount)
+        public static bool GrantNoelMana(float amount)
         {
             try
             {
                 if (amount <= 0f)
                 {
-                    return;
+                    return false;
                 }
                 PRNoel pr = GetPr();
                 if (pr == null)
                 {
-                    return;
+                    return false;
                 }
-                if (_noelSnapshotMaxMp < 0)
+                int maxMp;
+                int cur;
+                if (KnightInCradlePlugin.KnightModeActive)
                 {
-                    SnapshotNoelValues(pr);
+                    // 骑士模式：以快照为准（真实字段每帧会被拉回快照）
+                    if (_noelSnapshotMaxMp < 0)
+                    {
+                        SnapshotNoelValues(pr);
+                    }
+                    maxMp = _noelSnapshotMaxMp;
+                    if (maxMp < 0 && NoelMaxMpField != null)
+                    {
+                        maxMp = (int)NoelMaxMpField.GetValue(pr);
+                    }
+                    cur = _noelSnapshotMp >= 0 ? _noelSnapshotMp : 0;
+                    if (cur == 0 && NoelMpField != null)
+                    {
+                        cur = Mathf.Max(0, (int)NoelMpField.GetValue(pr));
+                    }
                 }
-                int maxMp = _noelSnapshotMaxMp;
-                if (maxMp < 0 && NoelMaxMpField != null)
+                else
                 {
-                    maxMp = (int)NoelMaxMpField.GetValue(pr);
+                    // 诺艾尔模式：直接读真实字段，并顺手把快照对齐，避免残留旧值
+                    maxMp = NoelMaxMpField != null
+                        ? (int)NoelMaxMpField.GetValue(pr)
+                        : (int)pr.get_maxmp();
+                    cur = NoelMpField != null
+                        ? (int)NoelMpField.GetValue(pr)
+                        : (int)pr.get_mp();
+                    _noelSnapshotMaxMp = maxMp;
+                    _noelSnapshotMp = cur;
                 }
                 if (maxMp <= 0)
                 {
-                    return;
-                }
-                int cur = _noelSnapshotMp >= 0 ? _noelSnapshotMp : 0;
-                if (cur == 0 && NoelMpField != null)
-                {
-                    cur = Mathf.Max(0, (int)NoelMpField.GetValue(pr));
+                    return false;
                 }
                 int newMp = Mathf.Min(maxMp, cur + Mathf.CeilToInt(amount));
                 _noelSnapshotMp = newMp;
@@ -1439,10 +1460,12 @@ namespace KnightInCradle
                     NoelMpField.SetValue(pr, newMp);
                 }
                 // 满 MP 也照常“吸收”（魔力被消耗、绝不落地给魔物），只是不加数值
+                return true;
             }
             catch (Exception)
             {
             }
+            return false;
         }
 
         private static void ForceNoelGone()
