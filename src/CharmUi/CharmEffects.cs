@@ -370,10 +370,7 @@ namespace KnightInCradle.CharmUi
                 {
                     return; // 不是诺艾尔放的法术
                 }
-                // "法术"的判据：消耗魔力的一律算（`MKind.getReduceMp` > 0）。
-                // 例外：**魔法霰弹（PR_SHOTGUN）** 吃的是蓄力魔力 `mp_hold`，没有 per-kind 的 reduce_mp
-                // （它的命中处理在 `M2PrSkill.cs:2149-2155`，靠 `mp_hold` 结算），所以单独放行。
-                if (MKind.getReduceMp(Mg.kind) <= 0 && Mg.kind != MGKIND.PR_SHOTGUN)
+                if (!IsPlayerMagicKind(Mg.kind))
                 {
                     return; // 不消耗魔力的攻击（普攻/技艺）不算魔法
                 }
@@ -385,6 +382,84 @@ namespace KnightInCradle.CharmUi
                 {
                     RefreshNoelHudMp();
                 }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 诺艾尔的"魔法"判据（灵魂捕手 / 萨满之石共用）：
+        /// 消耗魔力的一律算（`MKind.getReduceMp` &gt; 0）；
+        /// 例外是**魔法霰弹（PR_SHOTGUN）**——它吃的是蓄力魔力 `mp_hold`、没有 per-kind 的 reduce_mp
+        /// （命中处理见 `M2PrSkill.cs:2149-2155`），单独放行。
+        /// </summary>
+        private static bool IsPlayerMagicKind(MGKIND kind)
+        {
+            try
+            {
+                return MKind.getReduceMp(kind) > 0 || kind == MGKIND.PR_SHOTGUN;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        // ================= 护符5 萨满之石（诺艾尔侧：法术最终伤害 +25%） =================
+        /// <summary>法术伤害倍率（+25%）。</summary>
+        public const float ShamanDamageMult = 1.25f;
+
+        /// <summary>CircleCast 期间临时抬高的伤害值，调用结束原样还原（避免污染可复用的 Atk）。</summary>
+        private sealed class ShamanBoostState
+        {
+            public int Hp0;
+        }
+
+        /// <summary>
+        /// 护符5 萨满之石（**诺艾尔侧**）：诺艾尔用法术（含魔法霰弹）命中敌人时最终伤害 +25%。
+        ///
+        /// 做法：在法术命中汇聚点 `MGContainer.CircleCast` 的**前缀**里把这次攻击的基准伤害
+        /// `Atk.hpdmg0` 临时 ×1.25（`CircleCast` 内部会对每个命中目标用 `hpdmg0` 重算
+        /// `hpdmg_current`（`AttackInfo._hpdmg` = `hpdmg_current ?? hpdmg0`），所以从基准值入手
+        /// 能让**每个目标**都吃到加成；没走 shuffle 的路径直接用 `hpdmg0` 也同样被抬高），postfix 里原样还原，
+        /// 不会污染这一发法术复用/后续的伤害数据。只对诺艾尔模式 + 诺艾尔自己放的法术生效。
+        /// </summary>
+        private static void ShamanCircleCastPrefix(MagicItem Mg, NelAttackInfo Atk, ref ShamanBoostState __state)
+        {
+            __state = null;
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, ShamanId))
+                {
+                    return;
+                }
+                if (Mg == null || Atk == null || !(Mg.Caster is PRNoel) || !IsPlayerMagicKind(Mg.kind))
+                {
+                    return;
+                }
+                var st = new ShamanBoostState { Hp0 = Atk.hpdmg0 };
+                if (st.Hp0 > 0f)
+                {
+                    Atk.hpdmg0 = Mathf.FloorToInt(st.Hp0 * ShamanDamageMult + 0.5f);
+                }
+                __state = st;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>把 ↑ 临时抬高的伤害值还原。</summary>
+        private static void ShamanCircleCastPostfix(NelAttackInfo Atk, ShamanBoostState __state)
+        {
+            try
+            {
+                if (__state == null || Atk == null)
+                {
+                    return;
+                }
+                Atk.hpdmg0 = __state.Hp0;
             }
             catch (Exception)
             {
@@ -1181,6 +1256,14 @@ namespace KnightInCradle.CharmUi
                     harmony.Patch(circleCast, postfix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(SoulCatcherCircleCastPostfix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
+                    // 护符5 萨满之石（诺艾尔侧）：法术最终伤害 +25%（前缀抬高、后缀还原）
+                    harmony.Patch(circleCast,
+                        prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(ShamanCircleCastPrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)),
+                        postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(ShamanCircleCastPostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符12 坚固贪婪：击杀魔物掉落 5% 最大生命值的金币
                 MethodInfo enemyDie = AccessTools.Method(typeof(NelEnemy), "changeStateToDie");

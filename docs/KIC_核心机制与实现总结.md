@@ -2609,3 +2609,31 @@ st.redraw_bar_num = true;   // "hp/maxhp" 数字文本
 > 一次施法命中敌人结算一次（不按目标数）。
 
 验证：`build=2026-09-22.18`，DLL SHA256 `A1794DC616EDA274…`（两份安装已同步；只覆盖 DLL）。
+
+---
+
+## 24. 诺艾尔的护符第二部分（5）：萨满之石（2026-09-22，build=2026-09-22.20）
+
+**需求**：诺艾尔造成魔法伤害时，最终伤害 **+25%**（含魔法与**魔法霰弹**）。
+
+**实现**：复用 23 节建立的"法术判据"`IsPlayerMagicKind(kind)`（`MKind.getReduceMp > 0` 或 `PR_SHOTGUN`），
+在同一个汇聚点 `MGContainer.CircleCast` 上加一对**前缀/后缀**：
+
+```csharp
+// 前缀：把这一发的基准伤害临时抬高
+var st = new ShamanBoostState { Hp0 = Atk.hpdmg0 };
+if (st.Hp0 > 0) Atk.hpdmg0 = Mathf.FloorToInt(st.Hp0 * 1.25f + 0.5f);   // 与骑士侧 ScaleSpellDamage 同样的取整
+__state = st;
+// 后缀：原样还原，避免污染可复用的 Atk
+Atk.hpdmg0 = __state.Hp0;
+```
+
+**为什么改 `hpdmg0`（int 字段）而不是 `_hpdmg`**：
+`AttackInfo._hpdmg` 是**只读属性**（`unsafeAssem/m2d/AttackInfo.cs:48`），
+取值规则是 `hpdmg_current != -1000 ? hpdmg_current : hpdmg0`；
+而 `CircleCast` 对每个命中目标都会 `shuffleHpMpDmg(..., Atk.hpdmg0, ...)` 用 `hpdmg0` 重算 `hpdmg_current`
+（`:103`）。所以抬 `hpdmg0` 就能让**每个目标**的最终伤害都 +25%；没走 shuffle 的路径则直接读 `hpdmg0`，同样生效。
+
+只对**诺艾尔模式 + 诺艾尔放的法术**生效；小骑士侧的萨满之石仍是原来的 `ScaleSpellDamage`（+25%，走骑士自己的伤害计算），互不干扰。
+
+验证：`build=2026-09-22.20`，DLL SHA256 `16AFE190BB80604A…`（两份安装已同步；只覆盖 DLL）。
