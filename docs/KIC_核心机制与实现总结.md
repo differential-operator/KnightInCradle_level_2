@@ -2300,3 +2300,41 @@ if (!IsKnightMode || !IsEquipped(CompassId)) { return true; }   // 旧写法
 > 这部分等排到具体护符时再定方案。
 
 验证：`build=2026-09-22.4`，DLL SHA256 `0ACFD6CD68D41A87…`（9,034,752 B，两份 0.30g 安装已同步；只覆盖 DLL，未动素材）。
+
+### 21.5 蜂群集结（id 2）：自动拾取 / 蜂巢怪不打 / 魔力不会被怪捡走（build=2026-09-22.5）
+
+三个效果与小骑士一致。它们分布在 `CharmEffects` 的三处判定 + 三个"每帧维护"入口上，
+本轮**只改判定口径**（按当前操控角色）**+ 补上诺艾尔侧的每帧调用**，效果实现本身完全复用：
+
+| 效果 | 实现 | 本轮改动 |
+|---|---|---|
+| 蜂巢怪不打（蜂巢房间魔物中立） | `HiveNeutralActive()` + 三个补丁（`NAI.AwakeInit` 阻止苏醒、`NAI.set_AimPr` 阻止锁定、`Enemy.applyDamage` 攻击后 `TriggerHiveAggro()` 解除中立）+ 每帧 `ClearHiveEnemyAim()` | 判定由"骑士模式 + 已装备"改成 `IsEquippedForCurrentPlayer(...)`；攻击触发敌对那一处同样按当前角色 |
+| 魔力不会被怪捡走 | `CollectorManaGuardActive()` 门控两处：`M2ManaWeed.SplashMana` 前缀（破坏魔力草时魔力直接给诺艾尔、不生成落地魔力）+ 每帧 `ProtectCollectorMana()`（落地魔力超时后会变成"谁都能吸"，这里把它重新剥掉 EN） | 同一个判定函数改成按当前角色 |
+| 3 格内自动拾取 | `TickCollectorAutoPickup()`：沿用游戏自己的判据（`canTalkable` 已落地、`getItemCapacity` 放得下），走原生 `NelItemManager.executePickUp` | 拆出 `TickCollectorAutoPickup(px, footY)`，诺艾尔模式传她的坐标；原无参重载继续给骑士用 |
+
+**诺艾尔侧的每帧入口（本轮新增）**：骑士模式这三个"每帧维护"都在 `KnightEntity.Update` 里调用，
+诺艾尔模式没有对应调用点，因此在 `KnightInCradleBehaviour.Update` 加了 `TickNoelCharmEffects()`（`!_knightMode` 时执行）：
+
+```csharp
+if (!ReferenceEquals(pr.Mp, _noelCharmMap)) { _noelCharmMap = pr.Mp; CharmEffects.UpdateHiveRoom(pr.Mp); }
+CharmEffects.ProtectCollectorMana();       // ① 落地魔力保持"仅诺艾尔可吸"
+CharmEffects.ClearHiveEnemyAim();          // ② 中立期清除魔物锁定
+CharmEffects.TickCollectorAutoPickup(pr.x, pr.mbottom);   // ③ 自动拾取（按诺艾尔坐标）
+```
+
+关键点：**蜂巢房间标记**原来只在骑士换图分支里更新（`KnightEntity` 调 `CharmEffects.UpdateHiveRoom`），
+诺艾尔模式永远算不出"这是蜂巢房间"（`CurrentRoomIsHive` 恒为 false，中立效果就永远不会生效）；
+这里按"当前地图对象变化"检测换图并重算。**不能每帧重算**——`UpdateHiveRoom` 会顺带把"攻击后敌对"标记清掉，
+每帧调用等于让蜂巢魔物永远中立、打了也不还手。
+未装备护符时上述调用都立即返回，开销可忽略。
+
+**诺艾尔佩戴后的表现**：
+
+1. 蜂巢房间里魔物保持中立（不苏醒、不锁定她）；主动攻击其中一只 → 全房解除中立（与小骑士一致）；
+2. 破坏魔力草：魔力直接进诺艾尔（不生成落地魔力），魔物无论如何都吸不到；落地魔力超时后也不会变成"谁都能吸"；
+3. 3 格内已落地、且背包放得下的掉落物自动收入（拾取音效/粒子/背包路由与手动拾取完全一致），一帧最多一件。
+
+> 与小骑士的唯一差别：小骑士破坏魔力草时额外 +1 灵魂（`KnightAddSoul(5)` vs 4）是**小骑士资源**上的加成；
+> 诺艾尔侧对应的是魔力本身（原生就给她），因此没有也不需要这一项。
+
+验证：`build=2026-09-22.5`，DLL SHA256 `DC178558E5C5A21A…`（9,034,752 B，两份 0.30g 安装已同步；只覆盖 DLL，未动素材）。

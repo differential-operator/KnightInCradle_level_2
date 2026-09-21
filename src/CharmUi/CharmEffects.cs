@@ -183,14 +183,14 @@ namespace KnightInCradle.CharmUi
         /// <summary>蜂群集结/蜂巢之血：蜂巢房间内魔物处于中立状态（不主动攻击）。</summary>
         public static bool HiveNeutralActive()
         {
-            return IsKnightMode && (IsEquipped(CollectorId) || IsEquipped(HiveId)) && CurrentRoomIsHive &&
-                !_hiveAggroTriggered;
+            return (IsEquippedForCurrentPlayer(CollectorId) || IsEquippedForCurrentPlayer(HiveId)) &&
+                CurrentRoomIsHive && !_hiveAggroTriggered;
         }
 
         /// <summary>蜂群集结：魔力草掉落的魔力只能由诺艾尔吸收，魔物无法吸收。</summary>
         public static bool CollectorManaGuardActive()
         {
-            return IsKnightMode && IsEquipped(CollectorId);
+            return IsEquippedForCurrentPlayer(CollectorId);
         }
 
         /// <summary>萨满之石：法术伤害每段提升 25%（四舍五入取整）。</summary>
@@ -1489,12 +1489,26 @@ namespace KnightInCradle.CharmUi
         /// </summary>
         public static void TickCollectorAutoPickup()
         {
-            if (!CollectorManaGuardActive())
-            {
-                return; // 仅小骑士模式 + 已装备护符2
-            }
             KnightEntity k = KnightEntity.Instance;
             if (k == null || !k.IsActive || ImngODropField == null || ImngExecutePickUpMethod == null)
+            {
+                return;
+            }
+            TickCollectorAutoPickup(k.X, k.FootY);
+        }
+
+        /// <summary>
+        /// 自动拾取的实现（按传入角色的坐标判定距离）。
+        /// 小骑士模式由 <see cref="TickCollectorAutoPickup()"/> 传骑士坐标调用；
+        /// 诺艾尔模式由 Behaviour 传诺艾尔坐标调用（第二部分新增）。
+        /// </summary>
+        public static void TickCollectorAutoPickup(float px, float footY)
+        {
+            if (!CollectorManaGuardActive())
+            {
+                return; // 当前操控角色没装备护符2
+            }
+            if (ImngODropField == null || ImngExecutePickUpMethod == null)
             {
                 return;
             }
@@ -1524,7 +1538,6 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                float footY = k.FootY;
                 float r2 = CollectorPickupRadius * CollectorPickupRadius;
                 foreach (System.Collections.DictionaryEntry entry in drops)
                 {
@@ -1537,7 +1550,7 @@ namespace KnightInCradle.CharmUi
                     {
                         continue;
                     }
-                    float dx = dro.x - k.X;
+                    float dx = dro.x - px;
                     float dy = dro.y - footY;
                     if (dx * dx + dy * dy > r2)
                     {
@@ -1596,7 +1609,7 @@ namespace KnightInCradle.CharmUi
             if (Atk != null && Atk.Caster is PRNoel)
             {
                 // 只有蜂群集结会在攻击后全房敌对；蜂巢之血保持友好
-                if (HiveNeutralActive() && IsEquipped(CollectorId))
+                if (HiveNeutralActive() && IsEquippedForCurrentPlayer(CollectorId))
                 {
                     TriggerHiveAggro();
                 }
