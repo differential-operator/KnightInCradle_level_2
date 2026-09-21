@@ -2594,3 +2594,18 @@ st.redraw_bar_num = true;   // "hp/maxhp" 数字文本
 **多目标**：一次法术同时命中 3 个敌人 = 3 × 6 = 18 MP（按命中次数结算）。
 
 验证：`build=2026-09-22.17`，DLL SHA256 `779441964E5E1989…`（两份安装已同步；只覆盖 DLL）。
+
+> **二稿（同日，build=2026-09-22.18）——挂载点错了，已改**：
+> 实测纯白之箭 / 魔法霰弹 / 地面炸弹命中敌人**都不回魔**。
+> 原因：AIC 的法术伤害走的是 **3 参重载** `nelM2Attacker.applyDamage(Atk, ref hittype, false)`
+> （`MGContainer.CircleCast`，`MGContainer.cs:636`），而**26 个敌人子类各自 override 了这个虚方法**
+> （NelNSlime / NelNFox / NelNMush …），所以挂在 2 参入口 `NelEnemy.applyDamage(Atk, bool)` 上的补丁
+> 在法术路径上根本不会被调用。
+>
+> 改法：把补丁挂到**非虚的汇聚点** `MGContainer.CircleCast`（postfix，`MGContainer.cs:473`）——
+> `MgWhiteArrow` / `MgDropBomb` / `MgWaterShard` / `MgFireBall` / `MgBurst` … 全部走它。
+> "法术"的判据同时改为**游戏自己的魔力消耗表** `MKind.getReduceMp(Mg.kind) > 0`
+> （消耗魔力的一律算魔法，诺艾尔不耗魔的近战不算），命中判据用返回的 `HITTYPE.HITTED_EN`。
+> 一次施法命中敌人结算一次（不按目标数）。
+
+验证：`build=2026-09-22.18`，DLL SHA256 `A1794DC616EDA274…`（两份安装已同步；只覆盖 DLL）。

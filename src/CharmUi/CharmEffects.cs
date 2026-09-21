@@ -344,21 +344,21 @@ namespace KnightInCradle.CharmUi
         /// <summary>用法术命中敌人时立即回复的 MP。</summary>
         public const float SoulCatcherMp = 6f;
 
-        private static object _soulCatcherLastAtk;
-        private static int _soulCatcherLastFrame = -100;
-
         /// <summary>
         /// 护符4 灵魂捕手（**诺艾尔侧**）：诺艾尔用法术命中敌人时立刻回 6 MP。
         ///
-        /// "法术"的判据：这次攻击挂了 `PublishMagic`，且它的 kind 属于**诺艾尔的法术段**
-        /// （`MGKIND` 0..FLOWERYCIRCLE：WHITEARROW / FIREBALL / DROPBOMB / THUNDERBOLT /
-        /// POWERBOMB / WATERSHARD / BLACKHOLE / FLOWERYCIRCLE）；她的物理技在 `PR_*` 段（9000+），不算。
+        /// **挂载点**：`MGContainer.CircleCast` 的 postfix —— 它是 AIC 里法术命中的汇聚点
+        /// （`MGContainer.cs:473`，内部对每个命中目标调 `nelM2Attacker.applyDamage(Atk, ref hittype, false)`）。
+        /// 不能挂敌人受伤入口：法术走的是 **3 参重载**，而 26 个敌人子类各自 override 了它，
+        /// 挂在基类上不会被虚分派调用（这正是"命中了却没有回魔"的原因）。
         ///
-        /// 只在**诺艾尔模式**结算：骑士模式里小骑士的攻击也把 Caster 设成诺艾尔，
-        /// 不隔离的话会连带改变小骑士那套（小骑士的灵魂捕手是另一套实现）。
-        /// 同一次命中同一帧只结算一次。
+        /// **"法术"的判据**用游戏自己的魔力消耗表：`MKind.getReduceMp(kind) > 0`
+        /// —— 消耗魔力的一律算魔法（纯白之箭/魔法霰弹/地面炸弹等），诺艾尔不耗魔的近战不算。
+        ///
+        /// 只在**诺艾尔模式**结算（骑士模式里小骑士的攻击 Caster 也是诺艾尔，需隔离）；
+        /// 一次施法命中敌人结算一次（按"施法命中"计，不按目标数）。
         /// </summary>
-        private static void TryGrantSoulCatcherMp(NelAttackInfo Atk)
+        private static void SoulCatcherCircleCastPostfix(MagicItem Mg, ref HITTYPE __result)
         {
             try
             {
@@ -366,17 +366,18 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                MagicItem mg = Atk.PublishMagic;
-                if (mg == null || (int)mg.kind >= (int)MGKIND.PR_PUNCH)
+                if (Mg == null || !(Mg.Caster is PRNoel))
                 {
-                    return; // 不是法术（近战/技艺）
+                    return; // 不是诺艾尔放的法术
                 }
-                if (ReferenceEquals(_soulCatcherLastAtk, Atk) && _soulCatcherLastFrame == Time.frameCount)
+                if (MKind.getReduceMp(Mg.kind) <= 0)
                 {
-                    return; // 同一帧同一次命中只给一次
+                    return; // 不消耗魔力的攻击（普攻/技艺）不算魔法
                 }
-                _soulCatcherLastAtk = Atk;
-                _soulCatcherLastFrame = Time.frameCount;
+                if ((__result & HITTYPE.HITTED_EN) == HITTYPE.NONE)
+                {
+                    return; // 这一发没打中敌人
+                }
                 if (KnightInCradleBehaviour.GrantNoelMana(SoulCatcherMp))
                 {
                     RefreshNoelHudMp();
@@ -1167,6 +1168,17 @@ namespace KnightInCradle.CharmUi
                         typeof(CharmEffects).GetMethod(nameof(SturdyHpDamagePrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
+                // 护符4 灵魂捕手（诺艾尔侧）：法术命中敌人 → 回 6 MP。
+                // 挂 MGContainer.CircleCast（非虚的"法术命中"汇聚点）的 postfix：
+                // 法术伤害走的是 applyDamage 的 3 参重载，而敌人子类普遍 override 了它，
+                // 挂基类虚方法不会被调用。
+                MethodInfo circleCast = AccessTools.Method(typeof(MGContainer), "CircleCast");
+                if (circleCast != null)
+                {
+                    harmony.Patch(circleCast, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(SoulCatcherCircleCastPostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
                 // 护符12 坚固贪婪：击杀魔物掉落 5% 最大生命值的金币
                 MethodInfo enemyDie = AccessTools.Method(typeof(NelEnemy), "changeStateToDie");
                 if (enemyDie != null)
@@ -1927,8 +1939,6 @@ namespace KnightInCradle.CharmUi
                 {
                     TryFarmAnimalDrop(__instance);
                 }
-                // 护符4 灵魂捕手（诺艾尔侧）：用法术命中敌人 → 立刻回 6 MP
-                TryGrantSoulCatcherMp(Atk);
             }
         }
 
