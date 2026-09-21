@@ -1246,13 +1246,15 @@ namespace KnightInCradle.CharmUi
 
         /// <summary>
         /// 蜂群集结：破坏一棵魔力草直接给诺艾尔补的魔力值。
-        /// 需求（2026-09-22 用户定）：**不再生成落地魔力球**，直接回固定 50 MP，
+        /// 需求（2026-09-22 用户定）：**不再生成落地魔力球**，直接回固定 30 MP，
         /// 免得魔力球被魔物吸走（剥 EN 位在实际时序下仍可能被抢，索性不生成）。
+        /// 数值参考原生：一棵草的原生总量是 `(20 + xors(11)) × ManaWeedRatio()` ≈ 20~30（还会随夜间比例缩放）。
+        /// 注意是**每棵草**结算一次：一次攻击同时打到多棵草就按棵数累加。
         /// </summary>
-        public const float CollectorManaWeedMp = 50f;
+        public const float CollectorManaWeedMp = 30f;
 
         /// <summary>
-        /// 蜂群集结：破坏魔力草**跳过原生掉落**，直接把 50 MP 记到诺艾尔账上。
+        /// 蜂群集结：破坏魔力草**跳过原生掉落**，直接把 30 MP 记到诺艾尔账上。
         /// 诺艾尔不可用时兜底走"仅诺艾尔可吸"的原生落地魔力。
         /// </summary>
         private static bool ManaWeedSplashPrefix(M2ManaWeed __instance, ref MANA_HIT mana_hit,
