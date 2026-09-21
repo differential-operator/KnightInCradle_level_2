@@ -553,8 +553,8 @@ namespace KnightInCradle.CharmUi
         /// <summary>剑气判定箱（世界单位）——与小骑士一致。</summary>
         public const float ElegyHitboxW = 2.0f;
         public const float ElegyHitboxH = 1.4f;
-        /// <summary>剑气伤害：**真实伤害**（`fix_damage`，不按非满血减伤打折）。（2026-09-22 三稿：20 → 30）</summary>
-        public const int ElegyDamage = 30;
+        /// <summary>剑气伤害：**真实伤害**（`fix_damage`，不按非满血减伤打折）。（2026-09-22 四稿：30 → 18）</summary>
+        public const int ElegyDamage = 18;
         /// <summary>剑气贴图（与小骑士同款）。</summary>
         public const string ElegySprite = "slashes_effect0001";
         /// <summary>剑气渲染尺寸系数（取小骑士 `SlashFxScale` 的同一数值，保证"大小一致"）。</summary>
