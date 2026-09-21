@@ -422,6 +422,76 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        // ================= 护符7 冲刺大师（诺艾尔侧） =================
+        /// <summary>佩戴后跑步速度倍率（需求：降低 20%）。</summary>
+        public const float DashmasterRunSpeedMult = 0.8f;
+
+        private static readonly FieldInfo MoverRunSpeedField = AccessTools.Field(typeof(M2MoverPr), "runSpeed");
+
+        private static bool _noelDashmasterActive;
+        private static float _noelDashmasterRunSpeedOrig = -1f;
+
+        /// <summary>每帧维护（诺艾尔模式调用）：佩戴期间把跑步速度压到 80%，卸下/切模式时还原。</summary>
+        public static void TickNoelDashmasterCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null || MoverRunSpeedField == null)
+                {
+                    return;
+                }
+                bool want = !IsKnightMode && IsEquipped(CharmOwner.Noel, DashmasterId);
+                if (want)
+                {
+                    float cur = (float)MoverRunSpeedField.GetValue(pr);
+                    if (!_noelDashmasterActive)
+                    {
+                        _noelDashmasterActive = true;
+                        _noelDashmasterRunSpeedOrig = cur;
+                    }
+                    float target = _noelDashmasterRunSpeedOrig * DashmasterRunSpeedMult;
+                    if (Mathf.Abs(cur - target) > 0.0001f)
+                    {
+                        MoverRunSpeedField.SetValue(pr, target);
+                    }
+                }
+                else if (_noelDashmasterActive)
+                {
+                    if (_noelDashmasterRunSpeedOrig > 0f)
+                    {
+                        MoverRunSpeedField.SetValue(pr, _noelDashmasterRunSpeedOrig);
+                    }
+                    _noelDashmasterActive = false;
+                    _noelDashmasterRunSpeedOrig = -1f;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 冲刺大师：佩戴期间诺艾尔"始终按跑步移动"，即把 `M2MoverPr.isRunning()` 强制为 true。
+        /// AIC 里跑/走的两处判据都读它：
+        /// ① 速度：`calcWalkSpeed` → `isRunning() ? runSpeed : walkSpeed`（`M2MoverPr.cs:1477`）；
+        /// ② 姿势：`AnimationShufflerNoel` → `isRunning() ? "run" : "walk"`（`AnimationShufflerNoel.cs:677`）。
+        /// 因此这一条同时满足"走路动画换成跑步动画"与"移动一律按跑步结算"。
+        /// 只对本地诺艾尔生效，敌人不受影响。
+        /// </summary>
+        private static void DashmasterIsRunningPostfix(M2MoverPr __instance, ref bool __result)
+        {
+            try
+            {
+                if (_noelDashmasterActive && !IsKnightMode && __instance is PRNoel)
+                {
+                    __result = true;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         // ================= 护符5 萨满之石（诺艾尔侧：法术最终伤害 +25%） =================
         /// <summary>法术伤害倍率（+25%）。</summary>
         public const float ShamanDamageMult = 1.25f;
@@ -1088,7 +1158,6 @@ namespace KnightInCradle.CharmUi
             CurrentRoomIsHive = mp != null && mp.key != null &&
                 mp.key.IndexOf("honey", StringComparison.OrdinalIgnoreCase) >= 0;
             _hiveAggroTriggered = false; // 换房后重新中立
-            _hiveOdDiagLogged.Clear();   // 换房后诊断去重也重置
         }
 
         /// <summary>
@@ -1273,6 +1342,14 @@ namespace KnightInCradle.CharmUi
                     harmony.Patch(circleCast, postfix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(SoulCharmCircleCastPostfix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
+                    // 护符7 冲刺大师（诺艾尔侧）：强制"始终跑步"（速度与姿势共用这个判据）
+                    MethodInfo isRunning = AccessTools.Method(typeof(M2MoverPr), "isRunning");
+                    if (isRunning != null)
+                    {
+                        harmony.Patch(isRunning, postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(DashmasterIsRunningPostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
                     // 护符5 萨满之石（诺艾尔侧）：法术最终伤害 +25%（前缀抬高、后缀还原）
                     harmony.Patch(circleCast,
                         prefix: new HarmonyMethod(
@@ -1729,7 +1806,6 @@ namespace KnightInCradle.CharmUi
             {
                 // 例外：即将因雷雨变成"汚染体（OverDrive）"的魔物**必须先苏醒**才能转化，
                 // 一直压着不苏醒会导致它永远不转化、也打不动（实测 bug）。
-                LogHiveOdDiag(__instance.En);
                 if (WillThunderOverdrive(__instance.En))
                 {
                     return true;
@@ -1764,32 +1840,6 @@ namespace KnightInCradle.CharmUi
             catch (Exception)
             {
                 return false;
-            }
-        }
-
-        /// <summary>诊断用：每个魔物只打一行（换房清空），用来确认"雷雨汚染候选"的字段状态。</summary>
-        private static readonly HashSet<NelEnemy> _hiveOdDiagLogged = new HashSet<NelEnemy>();
-
-        private static void LogHiveOdDiag(NelEnemy en)
-        {
-            try
-            {
-                if (en == null || !_hiveOdDiagLogged.Add(en))
-                {
-                    return;
-                }
-                OverDriveManager od = en.getOdManager();
-                bool cand = od != null && od.thunder_overdrive;
-                KnightInCradlePlugin.PluginLog?.LogInfo(
-                    "[KIC][蜂巢中立] " + en.GetType().Name + " id=" + en.id +
-                    " OD管理器=" + (od != null ? "有" : "无") +
-                    " 雷雨汚染候选=" + (cand ? "是" : "否") +
-                    " 已汚染=" + (en.isOverDrive() ? "是" : "否") +
-                    " 已苏醒=" + (en.is_awaken ? "是" : "否") +
-                    " 房间=" + ((en.Mp != null && en.Mp.key != null) ? en.Mp.key : "?"));
-            }
-            catch (Exception)
-            {
             }
         }
 

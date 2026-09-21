@@ -2492,6 +2492,10 @@ if (HiveNeutralActive())
 
 验证：`build=2026-09-22.22`，DLL SHA256 `FD8CA789BA9586DA…`（两份安装已同步；只覆盖 DLL）。
 
+> **八稿修正（同日，build=2026-09-22.23）**：一稿只放行"苏醒"仍不转化，改为**把汚染候选整体排除在中立之外**
+> （放行苏醒 + 放行锁定目标 + 每帧 `ClearHiveEnemyAim` 跳过它），实测转化恢复正常；
+> 当时的诊断日志已在 2026-09-22.24 删除（本功能不再有任何日志）。
+
 ---
 
 ## 22. 诺艾尔的护符第二部分（3）：坚硬外壳 —— 次数血（2026-09-22，build=2026-09-22.11）
@@ -2665,3 +2669,31 @@ Atk.hpdmg0 = __state.Hp0;
 只对**诺艾尔模式 + 诺艾尔放的法术**生效；小骑士侧的萨满之石仍是原来的 `ScaleSpellDamage`（+25%，走骑士自己的伤害计算），互不干扰。
 
 验证：`build=2026-09-22.20`，DLL SHA256 `16AFE190BB80604A…`（两份安装已同步；只覆盖 DLL）。
+
+---
+
+## 25. 诺艾尔的护符第二部分（7）：冲刺大师（2026-09-22，build=2026-09-22.24）
+
+**需求**：① 走路的动画换成跑步动画；② 佩戴期间诺艾尔的移动一律按跑步；③ 跑步速度降低 20%。
+
+**实现**：AIC 里"跑 vs 走"的两处判据都读 `M2MoverPr.isRunning()`：
+
+| 用途 | 出处 |
+|---|---|
+| 速度 | `calcWalkSpeed`：`isRunning() ? runSpeed : walkSpeed`（`unsafeAssem/m2d/M2MoverPr.cs:1477`） |
+| 姿势 | `AnimationShufflerNoel`：`isRunning() ? "run" : "walk"`（`nel/AnimationShufflerNoel.cs:677`） |
+
+所以做法只有两条：
+
+1. **强制"始终跑步"**：`M2MoverPr.isRunning()` 上挂 postfix，佩戴期间对本地诺艾尔直接 `__result = true`
+   （同时满足需求 ① 动画与 ② 移动）；
+2. **跑速 -20%**：`runSpeed` 是 `M2MoverPr` 的 protected 字段，用反射在**每帧 tick**里钳到
+   `原值 × 0.8`（原值在佩戴瞬间寄存，卸下/切模式还原）。
+
+```csharp
+public const float DashmasterRunSpeedMult = 0.8f;   // 0.17 → 0.136，仍快于走路 0.085
+```
+
+只对诺艾尔模式 + 本地诺艾尔生效（`__instance is PRNoel`），敌人/其它 mover 不受影响。
+
+验证：`build=2026-09-22.24`，DLL SHA256 `14EF47AEB1EB4799…`（两份安装已同步；只覆盖 DLL）。
