@@ -20,7 +20,7 @@ namespace KnightInCradle
         /// 构建标记：每次部署时手动更新，日志 `[KIC][补丁] build=…` 会打印；
         /// 配合后面的 `dll=路径 (文件时间)` 可以立刻确认游戏实际加载的是哪一份 DLL。
         /// </summary>
-        internal const string SelfBuildTag = "2026-09-20.7";
+        internal const string SelfBuildTag = "2026-09-22.1";
 
         private static bool _harmonyApplied;
         private static bool _seriousInitApplied; // 启动时是否已应用过一次布局（防止残留居中布局）
@@ -134,10 +134,16 @@ namespace KnightInCradle
                 ToggleCharmUi();
             }
 
-            // 护符 UI 每帧驱动：刷新坐姿状态；小骑士模式退出时自动关闭
+            // 护符 UI 每帧驱动：刷新坐姿状态；编辑对象离开对应模式时自动关闭
+            // （小骑士护符只在骑士模式显示，诺艾尔护符只在诺艾尔模式显示）
             if (_charmUiController != null)
             {
-                if (!_knightMode || KnightEntity.Instance == null)
+                CharmOwner uiOwner = _charmUiController.Owner;
+                PRNoel prUi = GetPr();
+                bool ownerValid = uiOwner == CharmOwner.Knight
+                    ? (_knightMode && KnightEntity.Instance != null)
+                    : (!_knightMode && prUi != null);
+                if (!ownerValid)
                 {
                     if (_charmUiController.IsOpen)
                     {
@@ -150,7 +156,9 @@ namespace KnightInCradle
                 }
                 else
                 {
-                    _charmUiController.RefreshSitting(KnightEntity.Instance.IsSitting);
+                    _charmUiController.RefreshSitting(uiOwner == CharmOwner.Knight
+                        ? KnightEntity.Instance.IsSitting
+                        : (prUi != null && prUi.isBenchState()));
                     _charmUiController.Update();
                 }
             }
@@ -330,7 +338,10 @@ namespace KnightInCradle
         }
 
         /// <summary>
-        /// 护符 UI 开关：仅在小骑士模式且游戏内可打开；
+        /// 护符 UI 开关。两套护符互相独立、互不影响：
+        ///   - 小骑士模式 → 编辑小骑士的护符（原有行为）
+        ///   - 诺艾尔模式 → 编辑诺艾尔的护符（"诺艾尔的护符"第一部分）
+        /// 两边规则一致：随时可以打开，但只有坐在长椅上才能装配/卸下。
         /// 首次打开时加载布局并创建控制器，之后切换显示/隐藏。
         /// </summary>
         private void ToggleCharmUi()
@@ -345,30 +356,61 @@ namespace KnightInCradle
                     return;
                 }
 
-                // 门控：只有进入存档且小骑士模式、未死亡才能打开
-                if (!_knightMode || KnightEntity.Instance == null || KnightEntity.Instance.IsDead)
+                // 归属 + 坐姿来源：骑士模式取小骑士，诺艾尔模式取诺艾尔本体
+                CharmOwner owner;
+                bool sitting;
+                if (_knightMode)
+                {
+                    KnightEntity k = KnightEntity.Instance;
+                    if (k == null || k.IsDead)
+                    {
+                        return; // 小骑士死亡/未生成时不打开
+                    }
+                    owner = CharmOwner.Knight;
+                    sitting = k.IsSitting;
+                }
+                else
+                {
+                    PRNoel pr = GetPr();
+                    if (pr == null || !pr.is_alive || pr.get_hp() <= 0)
+                    {
+                        return; // 诺艾尔未生成/死亡时不打开
+                    }
+                    owner = CharmOwner.Noel;
+                    // 诺艾尔"坐着"= AIC 原生长椅状态（BENCH / BENCH_LOADAFTER / BENCH_ONNIE）
+                    sitting = pr.isBenchState();
+                }
+
+                if (!EnsureCharmUiCreated())
                 {
                     return;
                 }
-
-                if (_charmUiLayer == null)
-                {
-                    string dir = Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "charm_ui");
-                    _charmUiLayer = CharmUiOnGuiLayer.Create(gameObject, dir);
-                    if (_charmUiLayer == null)
-                    {
-                        return;
-                    }
-                    _charmUiController = new CharmUiController(_charmUiLayer);
-                    _charmUiLayer.Controller = _charmUiController;
-                }
-                _charmUiController.RefreshSitting(KnightEntity.Instance.IsSitting);
+                _charmUiController.SetOwner(owner);
+                _charmUiController.RefreshSitting(sitting);
                 _charmUiController.Open();
                 _charmUiLayer.SetVisible(true);
             }
             catch (Exception)
             {
             }
+        }
+
+        /// <summary>首次需要时创建护符 UI 渲染层与控制器（两套护符共用同一套 UI）。</summary>
+        private bool EnsureCharmUiCreated()
+        {
+            if (_charmUiLayer != null && _charmUiController != null)
+            {
+                return true;
+            }
+            string dir = Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "charm_ui");
+            _charmUiLayer = CharmUiOnGuiLayer.Create(gameObject, dir);
+            if (_charmUiLayer == null)
+            {
+                return false;
+            }
+            _charmUiController = new CharmUiController(_charmUiLayer);
+            _charmUiLayer.Controller = _charmUiController;
+            return true;
         }
 
         private static void ApplySeriousMode()

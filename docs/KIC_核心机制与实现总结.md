@@ -2084,3 +2084,74 @@ mtr_noel_milk 0 3 4 {          // <key> <Rarely> <Price> <スタック最大>
 
 验证：`build=2026-09-20.7`，DLL SHA256 `67EFACBDA9BBBAAF…`（两份 0.30g 安装已同步）。
 实测：装备护符2 → 切小骑士 → 打死史莱姆/剑山后走到 3 格内，掉落物应自己飞到背包。
+
+---
+
+## 20. "诺艾尔的护符"第一部分：诺艾尔也能装/卸护符（2026-09-22，build=2026-09-22.1）
+
+**主题**：让诺艾尔也拥有一套独立的护符（装配/卸下界面先做，**效果留到第二部分**）。
+总目标（用户原话要点）：诺艾尔坐在椅子上能打开护符界面、选择装配或卸下，并获得对应效果；
+**诺艾尔与小骑士的护符互相独立**。
+
+### 20.1 本部分范围（已实现）
+
+1. 诺艾尔模式下按 **O**（`Keybinds/CharmUi`）打开护符界面——**随时能开**；
+2. 只有**坐在长椅上**才能装配/卸下（与小骑士规则一致）；
+3. 诺艾尔的装备列表写入**独立的存档命名空间**，与小骑士互不干扰；
+4. **护符效果暂未实现**（第二部分）：本部分只保证"装得上、存得下、两边不串"。
+
+### 20.2 设计
+
+| 决策 | 做法 | 原因 |
+|---|---|---|
+| 复用同一套界面 | 不新做 UI：`CharmUiOnGuiLayer`（`charm_ui/layout.json` 建的 UGUI Canvas）+ `CharmUiController` 整套复用 | 800+1059 行 UI/交互逻辑零复制，行为天然一致 |
+| 归属（owner）概念 | 新增 `CharmOwner { Knight, Noel }`；`CharmUiController.Owner` + `SetOwner(owner)`——切换前先把当前列表写回原归属，再读入目标归属 | 同一个控制器轮流编辑两套装备 |
+| 两套存档 | 小骑士沿用 `kic_charm_slot0..10`（**格式不变，向后兼容**）；诺艾尔用 `kic_noel_charm_slot0..10` | 天然互相独立；旧存档不受影响 |
+| 双快照 | `CharmSave` 同时缓存两套列表（`_equipped` / `_equippedNoel`），读档时两套一起恢复 | UI 没打开时护符效果也能立即生效（与小骑士现有做法一致） |
+| 诺艾尔"坐着" | `PRNoel.isBenchState()`（= `PR.STATE.BENCH` / `BENCH_LOADAFTER` / `BENCH_ONNIE`，见 `PR.cs:5653`） | 直接复用 AIC 自己的长椅状态，不另造判定 |
+| 与原生长椅菜单共存 | **叠加**（用户选的方案 a）：护符界面盖在原生长椅菜单之上，`CharmUiInputPatch` 已屏蔽 40+ 个 `IN.*`，原生长椅菜单的输入被一并冻结；关闭后继续用原生长椅菜单 | 改动最小；做成原生长椅菜单项（方案 b）留作后续可选增强 |
+| 归属失效自动关 | 每帧检查：小骑士护符只在骑士模式显示，诺艾尔护符只在诺艾尔模式显示；模式切换/对象消失即关闭 | 原来的"退出骑士模式就关"改成按归属判断 |
+
+### 20.3 刻意不做的部分（避免两边串味）
+
+以下都是**小骑士侧**的概念/状态，诺艾尔界面上不显示、也不会被改动：
+
+- **束缚（寻神者自限）**：`IsGgSelectorShown` 只在 `Owner == Knight` 时为真（`kic_gg_*` 是全局键）；
+- **格林之子 ↔ 无忧旋律变体**（T 键）：仅在编辑小骑士护符时生效，`ApplySavedVariant()` 对诺艾尔直接返回；
+- **坚固贪婪的背包容量**（`SyncGreedCapacity` / `CanUnequipGreed`）：诺艾尔装卸不触发；
+- **装配后的血量联动**（坚固心脏/生命血/乔尼的祝福回血）：`TryToggleEquip` 里诺艾尔分支提前返回，不碰小骑士血量。
+
+另外修了一处会被"双归属"暴露的隐患：`CharmEffects.IsEquipped` 原来无条件读控制器的 `EquippedIds`——
+一旦控制器正停在诺艾尔那一侧，小骑士的护符效果就会误读诺艾尔的列表。现在只在 `Owner == Knight` 时读控制器，
+否则读小骑士快照（`CharmSave.HasEquipped(CharmOwner.Knight, id)`）。
+
+### 20.4 改动文件
+
+| 文件 | 改动 |
+|---|---|
+| `src/CharmUi/CharmSave.cs` | 新增 `CharmOwner` 枚举；全部接口加 owner 重载（`ReadEquipped/WriteEquipped/SyncFromController/HasEquipped/EquippedSnapshotFor`）；`RestoreAfterLoad` 恢复两套；`KeyPrefix` 拆成 `kic_charm_slot` / `kic_noel_charm_slot` |
+| `src/CharmUi/CharmUiController.cs` | 新增 `Owner` + `SetOwner(owner)`；三处装配写盘点改 owner-aware；GG 选择器/变体槽/坚固贪婪/血量联动改为小骑士专属 |
+| `src/KnightInCradleBehaviour.cs` | `ToggleCharmUi()` 按模式决定归属与坐姿来源（诺艾尔用 `isBenchState()`）；抽出 `EnsureCharmUiCreated()`；每帧维护块改为按归属判断 + 按归属取坐姿 |
+| `src/CharmUi/CharmEffects.cs` | `IsEquipped` 只认小骑士侧列表（见 20.3 的隐患修复） |
+
+### 20.5 验证方法
+
+1. 进游戏（**诺艾尔模式**，不要切小骑士）→ 按 **O**：护符界面应打开，已装备栏只有虚空之心（首次）；
+2. 站在长椅旁坐下（AIC 原生长椅菜单出现）→ 按 **O** → 界面盖在长椅菜单上 → 用方向键选中护符 → 确认装配：
+   - 坐着才能装/卸；不坐时按确认不动（`_sitting` 门控）；
+3. 装几个护符 → 起身 → 再按 O：刚才的装备仍在（内存快照）；
+4. 关闭界面 → 存档 → 读档 → 再按 O：诺艾尔的装备应当恢复（`kic_noel_charm_slot*`）；
+5. **独立性检查**：切到小骑士（T）按 O，小骑士的装备列表应与诺艾尔完全不同；反复切换互不影响；
+6. 日志确认身份：`[KIC][补丁] KnightInCradle build=2026-09-22.1 提交=… 71 成功 / 0 失败 dll=…`。
+
+> 注意：本部分诺艾尔装配**不产生任何效果**（不进小骑士的 `CharmEffects`），所以"装上坚固力量打怪伤害没变"是预期行为。
+
+### 20.6 第二部分待办
+
+1. 让诺艾尔读取 `kic_noel_charm_slot*` 产生效果（需要一个"诺艾尔视角"的效果查询入口，例如 `CharmEffects.IsEquipped(CharmOwner, id)`）；
+2. "事件"式解锁：完成特定任务才能解锁某些护符；按开启宝箱数提升护符槽上限（现在槽位是常量 `CharmDatabase.NotchCapacity = 11`，
+   需要改成可变量，并让 UI 的槽位点数/超载判定一起跟）；
+3. 诺艾尔专属护符（若要做，`CharmDatabase` 需要给 `CharmData` 加"归属/解锁条件"字段）。
+
+验证：`build=2026-09-22.1`，DLL SHA256 `DB5A9F8D9DEA22C2…`（9,034,240 B，两份 0.30g 安装已同步；
+**本次只覆盖 DLL，未动 `assets/hk`**，两份安装的素材集仍是 2005 个文件，联机下标表不受影响）。

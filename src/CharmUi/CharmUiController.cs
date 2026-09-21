@@ -62,6 +62,34 @@ namespace KnightInCradle.CharmUi
             MoveCursorTo(0, 0);
         }
 
+        /// <summary>当前编辑的护符归属（小骑士 / 诺艾尔）。两边的列表与存档命名空间互相独立。</summary>
+        public CharmOwner Owner { get; private set; } = CharmOwner.Knight;
+
+        /// <summary>
+        /// 切换当前编辑的归属：先把当前列表写回原归属的存档命名空间与快照，
+        /// 再把目标归属的列表读进来（优先用内存快照，其次读存档槽位）。
+        /// 由 KnightInCradleBehaviour 在打开界面前调用。
+        /// </summary>
+        public void SetOwner(CharmOwner owner)
+        {
+            if (Owner == owner)
+            {
+                return;
+            }
+            try
+            {
+                CharmSave.WriteEquipped(Owner);
+                CharmSave.SyncFromController(Owner);
+            }
+            catch (Exception)
+            {
+            }
+            Owner = owner;
+            IReadOnlyList<int> snap = CharmSave.EquippedSnapshotFor(owner);
+            List<int> saved = snap.Count > 0 ? new List<int>(snap) : CharmSave.ReadEquipped(owner);
+            ApplyEquippedFromSave(saved);
+        }
+
         public bool IsOpen => _open || _closing;
         public bool IsSitting => _sitting;
         public List<int> EquippedIds => _equippedIds;
@@ -80,7 +108,10 @@ namespace KnightInCradle.CharmUi
         /// <summary>sign 点击的 UI 震动幅度（像素；0=不震）。</summary>
         public float SignShake => _signShake;
         /// <summary>寻神者模式选择器是否已解锁显示（sign 第 4 次点击后）。</summary>
-        public bool IsGgSelectorShown => COOK.getSF(GgClicksKey) >= 4;
+        /// <summary>束缚（寻神者自限）选择器：绑定的是小骑士侧的自限状态（kic_gg_*），
+        /// 因此只在编辑小骑士护符时显示；诺艾尔的护符界面上不出现。</summary>
+        public bool IsGgSelectorShown =>
+            Owner == CharmOwner.Knight && COOK.getSF(GgClicksKey) >= 4;
         /// <summary>GG 按钮状态（0=骨钉 1=外壳 2=护符 3=灵魂），返回 1 或 2。</summary>
         public int GetGgButtonState(int idx)
         {
@@ -335,7 +366,7 @@ namespace KnightInCradle.CharmUi
                 KnightInCradlePlugin.ToggleKey != null
                     ? KnightInCradlePlugin.ToggleKey.Value
                     : null, KeyCode.T);
-            if (RawDown(toggleKey) && _cursorRow > 0)
+            if (RawDown(toggleKey) && _cursorRow > 0 && Owner == CharmOwner.Knight)
             {
                 int cur = CursorGridId;
                 int other = cur == CharmEffects.GrimmId
@@ -352,9 +383,9 @@ namespace KnightInCradle.CharmUi
                         {
                             _equippedIds[eIdx] = other;
                             RecalcCost();
-                            CharmSave.WriteEquipped(); // 装备变化立即写入 SF，随下次存档持久化
-                            CharmSave.SyncFromController();
-                            CharmEffects.SyncGreedCapacity();
+                            CharmSave.WriteEquipped(Owner); // 装备变化立即写入 SF，随下次存档持久化
+                            CharmSave.SyncFromController(Owner);
+                            CharmEffects.SyncGreedCapacity(); // 坚固贪婪：小骑士背包容量，随装卸同步
                         }
                         // 变体状态随存档持久化：无忧旋律=43，格林之子=0
                         COOK.setSF(VariantKey, other == CharmEffects.MelodyId
@@ -482,6 +513,10 @@ namespace KnightInCradle.CharmUi
         /// <summary>按本存档保存的变体状态，把格林之子槽位替换为无忧旋律（或还原）。</summary>
         private void ApplySavedVariant()
         {
+            if (Owner != CharmOwner.Knight)
+            {
+                return; // 变体槽是小骑士侧的概念（kic_charm_variant），诺艾尔不参与
+            }
             bool wantMelody = COOK.getSF(VariantKey) == CharmEffects.MelodyId;
             for (int i = 0; i < _gridIds.Count; i++)
             {
@@ -534,8 +569,8 @@ namespace KnightInCradle.CharmUi
                 _flyIndex = _equippedIds.IndexOf(CharmDatabase.GgSelectorId);
                 StartFlight(CharmDatabase.GgSelectorId, true, false, false);
                 RecalcCost();
-                CharmSave.WriteEquipped(); // 装备变化立即写入 SF，随下次存档持久化
-                CharmSave.SyncFromController();
+                CharmSave.WriteEquipped(Owner); // 装备变化立即写入 SF，随下次存档持久化
+                CharmSave.SyncFromController(Owner);
                 RefreshSelection();
             }
         }
@@ -765,8 +800,10 @@ namespace KnightInCradle.CharmUi
 
             if (_equippedIds.Contains(id))
             {
-                // 护符12 坚固贪婪：背包占用超过基础上限（占用了扩容格）时无法卸下
-                if (id == CharmEffects.GreedId && !CharmEffects.CanUnequipGreed())
+                // 护符12 坚固贪婪：背包占用超过基础上限（占用了扩容格）时无法卸下。
+                // 这是小骑士侧的背包规则，诺艾尔侧暂不适用。
+                if (Owner == CharmOwner.Knight && id == CharmEffects.GreedId &&
+                    !CharmEffects.CanUnequipGreed())
                 {
                     return;
                 }
@@ -794,8 +831,15 @@ namespace KnightInCradle.CharmUi
                     newTotal <= CharmDatabase.NotchCapacity);
             }
             RecalcCost();
-            CharmSave.WriteEquipped(); // 装备变化立即写入 SF，随下次存档持久化
-            CharmSave.SyncFromController(); // 同步快照，护符效果无需打开 UI 即可生效
+            CharmSave.WriteEquipped(Owner); // 装备变化立即写入 SF，随下次存档持久化
+            CharmSave.SyncFromController(Owner); // 同步快照，护符效果无需打开 UI 即可生效
+            if (Owner != CharmOwner.Knight)
+            {
+                // 诺艾尔侧只做"装配/卸下"（第二部分再实现效果），
+                // 因此这里不碰小骑士的血量/生命血/背包容量。
+                RefreshSelection();
+                return;
+            }
             // 护符11 坚固心脏：装配时直接回满血（到新上限）；卸下时血量钳制回上限。
             // 护符28/29 生命血：装配时立即补上生命血（28=+2、29=+4，超上限血条变蓝）；卸下时钳回上限。
             // 护符30 乔尼的祝福：装配时血量=新上限（+4 上限 +4 血，血条恒蓝）。

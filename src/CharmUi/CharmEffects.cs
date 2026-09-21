@@ -123,11 +123,14 @@ namespace KnightInCradle.CharmUi
             }
             // 控制器未创建（从未打开护符 UI）时，读独立装备快照，
             // 保证读档后护符效果立即生效，无需先打开一次护符界面。
-            if (CharmUiController.Instance != null)
+            // 注意："诺艾尔的护符"加入后控制器可能正停留在诺艾尔那一侧，
+            // 它的 EquippedIds 就不再是小骑士的装备了 —— 这里一律按小骑士判断。
+            CharmUiController ctr = CharmUiController.Instance;
+            if (ctr != null && ctr.Owner == CharmOwner.Knight)
             {
-                return CharmUiController.Instance.EquippedIds.Contains(id);
+                return ctr.EquippedIds.Contains(id);
             }
-            return CharmSave.HasEquipped(id);
+            return CharmSave.HasEquipped(CharmOwner.Knight, id);
         }
 
         /// <summary>束缚·骨钉：无加成骨钉伤害降低为 30。</summary>
