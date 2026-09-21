@@ -31,8 +31,15 @@ namespace KnightInCradle.CharmUi
         private const float OpenDuration = 0.25f; // 打开：从中间向两边逐渐显示（0.25s）
         // 自限 sign：本存档内点击计数（前 3 次 chain_cut，第 4 次解锁 gg_godseeker_mode_selector）
         private const string GgClicksKey = "kic_gg_clicks";
-        // 格林之子 ↔ 无忧旋律 变体状态：本存档内格林之子槽位当前显示哪个变体（存 43=无忧旋律，0=格林之子）
-        private const string VariantKey = "kic_charm_variant";
+        // 格林之子 ↔ 无忧旋律 的变体状态（存 43=无忧旋律，0=格林之子）：
+        // 两套归属各存一份，命名空间规则与护符存档一致
+        private const string KnightVariantKey = "kic_charm_variant";
+        private const string NoelVariantKey = "kic_noel_charm_variant";
+
+        private string VariantKeyFor(CharmOwner owner)
+        {
+            return owner == CharmOwner.Noel ? NoelVariantKey : KnightVariantKey;
+        }
         private static readonly string[] GgButtonKeys =
             { CharmEffects.GgNailKey, CharmEffects.GgMaskKey, CharmEffects.GgCharmKey, CharmEffects.GgSoulKey };
         // 装卸平移动画：护符在 0.2s 内从选中位置 ↔ 已装备区平移；音效延迟到动画到达时播放
@@ -178,17 +185,24 @@ namespace KnightInCradle.CharmUi
             _sitting = sitting;
         }
 
-        /// <summary>读档后恢复装备列表（固定虚空之心恒在首位，之后按存档顺序）。</summary>
+        /// <summary>读档后恢复装备列表。
+        /// 小骑士：固定虚空之心恒在首位（之后按存档顺序），容量 = 11 + 虚空之心；
+        /// 诺艾尔：**没有固定虚空之心**（按需求从已装备栏去掉），容量 = 11。</summary>
         public void ApplyEquippedFromSave(List<int> saved)
         {
+            bool knight = Owner == CharmOwner.Knight;
+            int maxCount = knight ? CharmDatabase.NotchCapacity + 1 : CharmDatabase.NotchCapacity;
             _equippedIds.Clear();
-            _equippedIds.Add(CharmDatabase.FixedCharmId);
+            if (knight)
+            {
+                _equippedIds.Add(CharmDatabase.FixedCharmId);
+            }
             if (saved != null)
             {
                 foreach (int id in saved)
                 {
                     if (id == CharmDatabase.FixedCharmId || _equippedIds.Contains(id) ||
-                        _equippedIds.Count >= CharmDatabase.NotchCapacity + 1)
+                        _equippedIds.Count >= maxCount)
                     {
                         continue;
                     }
@@ -362,11 +376,12 @@ namespace KnightInCradle.CharmUi
             }
 
             // T 键（换人键）：格林之子 ↔ 无忧旋律 互换（光标在网格护符上时生效）
+            // 两套归属各自独立：小骑士存 kic_charm_variant，诺艾尔存 kic_noel_charm_variant
             KeyCode toggleKey = KeyConfig.Parse(
                 KnightInCradlePlugin.ToggleKey != null
                     ? KnightInCradlePlugin.ToggleKey.Value
                     : null, KeyCode.T);
-            if (RawDown(toggleKey) && _cursorRow > 0 && Owner == CharmOwner.Knight)
+            if (RawDown(toggleKey) && _cursorRow > 0)
             {
                 int cur = CursorGridId;
                 int other = cur == CharmEffects.GrimmId
@@ -387,8 +402,8 @@ namespace KnightInCradle.CharmUi
                             CharmSave.SyncFromController(Owner);
                             CharmEffects.SyncGreedCapacity(); // 坚固贪婪：小骑士背包容量，随装卸同步
                         }
-                        // 变体状态随存档持久化：无忧旋律=43，格林之子=0
-                        COOK.setSF(VariantKey, other == CharmEffects.MelodyId
+                        // 变体状态随存档持久化（按归属分别存）：无忧旋律=43，格林之子=0
+                        COOK.setSF(VariantKeyFor(Owner), other == CharmEffects.MelodyId
                             ? CharmEffects.MelodyId : 0);
                         RefreshSelection(); // 右侧描述随选中护符一并更新
                         CharmAudio.SelectionChange();
@@ -510,14 +525,11 @@ namespace KnightInCradle.CharmUi
             ApplySavedVariant();
         }
 
-        /// <summary>按本存档保存的变体状态，把格林之子槽位替换为无忧旋律（或还原）。</summary>
+        /// <summary>按本存档保存的变体状态，把格林之子槽位替换为无忧旋律（或还原）。
+        /// 两套归属各用自己的变体键（小骑士 kic_charm_variant / 诺艾尔 kic_noel_charm_variant）。</summary>
         private void ApplySavedVariant()
         {
-            if (Owner != CharmOwner.Knight)
-            {
-                return; // 变体槽是小骑士侧的概念（kic_charm_variant），诺艾尔不参与
-            }
-            bool wantMelody = COOK.getSF(VariantKey) == CharmEffects.MelodyId;
+            bool wantMelody = COOK.getSF(VariantKeyFor(Owner)) == CharmEffects.MelodyId;
             for (int i = 0; i < _gridIds.Count; i++)
             {
                 if (_gridIds[i] == CharmEffects.GrimmId)
@@ -540,6 +552,10 @@ namespace KnightInCradle.CharmUi
         /// </summary>
         private void TryClickSign()
         {
+            if (Owner != CharmOwner.Knight)
+            {
+                return; // 束缚（寻神者自限）是小骑士侧机制：kic_gg_* 是全局键，诺艾尔界面不参与
+            }
             int clicks = COOK.getSF(GgClicksKey) + 1; // 本次点击后的计数
             COOK.setSF(GgClicksKey, clicks);
             if (clicks < 4)
