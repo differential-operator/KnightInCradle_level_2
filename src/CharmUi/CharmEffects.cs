@@ -1726,6 +1726,12 @@ namespace KnightInCradle.CharmUi
         {
             if (HiveNeutralActive())
             {
+                // 例外：即将因雷雨变成"汚染体（OverDrive）"的魔物**必须先苏醒**才能转化，
+                // 一直压着不苏醒会导致它永远不转化、也打不动（实测 bug）。
+                if (WillThunderOverdrive(__instance.En))
+                {
+                    return true;
+                }
                 return false;
             }
             if (GrubsongLeechPassive(__instance.En))
@@ -1737,6 +1743,26 @@ namespace KnightInCradle.CharmUi
                 return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// 该魔物是否"即将因雷雨天气变成汚染体（OverDrive）"。
+        /// 转化在 `OverDriveManager.runPre` 里推进（`nel/OverDriveManager.cs:202-213`），
+        /// 条件是 `thunder_overdrive_t &gt; 0 &amp;&amp; !disappearing &amp;&amp; En.is_awaken`
+        /// —— 也就是说**必须先苏醒**。蜂巢中立把苏醒压住时，这类魔物既不转化也打不动，
+        /// 因此对它们放行一次苏醒；转化后仍然保持中立（本模组照旧清掉它的锁定目标）。
+        /// </summary>
+        private static bool WillThunderOverdrive(NelEnemy en)
+        {
+            try
+            {
+                OverDriveManager od = en != null ? en.getOdManager() : null;
+                return od != null && od.thunder_overdrive;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         /// <summary>

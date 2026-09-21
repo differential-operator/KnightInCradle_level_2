@@ -2464,6 +2464,34 @@ for each 落地魔力 m in nM2D.Mana:
 
 验证：`build=2026-09-22.10`，DLL SHA256 `DBEE6CA0B4303002…`（9,035,264 B，两份 0.30g 安装已同步；只覆盖 DLL，未动素材）。
 
+#### 21.10 七稿：放行"汚染体（雷雨 OverDrive）"的苏醒（build=2026-09-22.22）
+
+**现象**：带蜂群集结时，某些魔物**不再变成汚染体**（AIC 里叫"汚染体"，游戏内文案 `Weather_desc_thunder`：
+「一部のエネミーが汚染体に変化する」），结果是这些魔物停在未苏醒状态、**打不动**。
+
+**根因**：汚染体化由 `OverDriveManager.runPre` 推进（`nel/OverDriveManager.cs:202-213`），条件是
+`thunder_overdrive_t > 0 && !disappearing && **En.is_awaken**` —— **必须先苏醒**。
+而蜂群集结的中立实现是"压住 `NAI.awakeInit`"（`NaiAwakeInitPrefix` 返回 false）＋清锁定目标，
+于是这类魔物永远不苏醒 → 永远不转化 → 并且未苏醒状态无法被攻击。
+
+**修正**：`NaiAwakeInitPrefix` 里加例外——若该魔物**即将因雷雨变成汚染体**就放行苏醒：
+
+```csharp
+if (HiveNeutralActive())
+{
+    if (WillThunderOverdrive(__instance.En)) return true;   // 先让它转化
+    return false;
+}
+```
+
+判据 `WillThunderOverdrive(en)` = `en.getOdManager() != null && od.thunder_overdrive`
+（`OverDriveManager.thunder_overdrive` 由召唤器/天气在生成时置位，见 `SummonerPlayer.cs:869,1833`、`NightController.cs:695`）。
+
+**转化后仍然保持中立**：我们照旧拦 `NAI.AimPr` 赋值并每帧 `ClearHiveEnemyAim()`，
+所以汚染体不会打诺艾尔，但**可以被诺艾尔打了**（这正是需求）。
+
+验证：`build=2026-09-22.22`，DLL SHA256 `FD8CA789BA9586DA…`（两份安装已同步；只覆盖 DLL）。
+
 ---
 
 ## 22. 诺艾尔的护符第二部分（3）：坚硬外壳 —— 次数血（2026-09-22，build=2026-09-22.11）
