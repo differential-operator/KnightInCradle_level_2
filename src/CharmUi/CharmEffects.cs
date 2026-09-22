@@ -1313,6 +1313,95 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        /// <summary>修长之钉覆盖的招式（近战判定包 kind）：轻攻击/凌空横斩、魔法霰弹、会心重击。</summary>
+        private static bool IsLongNailKind(MGKIND kind)
+        {
+            return kind == MGKIND.PR_PUNCH || kind == MGKIND.PR_SHOTGUN || kind == MGKIND.PR_SMASH;
+        }
+
+        /// <summary>本次"游戏自己放大 reach 之前"的基准触及距离（<=0 表示这次不管）。</summary>
+        private static float _longNailBaseReach;
+        private static int _longNailBaseMgId = -1;
+        /// <summary>已经处理过的 `MagicItem.id`（换图后 id 会重来，所以换图时清空）。</summary>
+        private static readonly HashSet<int> _longNailDoneIds = new HashSet<int>();
+        private static Map2d _longNailDoneMap;
+
+        /// <summary>
+        /// 护符18 修长之钉（诺艾尔侧）：**前缀**——在 `PrCaneEquip.initChantMagicAwaken`
+        /// 给攻击包乘上游戏自己的 reach 倍率**之前**，量一下这一招原始的"触及距离"
+        /// （= 线段长度 |(sx,sy)| + 粗细 |sz|，见 `MagicItem.runTackle`/`M2Ray.CastRayAndColliderS`）。
+        /// </summary>
+        private static void LongNailCaneAwakenPrefix(MagicItem Mg)
+        {
+            _longNailBaseReach = 0f;
+            _longNailBaseMgId = -1;
+            try
+            {
+                if (Mg == null || IsKnightMode || !IsEquipped(CharmOwner.Noel, LongNailId))
+                {
+                    return;
+                }
+                if (!(Mg.Caster is PRNoel) || !IsLongNailKind(Mg.kind))
+                {
+                    return;
+                }
+                if (!ReferenceEquals(Mg.Mp, _longNailDoneMap))
+                {
+                    _longNailDoneMap = Mg.Mp;
+                    _longNailDoneIds.Clear(); // 换图后 MagicItem.id 会从 0 重新开始
+                }
+                if (_longNailDoneIds.Contains(Mg.id))
+                {
+                    return;
+                }
+                float len = Mathf.Sqrt(Mg.sx * Mg.sx + Mg.sy * Mg.sy);
+                if (len <= 0.0001f)
+                {
+                    return;
+                }
+                _longNailBaseReach = len + Mathf.Abs(Mg.sz);
+                _longNailBaseMgId = Mg.id;
+            }
+            catch (Exception)
+            {
+                _longNailBaseReach = 0f;
+            }
+        }
+
+        /// <summary>
+        /// 护符18 修长之钉（诺艾尔侧）：**后缀**——把这一招最终的"触及距离"精确改成
+        /// `基准 × 1.2`。之所以要在这里再修一次：游戏自己的 reach 只乘在线段 `sx` 上，
+        /// 粗细 `sz`（本招 0.45 格）不参与，所以只靠倍率的话，20% 落到总触及距离上只剩约 9%
+        /// （实测 1.38 格 → 1.50 格，≈3.5 像素，肉眼几乎看不出）。
+        /// </summary>
+        private static void LongNailCaneAwakenPostfix(MagicItem Mg)
+        {
+            try
+            {
+                if (_longNailBaseReach <= 0f || Mg == null || Mg.id != _longNailBaseMgId)
+                {
+                    _longNailBaseReach = 0f;
+                    return;
+                }
+                float rad = Mathf.Abs(Mg.sz);
+                float target = _longNailBaseReach * LongNailReachMult; // 期望的总触及距离
+                float need = target - rad;                             // 线段需要达到的长度
+                float len = Mathf.Sqrt(Mg.sx * Mg.sx + Mg.sy * Mg.sy);
+                if (need > 0f && len > 0.0001f && need > len)
+                {
+                    float k = need / len;
+                    Mg.sx *= k;
+                    Mg.sy *= k;
+                }
+                _longNailDoneIds.Add(Mg.id);
+                _longNailBaseReach = 0f;
+            }
+            catch (Exception)
+            {
+                _longNailBaseReach = 0f;
+            }
+        }
+
         /// <summary>临时诊断：把修长之钉相关的关键数值写进 BepInEx 日志（上限 40 行，排除后删除）。</summary>
         private static int _longNailDiagCount;
 
@@ -2946,6 +3035,19 @@ namespace KnightInCradle.CharmUi
                         harmony.Patch(reachRatio, postfix: new HarmonyMethod(
                             typeof(CharmEffects).GetMethod(nameof(LongNailReachRatioPostfix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    // 护符18 修长之钉（诺艾尔侧）：把这一招的"总触及距离"精确改成 基准 ×1.2
+                    MethodInfo caneAwaken = AccessTools.Method(typeof(PrCaneEquip), "initChantMagicAwaken",
+                        new[] { typeof(MagicItem), typeof(float) });
+                    if (caneAwaken != null)
+                    {
+                        harmony.Patch(caneAwaken,
+                            prefix: new HarmonyMethod(
+                                typeof(CharmEffects).GetMethod(nameof(LongNailCaneAwakenPrefix),
+                                    BindingFlags.Static | BindingFlags.NonPublic)),
+                            postfix: new HarmonyMethod(
+                                typeof(CharmEffects).GetMethod(nameof(LongNailCaneAwakenPostfix),
+                                    BindingFlags.Static | BindingFlags.NonPublic)));
                     }
                     // 护符14 法术扭曲者（诺艾尔侧）：施法起手消耗 -10
                     MethodInfo burstMp = AccessTools.Method(typeof(PR), "applyBurstMpDamage");
