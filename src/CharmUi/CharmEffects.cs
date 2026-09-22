@@ -1483,6 +1483,8 @@ namespace KnightInCradle.CharmUi
         };
         /// <summary>光圈播放帧率（与小骑士骨钉技艺蓄力的 20fps 一致）。</summary>
         private const float HeavyBlowAuraFps = 20f;
+        /// <summary>光圈渲染大小倍率（需求：现在的 2 倍）。</summary>
+        private const float HeavyBlowAuraScale = 2f;
         /// <summary>
         /// 同一次"攻击动作"里允许重复调用判定起点的间隔（秒）。
         /// AIC 的一次挥击可能创建多个 `MagicItem`（`M2PrSkill.cs:2573` 用 `executeSmallAttack(num++, Mg)`
@@ -1832,22 +1834,28 @@ namespace KnightInCradle.CharmUi
                 MdOut = _heavyFocusAuraMesh;
                 return true;
             }
+            // 锚点 = 诺艾尔**身体中心**：`pr.mbottom` 是脚底、`pr.sizey` 是身高（格），
+            // 所以中心 = 脚底 − 身高/2（比直接用 `pr.y` 稳，AIC 里 `y` 并不总等于身体中心）。
+            float cy = pr.mbottom - pr.sizey * 0.5f;
             float mx = mp.pixel2ux(pr.x * mp.CLEN);
-            float my = mp.pixel2uy(pr.y * mp.CLEN);
+            float my = mp.pixel2uy(cy * mp.CLEN);
             Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
                         Matrix4x4.Translate(new Vector3(mx, my, 0f));
             float scale = KnightInCradlePlugin.ScaleConfig != null
                 ? KnightInCradlePlugin.ScaleConfig.Value
                 : 0.325f;
-            float w = tex.width * scale;
-            float h = tex.height * scale;
+            float w = tex.width * scale * HeavyBlowAuraScale;
+            float h = tex.height * scale * HeavyBlowAuraScale;
             _heavyFocusAuraMesh.Col = MTRX.ColWhite;
             _heavyFocusAuraMesh.initForImgAndTexture(tex);
             _heavyFocusAuraMesh.uv_top = 0f;
             _heavyFocusAuraMesh.uv_height = 1f;
             _heavyFocusAuraMesh.uv_left = 0f;
             _heavyFocusAuraMesh.uv_width = 1f;
-            _heavyFocusAuraMesh.Rect(-w * 0.5f, -h * 0.5f, w, h, false);
+            // 注意 `MeshDrawer.Rect(x, y, w, h)` 的 (x,y) **本身就是矩形中心**
+            // （内部 `RectBL(x - w/2, y - h/2, …)`），所以传 (0,0) 才是"以锚点为中心"。
+            // 之前多减了一次半宽高，整体被推到诺艾尔左下方，而且放大时偏移会等比变大。
+            _heavyFocusAuraMesh.Rect(0f, 0f, w, h, false);
             MdOut = _heavyFocusAuraMesh;
             return true;
         }
