@@ -1449,9 +1449,11 @@ namespace KnightInCradle.CharmUi
             }
             return n.Contains("swing") || n.Contains("slash") || n.Contains("arc") ||
                    n.Contains("effect") || n.Contains("eff_") ||
-                   // AIC 里诺艾尔挥击姿势的弧光是单独一层，实测层名 = "rodeff"（rod effect）；
-                   // 法杖本体那层叫 "rod_4"，不参与拉伸（否则法杖会被拉变形）。
-                   n.Contains("eff");
+                   // AIC 诺艾尔挥击姿势里的两处相关图层：
+                   //   rod_4 = 法杖本体（挥击弧光是画在这一层里的，实测拉伸它才会让弧光变长）
+                   //   rodeff = 法杖旁边的粒子特效（用户反馈：这个不是弧光本身）
+                   // 两层都按倍率横向拉伸；身体层 Layer / 手 hand / 手臂 arm 一律不碰。
+                   n.Contains("rod") || n.Contains("eff");
         }
 
         /// <summary>每帧（诺艾尔模式）：把她自己挥击姿势里的弧光层按倍率拉长 / 卸下时还原。</summary>
