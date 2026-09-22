@@ -1418,8 +1418,19 @@ namespace KnightInCradle.CharmUi
         /// 卸下护符/切小骑士时把基准写回。层名会打一次日志便于确认。
         /// </summary>
         private static readonly Dictionary<PxlLayer, float> _longNailLayerBaseZmx = new Dictionary<PxlLayer, float>();
-        private static int _longNailLayerLogCount;
+        private static readonly HashSet<string> _longNailLoggedPoses = new HashSet<string>();
         private static bool _longNailLayerFound;
+
+        /// <summary>只处理"挥击类姿势"（避免把走路/长椅等姿势的图层也动到）。</summary>
+        private static bool IsLongNailAttackPoseName(string poseName)
+        {
+            if (string.IsNullOrEmpty(poseName))
+            {
+                return false;
+            }
+            string n = poseName.ToLowerInvariant();
+            return n.Contains("attack") || n.Contains("punch") || n.Contains("smash") || n.Contains("wheel");
+        }
 
         private static bool IsLongNailArcLayerName(string name)
         {
@@ -1457,6 +1468,12 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
+                string poseName = (seq.pPose != null) ? seq.pPose.ToString() : "";
+                if (!IsLongNailAttackPoseName(poseName))
+                {
+                    _longNailLayerFound = false;
+                    return; // 只处理挥击姿势
+                }
                 _longNailLayerFound = false;
                 int frameCount = seq.countFrames();
                 for (int i = 0; i < frameCount; i++)
@@ -1482,10 +1499,9 @@ namespace KnightInCradle.CharmUi
                         lay.zmx = _longNailLayerBaseZmx[lay] * LongNailReachMult;
                     }
                 }
-                if (_longNailLayerLogCount < 8)
+                // 每种姿势只打一行（上限 60 行），便于确认挥击姿势里哪一层是弧光
+                if (poseName.Length > 0 && _longNailLoggedPoses.Count < 60 && _longNailLoggedPoses.Add(poseName))
                 {
-                    _longNailLayerLogCount++;
-                    string seqName = (seq.pPose != null) ? seq.pPose.ToString() : "?";
                     var sb = new System.Text.StringBuilder();
                     PxlFrame f0 = frameCount > 0 ? seq.getFrame(0) : null;
                     if (f0 != null && f0.ALay != null)
@@ -1496,11 +1512,12 @@ namespace KnightInCradle.CharmUi
                             {
                                 sb.Append('|');
                             }
-                            sb.Append(f0.ALay[j] != null ? f0.ALay[j].name : "null");
+                            PxlLayer lay0 = f0.ALay[j];
+                            sb.Append(lay0 != null ? (lay0.name + "(zmx=" + lay0.zmx + ")") : "null");
                         }
                     }
                     KnightInCradlePlugin.PluginLog?.LogInfo(
-                        "[KIC][长钉图层] seq=" + seqName + " 命中弧光层=" + _longNailLayerFound + " 层=" + sb);
+                        "[KIC][长钉图层] pose=" + poseName + " 命中弧光层=" + _longNailLayerFound + " 层=" + sb);
                 }
             }
             catch (Exception)
@@ -1528,279 +1545,6 @@ namespace KnightInCradle.CharmUi
                 }
             }
             _longNailLayerBaseZmx.Clear();
-        }
-
-        // -------- 修长之钉的"渲染"②：兜底用的自制斩击弧光（图层路径没命中时才画） --------
-        /// <summary>
-        /// 用 HK"长钉样式（螳螂爪）"的斩击帧画诺艾尔的近战弧光 —— 也就是小骑士戴
-        /// 修长之钉/骄傲印记时同一套视觉（`knight_manifest.json` 的 `SlashEffect M`：
-        /// `mantis_slash_left0001 / 0002`）。
-        ///
-        /// 为什么必须自己画：诺艾尔挥杖的弧光是**烘焙在她的动作姿势贴图里**的
-        /// （`attack1`/`attack2` 帧），游戏侧既没有长度参数、`pr_cane_swing` 粒子的
-        /// `lax` 变量也不影响画面 —— 所以延长判定后画面不会跟着变。这里按判定的
-        /// **触及距离**（`|(sx,sy)| + |sz|`）画一张等长的弧光，让"看起来打得到多远"
-        /// 和"实际打得到多远"一致。
-        /// </summary>
-        private static readonly string[] LongNailSlashSprites = { "mantis_slash_left0001", "mantis_slash_left0002" };
-        private const float LongNailSlashLife = 0.14f;
-        private const float LongNailSlashAlpha = 0.85f;
-
-        private sealed class NoelLongNailSlash
-        {
-            public float X;
-            public float Y;
-            public float Dir;
-            public float Reach;
-            public float T;
-        }
-
-        private static readonly List<NoelLongNailSlash> _noelLongNailSlashes = new List<NoelLongNailSlash>();
-        private static Texture2D[] _noelLongNailSlashTex;
-        private static MeshDrawer _noelLongNailSlashMesh;
-        private static Material _noelLongNailSlashMat;
-        private static M2RenderTicket _noelLongNailSlashTicket;
-        private static Map2d _noelLongNailSlashMap;
-
-        /// <summary>
-        /// 护符18：近战攻击包生成时记一笔"要画一道多长的弧光"。
-        /// 挂 `M2PrSkill.executeSmallAttack` 后缀 —— 此时这一招的判定几何已经定稿
-        /// （含 `PrCaneEquip.initChantMagicAwaken` 的 reach 放大与我们的 ×2 修正）。
-        /// </summary>
-        private static void LongNailSmallAttackPostfix(MagicItem __result)
-        {
-            try
-            {
-                if (__result == null || IsKnightMode || !IsEquipped(CharmOwner.Noel, LongNailId))
-                {
-                    return;
-                }
-                if (!( __result.Caster is PRNoel) || !IsLongNailKind(__result.kind))
-                {
-                    return;
-                }
-                if (_longNailLayerFound)
-                {
-                    return; // 已经能把她自己姿势里的弧光层拉长，就不用再叠一层
-                }
-                float sx = __result.sx;
-                float sy = __result.sy;
-                float reach = Mathf.Sqrt(sx * sx + sy * sy) + Mathf.Abs(__result.sz);
-                if (reach <= 0.05f)
-                {
-                    return;
-                }
-                PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
-                if (pr == null)
-                {
-                    return;
-                }
-                float dir = Mathf.Abs(sx) > 0.0001f ? Mathf.Sign(sx) : (pr.mpf_is_right >= 0f ? 1f : -1f);
-                _noelLongNailSlashes.Add(new NoelLongNailSlash
-                {
-                    X = pr.x,
-                    Y = pr.y,
-                    Dir = dir,
-                    Reach = reach,
-                    T = 0f,
-                });
-            }
-            catch (Exception)
-            {
-            }
-        }
-
-        /// <summary>每帧推进（诺艾尔模式调用）：弧光计时、过期清理、票据维护。</summary>
-        public static void TickNoelLongNailSlash(PRNoel pr)
-        {
-            try
-            {
-                if (pr == null)
-                {
-                    return;
-                }
-                bool want = !IsKnightMode && IsEquipped(CharmOwner.Noel, LongNailId);
-                if (!want)
-                {
-                    _noelLongNailSlashes.Clear();
-                }
-                else
-                {
-                    float dt = Time.deltaTime;
-                    for (int i = _noelLongNailSlashes.Count - 1; i >= 0; i--)
-                    {
-                        NoelLongNailSlash s = _noelLongNailSlashes[i];
-                        s.T += dt;
-                        if (s.T >= LongNailSlashLife)
-                        {
-                            _noelLongNailSlashes.RemoveAt(i);
-                        }
-                    }
-                }
-                EnsureLongNailSlashTicket(pr, want);
-            }
-            catch (Exception)
-            {
-            }
-        }
-
-        private static void EnsureLongNailSlashTicket(PRNoel pr, bool want)
-        {
-            Map2d mp = pr != null ? pr.Mp : null;
-            if (mp == null)
-            {
-                return;
-            }
-            bool need = want || _noelLongNailSlashes.Count > 0;
-            if (!need)
-            {
-                ReleaseLongNailSlashTicket();
-                return;
-            }
-            if (_noelLongNailSlashTex == null)
-            {
-                _noelLongNailSlashTex = LoadLongNailSlashTextures();
-            }
-            if (_noelLongNailSlashTex == null)
-            {
-                return; // 素材缺失：判定照常，只是不显示
-            }
-            if (_noelLongNailSlashMesh != null && _noelLongNailSlashMap == mp && _noelLongNailSlashTicket != null)
-            {
-                return;
-            }
-            ReleaseLongNailSlashTicket();
-            _noelLongNailSlashMap = mp;
-            _noelLongNailSlashMesh = new MeshDrawer(null, 4 * 16, 6 * 16);
-            _noelLongNailSlashMesh.draw_gl_only = true;
-            _noelLongNailSlashMat = MTRX.newMtr(MTRX.ShaderGDT);
-            _noelLongNailSlashMat.EnableKeyword("NO_PIXELSNAP");
-            _noelLongNailSlashMesh.activate("noel_longnail_slash", _noelLongNailSlashMat, false, MTRX.ColWhite, null);
-            _noelLongNailSlashTicket = mp.MovRenderer.assignDrawable(
-                M2Mover.DRAW_ORDER.PR1, null, PrepareLongNailSlashMesh, _noelLongNailSlashMesh, null, null);
-        }
-
-        private static void ReleaseLongNailSlashTicket()
-        {
-            try
-            {
-                if (_noelLongNailSlashTicket != null && _noelLongNailSlashMap != null &&
-                    _noelLongNailSlashMap.MovRenderer != null)
-                {
-                    _noelLongNailSlashMap.MovRenderer.deassignDrawable(_noelLongNailSlashTicket, -1);
-                }
-            }
-            catch (Exception)
-            {
-            }
-            try
-            {
-                if (_noelLongNailSlashMat != null)
-                {
-                    IN.DestroyOne(_noelLongNailSlashMat);
-                }
-            }
-            catch (Exception)
-            {
-            }
-            _noelLongNailSlashTicket = null;
-            _noelLongNailSlashMesh = null;
-            _noelLongNailSlashMat = null;
-            _noelLongNailSlashMap = null;
-        }
-
-        /// <summary>弧光绘制：以诺艾尔中心为锚点，向攻击方向画一张与判定等长的弧光，随时间淡出。</summary>
-        private static bool PrepareLongNailSlashMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
-            out MeshDrawer MdOut, ref bool color_one_overwrite)
-        {
-            MdOut = null;
-            Map2d mp = _noelLongNailSlashMap;
-            if (mp == null || _noelLongNailSlashMesh == null || draw_id != 0)
-            {
-                return false;
-            }
-            _noelLongNailSlashMesh.clearSimple();
-            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
-            if (pr == null || _noelLongNailSlashTex == null || _noelLongNailSlashes.Count == 0)
-            {
-                MdOut = _noelLongNailSlashMesh;
-                return true;
-            }
-            float scaleSlider = KnightInCradlePlugin.ScaleConfig != null
-                ? KnightInCradlePlugin.ScaleConfig.Value
-                : 0.325f;
-            float mx = mp.pixel2ux(pr.x * mp.CLEN);
-            float my = mp.pixel2uy(pr.y * mp.CLEN);
-            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
-                        Matrix4x4.Translate(new Vector3(mx, my, 0f));
-            for (int i = 0; i < _noelLongNailSlashes.Count; i++)
-            {
-                NoelLongNailSlash s = _noelLongNailSlashes[i];
-                float progress = Mathf.Clamp01(s.T / LongNailSlashLife);
-                Texture2D tex = _noelLongNailSlashTex[progress < 0.5f ? 0 : _noelLongNailSlashTex.Length - 1];
-                if (tex == null)
-                {
-                    continue;
-                }
-                // 弧光长度 = 这一招的判定触及距离（格 → mesh 像素），所以"看得到多远"= "打得到多远"
-                float w = s.Reach * mp.CLEN;
-                float h = w * ((float)tex.height / tex.width);
-                if (w <= 0f || h <= 0f)
-                {
-                    continue;
-                }
-                // 弧光中心放在"从诺艾尔中心到判定末端"的中点上
-                float dx = s.Dir * (s.Reach * 0.5f) * mp.CLEN;
-                _noelLongNailSlashMesh.Col = new Color(1f, 1f, 1f, LongNailSlashAlpha * (1f - progress));
-                _noelLongNailSlashMesh.initForImgAndTexture(tex);
-                _noelLongNailSlashMesh.uv_top = 0f;
-                _noelLongNailSlashMesh.uv_height = 1f;
-                if (s.Dir > 0f)
-                {
-                    _noelLongNailSlashMesh.uv_left = 1f;
-                    _noelLongNailSlashMesh.uv_width = -1f;
-                }
-                else
-                {
-                    _noelLongNailSlashMesh.uv_left = 0f;
-                    _noelLongNailSlashMesh.uv_width = 1f;
-                }
-                _noelLongNailSlashMesh.Rect(dx, 0f, w, h, false);
-            }
-            _ = scaleSlider;
-            MdOut = _noelLongNailSlashMesh;
-            return true;
-        }
-
-        private static Texture2D[] LoadLongNailSlashTextures()
-        {
-            try
-            {
-                var list = new Texture2D[LongNailSlashSprites.Length];
-                for (int i = 0; i < list.Length; i++)
-                {
-                    string path = System.IO.Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "assets",
-                        "hk", "sprites", LongNailSlashSprites[i] + ".png");
-                    if (!System.IO.File.Exists(path))
-                    {
-                        return null;
-                    }
-                    var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                    if (!ImageConversion.LoadImage(tex, System.IO.File.ReadAllBytes(path)))
-                    {
-                        UnityEngine.Object.Destroy(tex);
-                        return null;
-                    }
-                    tex.filterMode = FilterMode.Point;
-                    tex.wrapMode = TextureWrapMode.Clamp;
-                    list[i] = tex;
-                }
-                return list;
-            }
-            catch (Exception)
-            {
-                return null;
-            }
         }
 
         /// <summary>`PR.state`（protected 字段）的快速读取器，用于判断"当前是不是挥击状态"。</summary>
@@ -3381,10 +3125,6 @@ namespace KnightInCradle.CharmUi
                         // 护符16 沉重之击（诺艾尔侧）：挥击/骨钉技艺的"出手"登记
                         harmony.Patch(smallAttack, postfix: new HarmonyMethod(
                             typeof(CharmEffects).GetMethod(nameof(HeavyBlowSmallAttackPostfix),
-                                BindingFlags.Static | BindingFlags.NonPublic)));
-                        // 护符18 修长之钉（诺艾尔侧）：记一笔"这一招要画多长的斩击弧光"
-                        harmony.Patch(smallAttack, postfix: new HarmonyMethod(
-                            typeof(CharmEffects).GetMethod(nameof(LongNailSmallAttackPostfix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
                     }
                     // 护符18 修长之钉（诺艾尔侧）：手杖 reach（判定长度 + 挥击特效长度）统一 ×1.2
