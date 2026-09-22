@@ -2967,27 +2967,35 @@ sz <  0 : 判定中心 = Cen + (sx, sy)，方向 (dx, dy)，粗细 |sz|
 近战基础值来自 `MDAT`：`sx = ±0.75`、`sy = 0.55`、`sz = 0.45`（`nel/MDAT.cs:725-728`），
 之后由 `executeSmallAttack` 里按状态再调（如凌空横斩 `sx += 0.6`）。
 
-### 30.2 一稿（作废）：在 `executeSmallAttack` 后缀改 `Mg.sx/sy`
+### 30.2 【2026-09-22 撤销】当前实现已整体移除
 
-一稿挂 `M2PrSkill.executeSmallAttack` 后缀，直接把攻击包的 `sx/sy/dx/dy` ×1.2。实测**没有效果**。
-原因：这个位置拿到的只是"判定包的几何"，而 AIC 延长近战距离真正走的是**手杖 reach 管线**
-（见 30.3），而且挥击特效长度也由同一处决定——只改攻击包既覆盖不到特效，观感上也就"没变"。
+需求原意是"挥击看起来也变长"，但实测走不通，按用户要求**先把诺艾尔侧修长之钉的实现整体撤掉**
+（`build=2026-09-22.74`，代码、配置项、补丁全部删除；判定与画面都回到原版，等新做法）。留下结论供下次参考：
 
-### 30.3 二稿（现用）：挂 `PrCaneEquip.reach_ratio`
+**判定侧（可行，已随本次移除）**：
 
-`PrCaneEquip.reach_ratio(reach_level)`（`nel/PrCaneEquip.cs:246`，`Pow(near_reach, level) = (near_reach-1)*level + 1`）
-就是 AIC 自己的"手杖攻击距离"入口，给它挂后缀 ×1.2，判定与特效一起变长：
+- `PrCaneEquip.reach_ratio(reach_level)`（`:246`，`Pow(near_reach, level)`）是 AIC 自己的"手杖攻击距离"入口：
+  `PrCaneEquip.initChantMagicAwaken`（`:101-121`）会用它做 `Mg.sx *= reach_ratio(...)`，
+  直接决定近战射线长度（`MagicItem.runTackle` → `M2Ray.CastRayAndColliderS(..., Dir_, len, ...)`）。
+  注意游戏只会乘 `sx`，射线**粗细 `sz` 不参与**：只按比例乘的话，真实"触及距离"（`|(sx,sy)| + |sz|`）
+  的增幅会打折（实测 20% → 只剩 9% ≈ 3.5 像素，肉眼几乎看不出）。
+  据此做过"前缀量基准、后缀把总触及距离精确改成基准 ×N"的实现（N 试过 2 = +100%），**判定确实按比例变长了**。
+- `M2PrSkill` 的挥击粒子 `lax`（`:2581`）等也乘同一个 `reach_ratio`，但实测**画面不变**（见下）。
 
-| 位置 | 受影响的东西 |
-|---|---|
-| `PrCaneEquip.initChantMagicAwaken`（`:101-121`） | 对"基础近战攻击包"（`Mg.is_normal_attack && Mg.run_fn_is_basic_tackle`）做 `Mg.sx *= reach_ratio(...)`（sx 为 0 时乘 `Mg.sy`）→ 直接决定射线长度（`MagicItem.runTackle` → `M2Ray.CastRayAndColliderS(..., Dir_, len, ...)`） |
-| `M2PrSkill` 的挥击粒子 | 挥杖 `lax`（`:2581`）、突进 `msx`（`:2834`）、重击 `msx`（`:2885`）、回避反击 `len`（`:1478`）都乘同一个 `reach_ratio` → **特效长度同步 +20%** |
+**渲染侧（走不通）**：
 
-覆盖范围：所有用 `MDAT.FD_runBasicTackle` 的近战攻击包 —— 轻攻击 Punch、魔法霰弹 Shotgun、
-凌空横斩 Airpunch、会心重击 Fatal Smash，另外彗星俯冲/突进冲击/回避反击也在这条管线上（一并变长，与
-HK 的"长钉延长所有骨钉攻击"一致）。生效条件：诺艾尔模式 + 装备修长之钉。
+- 诺艾尔的像素图是**分层**的（`PixelLiner.PxlLayer`：`name` / `x` / `y` / `zmx` / `zmy` / `rotR` / `alpha`），
+  日志实测她的挥击姿势只有这几层：
+  `attack1`——`rod_4` + `Layer`；`attack2`——`Layer`/`Layer_2` + `rod_4` + `rodeff` + `hand`。
+- 逐层排查结论：`rod_4` = 法杖本体（拉大→法杖变巨大）、`rodeff` = 法杖旁的**粒子**（拉长→只有粒子变长）、
+  `Layer`/`Layer_2` = **本体画**（身体和挥击弧光烘焙在一起）、`hand` = 手。
+  → **弧光不是独立图层**，和身体画在同一层，没法只拉弧光。
+- 改图层后还必须让渲染网格重建，否则画面完全不变：诺艾尔立绘由 `M2PxlAnimatorRT.MyMd` 绘制，
+  而它只在 `need_fine == true && auto_replace_mesh` 时重建（`m2d/M2PxlAnimatorRT.cs:155-171`）；
+  只调 `PxlFrame.Apply()`（重建的是 `PxlFrame.MeshGenerator`）**没有用**，必须置 `anm.need_fine = true`。
 
-验证：`build=2026-09-22.58`，DLL SHA256 `142F705B137B52DC…`（两份安装已同步；只覆盖 DLL）。
+**下次可考虑的方向**：①只对挥击那一两帧拉伸本体层（身体会一起变宽，等于挥击残影）；
+②模组自绘弧带（程序化白弧，长度=判定触及距离，不动本体）；③使用独立素材画弧光。
 
 ### 28.2 伤害 +40%
 
