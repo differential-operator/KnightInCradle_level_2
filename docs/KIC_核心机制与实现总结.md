@@ -2791,7 +2791,8 @@ public const float DashmasterRunSpeedMult = 0.8f;   // 0.17 → 0.136，仍快�
 
 | 效果 | 原生机制 | 挂点 |
 |---|---|---|
-| ① 触碰魔物不摔倒 | 魔物"身体接触"伤害是 `MGKIND.TACKLE` 的魔法（`NelEnemy.tackleInit`，`:3495` 建 Mg、`：3499` `magicItem.Atk0 = Atk`）；命中时 `MGContainer.CircleCast` 会 `Atk.PublishMagic = Mg`（`:498`）。这种小击退伤害在 `M2PrADmg.applyDamage` 里会走 `changeState(PR.STATE.DAMAGE_LT)`（`:1315`，就是"摔倒/dmg_t"姿势） | `M2PrADmg.applyDamage(NelAttackInfo, ref HITTYPE, bool, string, bool, bool)` 前缀记下"本帧这次伤害是 TACKLE 接触伤害"，再由 `PR.changeState(PR.STATE)` 前缀拦掉紧接着的 `DAMAGE_LT` / `DAMAGE_LT_KIRIMOMI` 切换。**HP 伤害照常结算**，只是不进入摔倒动作 |
+| ① 触碰魔物不摔倒（**无伤害**的那条，主机制） | 诺艾尔的**身体**撞到魔物时走 `PR.moveByHitCheck`（`:5233`），里面按魔物种类调 `addEnemySink(EnemyAttr.getSinkRatio(enemy), …)`（`:5243`）给 `PR.RCenemy_sink` 累加"被撞倒计量"；`PR.checkEnemySink`（`:3692-3715`）在计量 ≥ **6** 时 `changeState(PR.STATE.ENEMY_SINK)` —— 这就是"撞到魔物摔倒"，**完全不经过伤害管线、不掉血**。跑动状态下累加量还会 ×2.3（`:5293-5296`），所以"跑着撞上去"特别容易摔；`runEnemySink` 也要求她在地面且非蹲伏（`:3679-3681`） | 只在 `PR.moveByHitCheck` 这一路屏蔽累加：该函数前缀置 `_stableBodyHitSinkScope`、后缀清除，`PR.addEnemySink` 前缀在该作用域内直接 `return false`。**物理推挤照旧**；其它 sink 来源（醉酒 `M2SerLisP_DRUNK`、被魔物驮着、硬撞 `Skill.moveByHitCheckHard` 之外的调用）不受影响 |
+| ①-b 带伤害的"接触攻击"也不摔倒（附加，非需求主项） | 魔物的"身体接触攻击"是 `MGKIND.TACKLE` 的魔法（`NelEnemy.tackleInit`，`:3495` 建 Mg、`:3499` `magicItem.Atk0 = Atk`）；命中时 `MGContainer.CircleCast` 会 `Atk.PublishMagic = Mg`（`:498`）。这种小击退伤害在 `M2PrADmg.applyDamage` 里会走 `changeState(PR.STATE.DAMAGE_LT)`（`:1315`，就是"摔倒/dmg_t"姿势） | `M2PrADmg.applyDamage(NelAttackInfo, ref HITTYPE, bool, string, bool, bool)` 前缀记下"本帧这次伤害是 TACKLE 接触伤害"，再由 `PR.changeState(PR.STATE)` 前缀拦掉紧接着的 `DAMAGE_LT` / `DAMAGE_LT_KIRIMOMI` 切换。**HP 伤害照常结算**，只是不进入摔倒动作 |
 | ② 免疫风力 | 风压等级 `PR.getWindApplyLevel`（`:2457`）决定受风强度，实际推力在 `PR.applyWindFoc`（`:2517`）的 `Phy.addFoc(FOCTYPE.KNOCKBACK,…)` | 两个入口都加前缀：等级直接返回 0、推力整体跳过（与小骑士模式的 `CombatGuard.PrWindFocPrefix` 同款） |
 | ③ 免疫黏滑地面（冰面） | `M2FootManager` 踩到 `foottype == "ice"` 时调 `M2Phys.addOnIce(false, 3f)`（`M2FootManager.cs:740`），把 `t_ice` 拉高；`t_ice > 0` 会把横向摩擦力按 0.015 倍衰减（`M2Phys.cs:591/641/791`），表现为打滑、难以急停 | `M2Phys.addOnIce(bool, float)` 前缀：若这个 `M2Phys` 属于本地诺艾尔（`M2Phys.Mv` 反查）则跳过 → `t_ice` 始终为 0，摩擦力与普通地面一致 |
 
@@ -2799,7 +2800,28 @@ public const float DashmasterRunSpeedMult = 0.8f;   // 0.17 → 0.136，仍快�
 
 - 三条都只在"**本地诺艾尔 + 装备稳定之体 + 非小骑士模式**"时生效（`IsStableBodyApplied`）；
 - `M2Mover.Phy` 是 `protected`，改用公开的 `M2Phys.Mv` 反查归属，避免反射；
-- 接触伤害的识别不看攻击者种类，只看 `Atk.PublishMagic.kind == MGKIND.TACKLE`：这是 AIC 里所有"撞上去才受伤"的接触攻击的统一形态，敌人自己的挥击/弹幕不落在这个 kind 上；
+- ① 与 ①-b 是两条独立机制：**①（撞上去摔倒）没有伤害**、走 `moveByHitCheck → addEnemySink → RCenemy_sink`；**①-b（接触攻击）有伤害**、走 `NelEnemy.tackleInit → MGKIND.TACKLE → M2PrADmg`。前者是需求本意，后者是同名现象的另一条路径，一起拦掉更贴合"不会因为触碰魔物而摔倒"；
+- ①-b 的识别不看攻击者种类，只看 `Atk.PublishMagic.kind == MGKIND.TACKLE`：这是 AIC 里所有"撞上去才受伤"的接触攻击的统一形态，敌人自己的挥击/弹幕不落在这个 kind 上；
 - 拦截只在受伤的**同一帧**有效（`_stableBodyContactFrame == Time.frameCount`），不会影响其它来源的倒地（如坠落、重击 `DAMAGE_L`）。
 
-验证：`build=2026-09-22.47`，DLL SHA256 `9DBC554F711E6679…`（两份安装已同步；只覆盖 DLL）。
+### 27.1 二稿：撞怪摔倒其实是 `RCenemy_sink`（build=2026-09-22.48）
+
+一稿只拦了"接触**伤害**"（`MGKIND.TACKLE`），实测**诺艾尔撞到魔物仍然摔倒**。
+原因是需求说的摔倒根本不是伤害管线：那是 **`PR.RCenemy_sink`（被撞倒计量）**——
+
+```
+PR.moveByHitCheck(AnotherPhy, …)      // 身体撞到别的 mover（魔物）时调用
+  → addEnemySink(EnemyAttr.getSinkRatio(enemy), …)   // PR.cs:5243
+    → RCenemy_sink.Add(num * ratio, …)                // PR.cs:5297（跑动时 num×2.3）
+  → （每帧）runEnemySink → checkEnemySink              // PR.cs:3673 / 3692
+    → RCenemy_sink >= 6f → changeState(PR.STATE.ENEMY_SINK)   // PR.cs:3710-3715
+```
+
+二稿挂点：
+
+- `PR.moveByHitCheck` 前缀置 `_stableBodyHitSinkScope`、后缀清除（**只覆盖这一次身体碰撞**）；
+- `PR.addEnemySink` 前缀在该作用域内且"本地诺艾尔 + 稳定之体"时 `return false`；
+- 物理推挤（`base.moveByHitCheck` / `Phy.addFoc`）、`clipWalkXSpeed` 全部保留，所以撞上去的手感还在，只是不会再积累"被撞倒"；
+- 醉酒（`M2SerLisP_DRUNK`）、被魔物驮着（`PRMain.initRideOnEnemyJumperBoard`）等其它 `addEnemySink` 调用不受影响。
+
+验证：`build=2026-09-22.48`，DLL SHA256 `FF930DD24A9C64BE…`（两份安装已同步；只覆盖 DLL）。

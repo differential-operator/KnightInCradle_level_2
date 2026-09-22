@@ -1276,6 +1276,7 @@ namespace KnightInCradle.CharmUi
         /// </summary>
         private static PR _stableBodyContactPr;
         private static int _stableBodyContactFrame = -1;
+        private static bool _stableBodyHitSinkScope;
 
         /// <summary>该 PR 是否就是"佩戴了稳定之体的本地诺艾尔"。</summary>
         private static bool IsStableBodyApplied(PR pr)
@@ -1381,6 +1382,49 @@ namespace KnightInCradle.CharmUi
             {
                 return true;
             }
+        }
+
+        /// <summary>
+        /// ①-b **走路/跑动撞到魔物而摔倒**（无伤害的那条，正是需求里说的"碰到怪摔倒"）：
+        /// 玩家身体撞到魔物时走 `PR.moveByHitCheck`（`:5233`），里面按魔物种类调
+        /// `addEnemySink(EnemyAttr.getSinkRatio(enemy), …)` 给 `PR.RCenemy_sink` 累加"被撞倒计量"；
+        /// 计量 ≥ 6（`PR.checkEnemySink`，`:3692-3715`）就 `changeState(PR.STATE.ENEMY_SINK)` —— 摔倒。
+        /// 跑动状态下累加量还会 ×2.3（`:5293-5296`），所以"跑着撞上去"特别容易摔。
+        ///
+        /// 做法：只在 `moveByHitCheck` 这一路里屏蔽累加（前缀置位、后缀清除），
+        /// 物理推挤本身照旧；其它 sink 来源（醉酒、被魔物驮着、硬撞）不受影响。
+        /// </summary>
+        private static void StableBodyMoveHitPrefix(PR __instance)
+        {
+            try
+            {
+                _stableBodyHitSinkScope = IsStableBodyApplied(__instance);
+            }
+            catch (Exception)
+            {
+                _stableBodyHitSinkScope = false;
+            }
+        }
+
+        private static void StableBodyMoveHitPostfix()
+        {
+            _stableBodyHitSinkScope = false;
+        }
+
+        /// <summary>①-b：撞怪这一路不计入"被撞倒计量"（其它来源照常）。</summary>
+        private static bool StableBodyEnemySinkPrefix(PR __instance)
+        {
+            try
+            {
+                if (_stableBodyHitSinkScope && IsStableBodyApplied(__instance))
+                {
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return true;
         }
 
         // ================= 护符13 坚固力量（诺艾尔侧：骨钉系技能最终伤害 +25%） =================
@@ -2390,6 +2434,25 @@ namespace KnightInCradle.CharmUi
                 {
                     harmony.Patch(prChangeState, prefix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(StableBodyChangeStatePrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符15 稳定之体（诺艾尔侧）：走路/跑动撞到魔物不摔倒（屏蔽 RCenemy_sink 累加）
+                MethodInfo moveByHitCheck = AccessTools.Method(typeof(PR), "moveByHitCheck");
+                if (moveByHitCheck != null)
+                {
+                    harmony.Patch(moveByHitCheck,
+                        prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(StableBodyMoveHitPrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)),
+                        postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(StableBodyMoveHitPostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                MethodInfo addEnemySink = AccessTools.Method(typeof(PR), "addEnemySink");
+                if (addEnemySink != null)
+                {
+                    harmony.Patch(addEnemySink, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(StableBodyEnemySinkPrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符12 坚固贪婪：击杀魔物掉落 5% 最大生命值的金币
