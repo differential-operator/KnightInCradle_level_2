@@ -6,6 +6,7 @@ using HarmonyLib;
 using m2d;
 using nel;
 using nel.gm;
+using PixelLiner;
 using UnityEngine;
 using XX;
 
@@ -1404,7 +1405,132 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        // -------- 修长之钉的"渲染"：自制斩击弧光（与判定等长） --------
+        // -------- 修长之钉的"渲染"①：直接拉伸她自己姿势里的弧光图层 --------
+        /// <summary>
+        /// AIC 的角色像素图是**分层**的（`PxlLayer`：`name` / `x` / `y` / `zmx` / `zmy` / `rotR` / `alpha`，
+        /// 见 `PixelLiner.PxlLayer`）。诺艾尔挥杖的弧光就画在她的挥击姿势（`attack1`/`attack2` 等）里，
+        /// 但**它和身体是分开的图层** —— 所以正确做法不是拉伸整帧（那会把身体一起拉宽），
+        /// 而是只把"弧光层"的横向缩放 `zmx` 乘上倍率，这样弧光会从她的手部向外延伸，
+        /// 身体保持原样（这就是"直接用她自己的画"）。
+        ///
+        /// 实现：每帧取当前动画序列（`M2PxlAnimator.getCurrentSequence()`）的所有帧，
+        /// 把命中弧光命名的图层缩放改成 `基准 × LongNailReachMult`（基准只记一次），
+        /// 卸下护符/切小骑士时把基准写回。层名会打一次日志便于确认。
+        /// </summary>
+        private static readonly Dictionary<PxlLayer, float> _longNailLayerBaseZmx = new Dictionary<PxlLayer, float>();
+        private static int _longNailLayerLogCount;
+        private static bool _longNailLayerFound;
+
+        private static bool IsLongNailArcLayerName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                return false;
+            }
+            string n = name.ToLowerInvariant();
+            // 身体部件绝不参与，防止把诺艾尔自己拉宽
+            if (n.Contains("body") || n.Contains("noel") || n.Contains("base") || n.Contains("head") ||
+                n.Contains("hair") || n.Contains("face") || n.Contains("arm") || n.Contains("leg") ||
+                n.Contains("hand") || n.Contains("foot") || n.Contains("torso") || n.Contains("eye"))
+            {
+                return false;
+            }
+            return n.Contains("swing") || n.Contains("slash") || n.Contains("arc") ||
+                   n.Contains("effect") || n.Contains("eff_") || n.Contains("cane");
+        }
+
+        /// <summary>每帧（诺艾尔模式）：把她自己挥击姿势里的弧光层按倍率拉长 / 卸下时还原。</summary>
+        public static void TickNoelLongNailPoseStretch(PRNoel pr)
+        {
+            try
+            {
+                PrAnimator anm = pr != null ? pr.getAnimator() : null;
+                bool want = !IsKnightMode && IsEquipped(CharmOwner.Noel, LongNailId) && anm != null;
+                if (!want)
+                {
+                    RestoreLongNailPoseLayers();
+                    _longNailLayerFound = false;
+                    return;
+                }
+                PxlSequence seq = anm.getCurrentSequence();
+                if (seq == null)
+                {
+                    return;
+                }
+                _longNailLayerFound = false;
+                int frameCount = seq.countFrames();
+                for (int i = 0; i < frameCount; i++)
+                {
+                    PxlFrame frame = seq.getFrame(i);
+                    PxlLayer[] lays = frame != null ? frame.ALay : null;
+                    if (lays == null)
+                    {
+                        continue;
+                    }
+                    for (int j = 0; j < lays.Length; j++)
+                    {
+                        PxlLayer lay = lays[j];
+                        if (lay == null || !IsLongNailArcLayerName(lay.name))
+                        {
+                            continue;
+                        }
+                        _longNailLayerFound = true;
+                        if (!_longNailLayerBaseZmx.ContainsKey(lay))
+                        {
+                            _longNailLayerBaseZmx[lay] = lay.zmx;
+                        }
+                        lay.zmx = _longNailLayerBaseZmx[lay] * LongNailReachMult;
+                    }
+                }
+                if (_longNailLayerLogCount < 8)
+                {
+                    _longNailLayerLogCount++;
+                    string seqName = (seq.pPose != null) ? seq.pPose.ToString() : "?";
+                    var sb = new System.Text.StringBuilder();
+                    PxlFrame f0 = frameCount > 0 ? seq.getFrame(0) : null;
+                    if (f0 != null && f0.ALay != null)
+                    {
+                        for (int j = 0; j < f0.ALay.Length; j++)
+                        {
+                            if (j > 0)
+                            {
+                                sb.Append('|');
+                            }
+                            sb.Append(f0.ALay[j] != null ? f0.ALay[j].name : "null");
+                        }
+                    }
+                    KnightInCradlePlugin.PluginLog?.LogInfo(
+                        "[KIC][长钉图层] seq=" + seqName + " 命中弧光层=" + _longNailLayerFound + " 层=" + sb);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static void RestoreLongNailPoseLayers()
+        {
+            if (_longNailLayerBaseZmx.Count == 0)
+            {
+                return;
+            }
+            foreach (KeyValuePair<PxlLayer, float> kv in _longNailLayerBaseZmx)
+            {
+                try
+                {
+                    if (kv.Key != null)
+                    {
+                        kv.Key.zmx = kv.Value;
+                    }
+                }
+                catch (Exception)
+                {
+                }
+            }
+            _longNailLayerBaseZmx.Clear();
+        }
+
+        // -------- 修长之钉的"渲染"②：兜底用的自制斩击弧光（图层路径没命中时才画） --------
         /// <summary>
         /// 用 HK"长钉样式（螳螂爪）"的斩击帧画诺艾尔的近战弧光 —— 也就是小骑士戴
         /// 修长之钉/骄傲印记时同一套视觉（`knight_manifest.json` 的 `SlashEffect M`：
@@ -1452,6 +1578,10 @@ namespace KnightInCradle.CharmUi
                 if (!( __result.Caster is PRNoel) || !IsLongNailKind(__result.kind))
                 {
                     return;
+                }
+                if (_longNailLayerFound)
+                {
+                    return; // 已经能把她自己姿势里的弧光层拉长，就不用再叠一层
                 }
                 float sx = __result.sx;
                 float sy = __result.sy;
