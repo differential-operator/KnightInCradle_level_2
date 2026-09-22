@@ -2731,28 +2731,32 @@ public const float DashmasterRunSpeedMult = 0.8f;   // 0.17 → 0.136，仍快�
 
 验证：`build=2026-09-22.43`，DLL SHA256 `DB9996D011071A71…`（两份安装已同步；只覆盖 DLL）。
 
-### 26.1 法术扭曲者三稿：普通法术（咏唱→施放）的扣魔也减 10（build=2026-09-22.44）
+### 26.1 法术扭曲者三稿：扣魔数额**本身**减 10（build=2026-09-22.45）
 
 **问题**：一稿之二只挂了 `PR.applyBurstMpDamage`（爆发型魔法起手）与
-`M2PrSkill.digestShotgunHoldMp`（霰弹蓄力结算），测试时"咏唱魔法该扣多少还是扣多少"。
+`M2PrSkill.digestShotgunHoldMp`（霰弹蓄力结算），测试时"咏唱魔法该扣多少还是扣多少"；
+三稿一版改成"先扣满、扣完返还 10"，实测（纯白之箭 20 MP）表现为**先扣 20、放完再退 10**，
+不是想要的"扣的时候就是 10"。
 
-**查证**（`_tmp_aic_src_new/Assembly-CSharp/nel/M2PrSkill.cs`）：普通法术真正的扣魔点有两处，
-都在 `M2PrSkill` 内部按施法状态算出金额，**前缀改不到参数**：
+**查证**（`_tmp_aic_src_new/Assembly-CSharp/nel/M2PrSkill.cs`）：诺艾尔魔法真正扣魔的三个入口，
+最终都走**同一个重载** `PR.applyMpDamage(int val, bool force, AttackInfo Atk, bool use_quake, bool calc_gsaver)`
+（`nel/PR.cs:3297`）：
 
-- `explodeMagic`（`:3659`）：咏唱完毕/松手施放时 `Pr.applyMpDamage((int)mp_hold)`；
-- `killHoldMagic(MANA_HIT,...)`（`:3875`）：被打断/取消时按 `(int)(mp_hold - mp_overhold)` 结算。
+| 入口 | 触发时机 | 扣魔表达式 |
+|---|---|---|
+| `M2PrSkill.explodeMagic` (`:3659`) | 咏唱完毕 / 松手施放 | `applyMpDamage((int)mp_hold, …)` |
+| `M2PrSkill.killHoldMagic(MANA_HIT,…)` (`:3875`) | 被打断 / 取消施法 | `applyMpDamage((int)(mp_hold - mp_overhold), …)` |
+| `M2PrSkill.digestShotgunHoldMp` (`:2375`) | 霰弹每次命中结算蓄力 | `applyMpDamage(num2, …)` |
 
-**做法**：这两处扣的魔力同时决定魔法威力（`MDAT.initShotGun` 用 `X.ZPOW(mp_hold, reduce_mp)` 缩放伤害），
-所以不能改 `mp_hold`——改成"**原版照扣，扣完立刻返还 10**"：
+**做法**：给这个重载挂前缀，把 `val` 直接减 10（不低于 1）——**是扣魔时少扣，不是扣完返还**：
 
-- `explodeMagic` 前缀记下 `mp_hold`，后缀在 `__result == true`（真的施放并扣魔）时返还
-  `min(10, 消耗量)`；返回 false 的早退分支（UI 点击、被 `killHoldMagic(false,…)` 清掉等）不返还；
-- `killHoldMagic(MANA_HIT,…)` 前缀记下 `mp_hold - mp_overhold`（仅当 `split_mana != NOUSE`），后缀返还同样上限；
-- 返还是 `KnightInCradleBehaviour.GrantNoelMana()` + `RefreshNoelHudMp()`，与护符 4/6 同一条通道；
-- `mp_hold`/`mp_overhold` 是 `M2PrSkill` 的私有字段，用 `AccessTools.Field` 读；只对本地诺艾尔
-  （`ReferenceEquals(__instance, pr.Skill)` 且非小骑士模式）生效。
+- 标记 `_noelSpellTwisterCostScope`：三个入口各自在前缀置位、后缀清除；
+- `applyMpDamage` 前缀读一次即消费该标记，保证同一次结算只减一次；只对本地诺艾尔
+  （`ReferenceEquals(__instance, pr)`）且**非小骑士模式**生效；
+- 不动 `mp_hold`/`reduce_mag`，所以蓄力条与魔法威力（`MDAT.initShotGun` 用
+  `X.ZPOW(mp_hold, reduce_mp)` 缩放伤害）都保持原样；
+- `PR.applyBurstMpDamage`（爆发型魔法起手，走另一条 7 参重载）仍单独在前缀改参数。
 
-同一次施放不会重复返还：`explodeMagic` 成功后 `CurMg` 被置空（`:3678`），再次调用会走
-`CurMg != TargetMg` 分支并返回 false。
+例：纯白之箭 20 MP → 直接扣 10。
 
-验证：`build=2026-09-22.44`，DLL SHA256 `E7240B905E513A29…`（两份安装已同步；只覆盖 DLL）。
+验证：`build=2026-09-22.45`，DLL SHA256 `C2595FA41D2B5893…`（两份安装已同步；只覆盖 DLL）。
