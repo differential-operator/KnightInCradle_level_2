@@ -55,13 +55,14 @@ namespace KnightInCradle
         internal static ConfigEntry<int> LongNailReachPercentConfig;
         /// <summary>护符18 弧带：圆周张角（±度）与径向厚度倍率、亮度倍率。</summary>
         internal static ConfigEntry<float> LongNailArcSpanDegConfig;
-        internal static ConfigEntry<float> LongNailArcThicknessConfig;
+        internal static ConfigEntry<float> LongNailArcWidthRatioConfig;
         internal static ConfigEntry<float> LongNailArcAlphaConfig;
 
         internal static float LongNailArcSpanDeg =>
             LongNailArcSpanDegConfig != null ? Mathf.Clamp(LongNailArcSpanDegConfig.Value, 2f, 90f) : 42f;
-        internal static float LongNailArcThickness =>
-            LongNailArcThicknessConfig != null ? Mathf.Clamp(LongNailArcThicknessConfig.Value, 0.02f, 1f) : 0.2f;
+        /// <summary>弧带自身厚度 = 加成后半径 × 该比例（默认 0.05 ≈ 2~3 像素）。</summary>
+        internal static float LongNailArcWidthRatio =>
+            LongNailArcWidthRatioConfig != null ? Mathf.Clamp(LongNailArcWidthRatioConfig.Value, 0.005f, 0.5f) : 0.05f;
         internal static float LongNailArcAlpha =>
             LongNailArcAlphaConfig != null ? Mathf.Clamp(LongNailArcAlphaConfig.Value, 0.05f, 3f) : 1f;
 
@@ -219,9 +220,9 @@ namespace KnightInCradle
                 "判定距离按这个百分比放大，自绘的白色弧带只画'多出来的那一段'。");
             LongNailArcSpanDegConfig = Config.Bind("Charm18", "LongNailArcSpanDeg", 42f,
                 "修长之钉弧带的圆周张角（±度，默认 42 = 总张角 84°）。调小 → 弧变短，只留身前一小段。");
-            LongNailArcThicknessConfig = Config.Bind("Charm18", "LongNailArcThickness", 0.2f,
-                "修长之钉弧带的径向厚度倍率：相对'加成区'（普通法杖触及距离那圈 → 修长之钉加成后那圈）的比例。" +
-                "默认 0.2 = 加成区的 1/5；填 1 = 铺满整个加成区（旧版观感）；填 0.05 = 极细一条线。");
+            LongNailArcWidthRatioConfig = Config.Bind("Charm18", "LongNailArcWidthRatio", 0.05f,
+                "修长之钉弧带自身厚度 = 加成后半径 × 这个比例。弧带只画'修长之钉加成后那一圈'。" +
+                "默认 0.05（约 2~3 像素）；调大更粗，调小更细。");
             LongNailArcAlphaConfig = Config.Bind("Charm18", "LongNailArcAlpha", 1f,
                 "修长之钉弧带的亮度倍率（默认 1）。小于 1 更淡，大于 1 更亮。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：

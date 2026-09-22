@@ -1603,7 +1603,7 @@ namespace KnightInCradle.CharmUi
                 float progress = Mathf.Clamp01(arc.T / LongNailArcLife);
                 float fade = 1f - progress;
                 float span = KnightInCradlePlugin.LongNailArcSpanDeg * Mathf.Deg2Rad;
-                float thickK = KnightInCradlePlugin.LongNailArcThickness;
+                float widthK = KnightInCradlePlugin.LongNailArcWidthRatio;
                 float alphaK = KnightInCradlePlugin.LongNailArcAlpha;
                 // 弧带：外缘半径 = 触及距离；宽度中间粗、两端收细
                 for (int i = 0; i < LongNailArcSegments; i++)
@@ -1616,12 +1616,11 @@ namespace KnightInCradle.CharmUi
                     float taper = Mathf.Sin(Mathf.PI * tm);
                     // 只画"加成区"：内半径 = 原版触及距离，外半径 = 加成后的触及距离；
                     // 中段再向外多探出去一点，让弧带看起来是一道月牙而不是等宽的环。
-                    // 径向线 = "普通法杖触及距离"那道弧 → "修长之钉加成后触及距离"那道弧之间的距离（加成区）。
-                    // 弧带厚度 = 加成区厚度 × LongNailArcThickness（默认 0.2，即加成区的 1/5），
-                    // 居中放在加成区里，中段略粗、两端收细。
-                    float span01 = Mathf.Max(0.01f, arc.ReachTo - arc.ReachFrom);
-                    float rMid = (arc.ReachFrom + arc.ReachTo) * 0.5f;
-                    float half = span01 * 0.5f * thickK * (0.45f + 0.55f * taper);
+                    // 只画"修长之钉加成后那一圈"：弧带以加成后的触及距离为半径，自身很细
+                    // （厚度 = 该半径 × LongNailArcWidthRatio，默认 5% ≈ 2~3 像素），
+                    // 中段略粗、两端收细；不再画"普通法杖那圈 → 加成后那圈"之间的整片环形区域。
+                    float rMid = arc.ReachTo;
+                    float half = rMid * widthK * (0.45f + 0.55f * taper);
                     float rIn = rMid - half;
                     float rOut = rMid + half;
                     float px0 = arc.Dir * Mathf.Cos(a0) * rIn * clen;
