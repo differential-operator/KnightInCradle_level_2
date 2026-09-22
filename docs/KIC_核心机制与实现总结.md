@@ -2910,6 +2910,26 @@ PR.moveByHitCheck(AnotherPhy, …)      // 身体撞到别的 mover（魔物）�
 
 验证：`build=2026-09-22.54`，DLL SHA256 `7FF75EF1725ADEB6…`（两份安装已同步；只覆盖 DLL）。
 
+---
+
+## 29. 诺艾尔的护符第二部分（11）：快速劈砍（id 17，2026-09-22，build=2026-09-22.55）
+
+需求：诺艾尔**挥动法杖的速度提升 50%**。
+
+实现：给 `M2PrSkill.PunchSpeed(float level)` 挂后缀 ×1.5（`FastSlashSpeedMult`）。
+
+| 项目 | 说明 |
+|---|---|
+| 为什么选这个挂点 | `PunchSpeed` 的实现就是"手杖近接挥击速度"属性：`X.Mx(0.1f, CaneStat.Pow(CaneStat.near_punch_speed, level))`（`nel/M2PrSkill.cs:5203`） |
+| 它同时驱动两件事 | ① 挥击**动画播放速度**：`Anm.timescale = PunchSpeed(...)`（`:643 / :808 / :938 / :1083`）；② 挥击**状态时长**：各挥击状态 `t += base.TS * PunchSpeed(...)`（`:653 / :854 / :971 / :1116 / :1202`）——所以一处乘 1.5，动作与出手间隔一起快 50% |
+| 覆盖范围 | 轻攻击（PUNCH）以及走同一套 `PunchSpeed` 的骨钉技艺（旋风斩击/彗星俯冲/突进冲击/会心重击等） |
+| 生效条件 | 本地诺艾尔（`!IsKnightMode`）+ `ReferenceEquals(__instance, pr.Skill)` + 装备快速劈砍；小骑士模式不参与（骑士侧用模组自己的 `SlashAttackTime` 0.4→0.3） |
+
+注：出招收招的"负向锁定"计时 `punch_t`（`M2PrSkill.cs:1940` 用裸 `TS` 递减，约 7 帧）没有跟着缩放，
+因此**连续攻击**的实际间隔缩短比例略小于 50%（约 1.35 倍）；单次挥杖动作本身是精确的 1.5 倍速。
+
+验证：`build=2026-09-22.55`，DLL SHA256 `7E0EF1F5513C5609…`（两份安装已同步；只覆盖 DLL）。
+
 ### 28.2 伤害 +40%
 
 并入已有的"诺艾尔侧最终伤害乘区"（`CircleCast` 前缀/后缀，与护符 5 萨满之石、护符 13 坚固力量

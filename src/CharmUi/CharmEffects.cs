@@ -1269,6 +1269,44 @@ namespace KnightInCradle.CharmUi
             _noelSpellTwisterCostScope = SpellTwisterScopeOff;
         }
 
+        // ================= 护符17 快速劈砍（诺艾尔侧：挥杖速度 +50%） =================
+        /// <summary>快速劈砍：诺艾尔挥杖速度倍率（需求：+50%）。</summary>
+        public const float FastSlashSpeedMult = 1.5f;
+
+        /// <summary>
+        /// 护符17 快速劈砍（**诺艾尔侧**）：诺艾尔挥动法杖的速度提升 50%。
+        ///
+        /// 挂点：`M2PrSkill.PunchSpeed(level)`（`nel/M2PrSkill.cs:5203`，
+        /// 实现是 `X.Mx(0.1f, this.CaneStat.Pow(this.CaneStat.near_punch_speed, level))`
+        /// —— 就是"手杖近接挥击速度"这个属性）的后缀 ×1.5。
+        ///
+        /// 这个函数同时驱动两件事，所以一处修改就能整体提速：
+        /// ① **挥击动画播放速度**：`base.Anm.timescale = this.PunchSpeed(...)`（`:643 / :808 / :938 / :1083`）；
+        /// ② **挥击状态时长**：各挥击状态里 `t += base.TS * this.PunchSpeed(...)`
+        ///    （`:653 / :854 / :971 / :1116 / :1202`），状态推进更快 → 出手/收招更快。
+        ///
+        /// 只对本地诺艾尔 + 装备快速劈砍生效；小骑士模式不参与（骑士侧用自己的 `SlashAttackTime`）。
+        /// </summary>
+        private static void FastSlashPunchSpeedPostfix(M2PrSkill __instance, ref float __result)
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, FastSlashId))
+                {
+                    return;
+                }
+                PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+                if (pr == null || !ReferenceEquals(__instance, pr.Skill))
+                {
+                    return;
+                }
+                __result *= FastSlashSpeedMult;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         // ================= 护符15 稳定之体（诺艾尔侧：不摔倒 / 免疫风力 / 免疫黏滑地面） ===
         /// <summary>
         /// 护符15 稳定之体，三条效果各自的原生机制（0.30g 反编译实证）：
@@ -2851,6 +2889,14 @@ namespace KnightInCradle.CharmUi
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符15 稳定之体（诺艾尔侧）：风力（等级 + 推力两个入口）
+                // 护符17 快速劈砍（诺艾尔侧）：挥杖速度 +50%
+                MethodInfo punchSpeed = AccessTools.Method(typeof(M2PrSkill), "PunchSpeed");
+                if (punchSpeed != null)
+                {
+                    harmony.Patch(punchSpeed, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(FastSlashPunchSpeedPostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
                 MethodInfo windLevel = AccessTools.Method(typeof(PR), "getWindApplyLevel");
                 if (windLevel != null)
                 {
