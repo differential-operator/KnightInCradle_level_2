@@ -1273,21 +1273,66 @@ namespace KnightInCradle.CharmUi
         /// <summary>快速劈砍：诺艾尔挥杖速度倍率（需求：+50%）。</summary>
         public const float FastSlashSpeedMult = 1.5f;
 
+        /// <summary>`PR.state`（protected 字段）的快速读取器，用于判断"当前是不是挥击状态"。</summary>
+        private static AccessTools.FieldRef<PR, PR.STATE> _prStateRef;
+
+        /// <summary>诺艾尔的"挥击/技艺状态"白名单（快速劈砍只在这些状态里加速）。</summary>
+        private static bool IsNoelAttackState(PR pr)
+        {
+            try
+            {
+                if (_prStateRef == null)
+                {
+                    _prStateRef = AccessTools.FieldRefAccess<PR, PR.STATE>("state");
+                }
+                if (_prStateRef == null)
+                {
+                    return false;
+                }
+                switch (_prStateRef(pr))
+                {
+                    case PR.STATE.PUNCH:
+                    case PR.STATE.AIRPUNCH:
+                    case PR.STATE.AIRPUNCH_SHOTGUN:
+                    case PR.STATE.WHEEL:
+                    case PR.STATE.WHEEL_SHOTGUN:
+                    case PR.STATE.COMET:
+                    case PR.STATE.COMET_SHOTGUN:
+                    case PR.STATE.DASHPUNCH:
+                    case PR.STATE.DASHPUNCH_SHOTGUN:
+                    case PR.STATE.SMASH:
+                    case PR.STATE.SMASH_SHOTGUN:
+                    case PR.STATE.SLIDING:
+                    case PR.STATE.EVADECOUNTER:
+                    case PR.STATE.EVADECOUNTER_SHOTGUN:
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         /// <summary>
         /// 护符17 快速劈砍（**诺艾尔侧**）：诺艾尔挥动法杖的速度提升 50%。
         ///
-        /// 挂点：`M2PrSkill.PunchSpeed(level)`（`nel/M2PrSkill.cs:5203`，
-        /// 实现是 `X.Mx(0.1f, this.CaneStat.Pow(this.CaneStat.near_punch_speed, level))`
-        /// —— 就是"手杖近接挥击速度"这个属性）的后缀 ×1.5。
+        /// 挂点：`PR.baseTS`（`nel/PR.cs:1417` 重写的属性，`= _baseTS * Skill.baseTimeScale()`）。
+        /// `M2Mover.TS => Map2d.TS * baseTS`（`m2d/M2Mover.cs:2514`），而：
+        /// ① **挥击状态推进**：主状态计时 `t_state += base.TS` → ×1.5 后整个挥击流程快 50%；
+        /// ② **动画播放**：`M2PxlAnimator.runPre` 里 `ts = 帧时间 × Mv.TS × animator_TS × timescale`
+        ///    （`m2d/M2PxlAnimator.cs:202`）→ 同样 ×1.5。
         ///
-        /// 这个函数同时驱动两件事，所以一处修改就能整体提速：
-        /// ① **挥击动画播放速度**：`base.Anm.timescale = this.PunchSpeed(...)`（`:643 / :808 / :938 / :1083`）；
-        /// ② **挥击状态时长**：各挥击状态里 `t += base.TS * this.PunchSpeed(...)`
-        ///    （`:653 / :854 / :971 / :1116 / :1202`），状态推进更快 → 出手/收招更快。
+        /// 为什么不用 `M2PrSkill.PunchSpeed`（一稿的挂点）：它只喂给 ①`Anm.timescale`
+        /// 与 ②各状态的**起手几帧**（`t += TS * PunchSpeed(...)`，`t &lt; 9` 那一段）；
+        /// 挥击主体（`t` 9→24）是主状态计时在推，不受它影响 —— 所以一稿实测"几乎没变快"。
         ///
-        /// 只对本地诺艾尔 + 装备快速劈砍生效；小骑士模式不参与（骑士侧用自己的 `SlashAttackTime`）。
+        /// 只在**挥击/技艺状态**里加速（`IsNoelAttackState`），走路/跳跃等不受影响；
+        /// 也只对本地诺艾尔 + 装备快速劈砍生效（小骑士模式不参与）。
         /// </summary>
-        private static void FastSlashPunchSpeedPostfix(M2PrSkill __instance, ref float __result)
+        private static void FastSlashBaseTsPostfix(PR __instance, ref float __result)
         {
             try
             {
@@ -1296,7 +1341,7 @@ namespace KnightInCradle.CharmUi
                     return;
                 }
                 PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
-                if (pr == null || !ReferenceEquals(__instance, pr.Skill))
+                if (pr == null || !ReferenceEquals(__instance, pr) || !IsNoelAttackState(pr))
                 {
                     return;
                 }
@@ -2890,11 +2935,12 @@ namespace KnightInCradle.CharmUi
                 }
                 // 护符15 稳定之体（诺艾尔侧）：风力（等级 + 推力两个入口）
                 // 护符17 快速劈砍（诺艾尔侧）：挥杖速度 +50%
-                MethodInfo punchSpeed = AccessTools.Method(typeof(M2PrSkill), "PunchSpeed");
-                if (punchSpeed != null)
+                // 挂 PR.baseTS（状态计时与动画播放共用它），仅挥击/技艺状态生效
+                MethodInfo prBaseTs = AccessTools.PropertyGetter(typeof(PR), "baseTS");
+                if (prBaseTs != null)
                 {
-                    harmony.Patch(punchSpeed, postfix: new HarmonyMethod(
-                        typeof(CharmEffects).GetMethod(nameof(FastSlashPunchSpeedPostfix),
+                    harmony.Patch(prBaseTs, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(FastSlashBaseTsPostfix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 MethodInfo windLevel = AccessTools.Method(typeof(PR), "getWindApplyLevel");

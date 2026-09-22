@@ -2916,19 +2916,29 @@ PR.moveByHitCheck(AnotherPhy, …)      // 身体撞到别的 mover（魔物）�
 
 需求：诺艾尔**挥动法杖的速度提升 50%**。
 
-实现：给 `M2PrSkill.PunchSpeed(float level)` 挂后缀 ×1.5（`FastSlashSpeedMult`）。
+### 29.1 一稿（作废）：挂 `PunchSpeed` 几乎没有效果
+
+一稿给 `M2PrSkill.PunchSpeed(float level)` 挂后缀 ×1.5（实现是
+`X.Mx(0.1f, CaneStat.Pow(CaneStat.near_punch_speed, level))`，即"手杖近接挥击速度"属性）。
+实测**几乎看不出变化**，原因：`PunchSpeed` 只喂给
+
+- `Anm.timescale = PunchSpeed(...)`（`:643 / :808 / :938 / :1083`），以及
+- 各状态的**起手几帧**：`t += base.TS * this.PunchSpeed(...)`（`:653 / :854 / :971 / :1116 / :1202`，都在 `t < 9` 的起手段里）；
+
+而挥击**主体**（`t` 从 9 推到 24 那一段）是**主状态计时**在推进（`PR.cs` 里 `this.t_state += base.TS`），
+不受 `PunchSpeed` 影响 —— 所以整体只快约 1.14 倍，观感上"没变"。
+
+### 29.2 二稿（现用）：挂 `PR.baseTS`，只加速挥击状态
 
 | 项目 | 说明 |
 |---|---|
-| 为什么选这个挂点 | `PunchSpeed` 的实现就是"手杖近接挥击速度"属性：`X.Mx(0.1f, CaneStat.Pow(CaneStat.near_punch_speed, level))`（`nel/M2PrSkill.cs:5203`） |
-| 它同时驱动两件事 | ① 挥击**动画播放速度**：`Anm.timescale = PunchSpeed(...)`（`:643 / :808 / :938 / :1083`）；② 挥击**状态时长**：各挥击状态 `t += base.TS * PunchSpeed(...)`（`:653 / :854 / :971 / :1116 / :1202`）——所以一处乘 1.5，动作与出手间隔一起快 50% |
-| 覆盖范围 | 轻攻击（PUNCH）以及走同一套 `PunchSpeed` 的骨钉技艺（旋风斩击/彗星俯冲/突进冲击/会心重击等） |
-| 生效条件 | 本地诺艾尔（`!IsKnightMode`）+ `ReferenceEquals(__instance, pr.Skill)` + 装备快速劈砍；小骑士模式不参与（骑士侧用模组自己的 `SlashAttackTime` 0.4→0.3） |
+| 挂点 | `PR.baseTS`（`nel/PR.cs:1417` 重写的属性，`= _baseTS * Skill.baseTimeScale()`）后缀 ×1.5 |
+| 为什么它能同时管住两件事 | `M2Mover.TS => Map2d.TS * baseTS`（`m2d/M2Mover.cs:2514`）：① 主状态计时 `t_state += base.TS` → 挥击流程整体快 50%；② 动画播放 `M2PxlAnimator.runPre` 的 `ts = 帧时间 × Mv.TS × animator_TS × timescale`（`m2d/M2PxlAnimator.cs:202`）→ 动画同样快 50% |
+| 生效范围 | 仅**挥击/技艺状态**（`IsNoelAttackState`：PUNCH / AIRPUNCH(+SG) / WHEEL(+SG) / COMET(+SG) / DASHPUNCH(+SG) / SMASH(+SG) / SLIDING / EVADECOUNTER(+SG)），走路跳跃等不受影响 |
+| 状态读取 | `PR.state` 是 protected 字段，用 `AccessTools.FieldRefAccess&lt;PR, PR.STATE&gt;("state")` 快速读取 |
+| 生效条件 | 本地诺艾尔 + 装备快速劈砍；小骑士模式不参与（骑士侧用模组自己的 `SlashAttackTime` 0.4→0.3） |
 
-注：出招收招的"负向锁定"计时 `punch_t`（`M2PrSkill.cs:1940` 用裸 `TS` 递减，约 7 帧）没有跟着缩放，
-因此**连续攻击**的实际间隔缩短比例略小于 50%（约 1.35 倍）；单次挥杖动作本身是精确的 1.5 倍速。
-
-验证：`build=2026-09-22.55`，DLL SHA256 `7E0EF1F5513C5609…`（两份安装已同步；只覆盖 DLL）。
+验证：`build=2026-09-22.56`，DLL SHA256 `C696790EB8A29EA9…`（两份安装已同步；只覆盖 DLL）。
 
 ### 28.2 伤害 +40%
 
