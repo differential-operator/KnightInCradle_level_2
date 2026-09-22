@@ -51,6 +51,32 @@ namespace KnightInCradle
         internal static ConfigEntry<bool> HostPoseOverrideConfig;
         internal static ConfigEntry<float> PvPDamageMulConfig;
         internal static ConfigEntry<float> AttackChainCancelConfig;
+        /// <summary>护符18 修长之钉：要横向拉伸的姿势图层名（子串匹配，逗号分隔；留空=不拉伸）。</summary>
+        internal static ConfigEntry<string> LongNailStretchLayersConfig;
+        /// <summary>护符18 修长之钉：判定与姿势弧光的整体倍率（默认 2 = +100%）。</summary>
+        internal static ConfigEntry<float> LongNailStretchScaleConfig;
+
+        internal static string[] LongNailStretchLayers
+        {
+            get
+            {
+                string raw = LongNailStretchLayersConfig != null ? LongNailStretchLayersConfig.Value : "";
+                if (string.IsNullOrEmpty(raw))
+                {
+                    return new string[0];
+                }
+                string[] parts = raw.Split(new[] { ',', '，', ' ', ';', '；' },
+                    StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < parts.Length; i++)
+                {
+                    parts[i] = parts[i].Trim().ToLowerInvariant();
+                }
+                return parts;
+            }
+        }
+
+        internal static float LongNailStretchScale =>
+            LongNailStretchScaleConfig != null ? Mathf.Max(1f, LongNailStretchScaleConfig.Value) : 2f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -194,6 +220,13 @@ namespace KnightInCradle
                 "1=不取消（默认）：两次攻击的间隔 = 一整刀 = 0.4 秒（佩戴快速劈砍 0.3 秒）；" +
                 "0.75≈挥砍可视帧播完就接刀，间隔缩短为 0.3 / 0.225 秒");
             DashAudio.Init(DashVolumeConfig, ShadowDashVolumeConfig);
+            // 护符18 修长之钉：姿势弧光层的拉伸（可视化核对用）
+            LongNailStretchLayersConfig = Config.Bind("Charm18", "LongNailStretchLayers", "rod",
+                "修长之钉要横向拉伸的姿势图层名（子串匹配，逗号分隔，留空=不拉伸）。" +
+                "日志里 `[KIC][长钉图层] pose=… 层=a|b|c` 会列出攻击姿势的真实层名，照抄进来即可逐个排查。" +
+                "建议从 rod 开始试；身体/手/手臂层（Layer/hand/arm 等）会被自动排除，不会被拉宽。");
+            LongNailStretchScaleConfig = Config.Bind("Charm18", "LongNailStretchScale", 2f,
+                "修长之钉：判定与姿势弧光层的整体倍率（默认 2 = +100%）。调小可以让形变小一点。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

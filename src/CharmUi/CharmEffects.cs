@@ -1439,15 +1439,28 @@ namespace KnightInCradle.CharmUi
             {
                 return false;
             }
-            // 【2026-09-22 暂停】实测：
-            //   rodeff = 法杖旁边的粒子（拉伸它粒子会变长，但不是弧光）
-            //   rod_4  = 法杖本体（拉伸它法杖会变巨大）
-            // 说明弧光并不在这两层里 —— 先把拉伸关掉，等用户核对导出的图层图片后再精确指定。
-            if (!LongNailStretchEnabled)
+            string n = name.ToLowerInvariant();
+            // 由 BepInEx 配置 `Charm18/LongNailStretchLayers` 指定要拉伸的层名（子串匹配，逗号分隔）。
+            // 留空 = 不拉伸。用法：先看日志里的 `[KIC][长钉图层] pose=… 层=a|b|c` 列出的真实层名，
+            // 再把想拉伸的层名填进配置，重启游戏即可，不需要重新编译。
+            string[] keys = KnightInCradlePlugin.LongNailStretchLayers;
+            if (keys.Length == 0)
             {
                 return false;
             }
-            string n = name.ToLowerInvariant();
+            bool hit = false;
+            for (int i = 0; i < keys.Length; i++)
+            {
+                if (keys[i].Length > 0 && n.Contains(keys[i]))
+                {
+                    hit = true;
+                    break;
+                }
+            }
+            if (!hit)
+            {
+                return false;
+            }
             // 身体部件绝不参与，防止把诺艾尔自己拉宽
             if (n.Contains("body") || n.Contains("noel") || n.Contains("base") || n.Contains("head") ||
                 n.Contains("hair") || n.Contains("face") || n.Contains("arm") || n.Contains("leg") ||
@@ -1455,24 +1468,14 @@ namespace KnightInCradle.CharmUi
             {
                 return false;
             }
-            return n.Contains("swing") || n.Contains("slash") || n.Contains("arc") ||
-                   n.Contains("effect") || n.Contains("eff_") ||
-                   // AIC 诺艾尔挥击姿势里的两处相关图层：
-                   //   rod_4 = 法杖本体（挥击弧光是画在这一层里的，实测拉伸它才会让弧光变长）
-                   //   rodeff = 法杖旁边的粒子特效（用户反馈：这个不是弧光本身）
-                   // 两层都按倍率横向拉伸；身体层 Layer / 手 hand / 手臂 arm 一律不碰。
-                   n.Contains("rod") || n.Contains("eff");
+            return true;
         }
-
-        /// <summary>弧光层拉伸开关（暂时关闭：等待用户核对导出图层后指定正确层名）。</summary>
-        private static readonly bool LongNailStretchEnabled = false;
 
         /// <summary>每帧（诺艾尔模式）：把她自己挥击姿势里的弧光层按倍率拉长 / 卸下时还原。</summary>
         public static void TickNoelLongNailPoseStretch(PRNoel pr)
         {
             try
             {
-                DumpNoelAttackLayers(pr); // 导出攻击姿势的图层素材（每种姿势一次），便于人工核对
                 PrAnimator anm = pr != null ? pr.getAnimator() : null;
                 bool want = !IsKnightMode && IsEquipped(CharmOwner.Noel, LongNailId) && anm != null;
                 if (!want)
@@ -1515,7 +1518,7 @@ namespace KnightInCradle.CharmUi
                         {
                             _longNailLayerBaseZmx[lay] = lay.zmx;
                         }
-                        float target = _longNailLayerBaseZmx[lay] * LongNailReachMult;
+                        float target = _longNailLayerBaseZmx[lay] * KnightInCradlePlugin.LongNailStretchScale;
                         if (Mathf.Abs(lay.zmx - target) > 0.001f)
                         {
                             lay.zmx = target;
@@ -1557,163 +1560,6 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        // -------- 修长之钉：导出攻击姿势的每一层图层，便于人工核对素材 --------
-        private static readonly HashSet<string> _longNailDumpDonePoses = new HashSet<string>();
-        private static readonly Dictionary<Texture, Texture2D> _longNailReadableTexCache =
-            new Dictionary<Texture, Texture2D>();
-
-        private static string LongNailSafeName(string s)
-        {
-            if (string.IsNullOrEmpty(s))
-            {
-                return "null";
-            }
-            var sb = new System.Text.StringBuilder(s.Length);
-            for (int i = 0; i < s.Length; i++)
-            {
-                char c = s[i];
-                sb.Append(char.IsLetterOrDigit(c) || c == '_' || c == '-' ? c : '_');
-            }
-            return sb.ToString();
-        }
-
-        private static Texture2D GetReadableTexture(Texture src)
-        {
-            if (src == null)
-            {
-                return null;
-            }
-            Texture2D cached;
-            if (_longNailReadableTexCache.TryGetValue(src, out cached))
-            {
-                return cached;
-            }
-            Texture2D outTex = null;
-            RenderTexture rt = null;
-            try
-            {
-                rt = RenderTexture.GetTemporary(src.width, src.height, 0, RenderTextureFormat.ARGB32,
-                    RenderTextureReadWrite.sRGB);
-                Graphics.Blit(src, rt);
-                RenderTexture prev = RenderTexture.active;
-                RenderTexture.active = rt;
-                outTex = new Texture2D(src.width, src.height, TextureFormat.RGBA32, false);
-                outTex.ReadPixels(new Rect(0f, 0f, src.width, src.height), 0, 0);
-                outTex.Apply();
-                RenderTexture.active = prev;
-            }
-            catch (Exception)
-            {
-                outTex = null;
-            }
-            finally
-            {
-                if (rt != null)
-                {
-                    RenderTexture.ReleaseTemporary(rt);
-                }
-            }
-            _longNailReadableTexCache[src] = outTex;
-            return outTex;
-        }
-
-        private static void SaveLayerPng(string dir, string poseName, int frame, PxlLayer lay)
-        {
-            PxlImage img = lay.Img;
-            if (img == null)
-            {
-                return;
-            }
-            Texture src = img.get_I();
-            Texture2D readable = GetReadableTexture(src);
-            if (readable == null || src == null)
-            {
-                return;
-            }
-            int atlasW = (img.AtlasI != null && img.AtlasI.input_width > 0) ? img.AtlasI.input_width : src.width;
-            int atlasH = (img.AtlasI != null && img.AtlasI.input_height > 0) ? img.AtlasI.input_height : src.height;
-            Rect rc = img.RectIUv;
-            float kx = (float)readable.width / atlasW;
-            float ky = (float)readable.height / atlasH;
-            int rw = Mathf.Clamp(Mathf.RoundToInt(rc.width * atlasW * kx), 1, readable.width);
-            int rh = Mathf.Clamp(Mathf.RoundToInt(rc.height * atlasH * ky), 1, readable.height);
-            int rx = Mathf.Clamp(Mathf.RoundToInt(rc.x * atlasW * kx), 0, Mathf.Max(0, readable.width - rw));
-            int yTop = Mathf.RoundToInt(rc.y * atlasH * ky);
-            int ry = Mathf.Clamp(readable.height - yTop - rh, 0, Mathf.Max(0, readable.height - rh));
-            Color[] px = readable.GetPixels(rx, ry, rw, rh);
-            var outTex = new Texture2D(rw, rh, TextureFormat.RGBA32, false);
-            outTex.SetPixels(px);
-            outTex.Apply();
-            string file = LongNailSafeName(poseName) + "_f" + frame + "_" + LongNailSafeName(lay.name) + ".png";
-            System.IO.File.WriteAllBytes(System.IO.Path.Combine(dir, file), outTex.EncodeToPNG());
-            UnityEngine.Object.Destroy(outTex);
-        }
-
-        /// <summary>把攻击姿势的每个图层导出成 PNG（每种姿势只做一次），输出到插件目录 _longnail_dump/。</summary>
-        public static void DumpNoelAttackLayers(PRNoel pr)
-        {
-            try
-            {
-                if (pr == null)
-                {
-                    return;
-                }
-                PrAnimator anm = pr.getAnimator();
-                if (anm == null)
-                {
-                    return;
-                }
-                PxlSequence seq = anm.getCurrentSequence();
-                if (seq == null)
-                {
-                    return;
-                }
-                string poseName = (seq.pPose != null) ? seq.pPose.ToString() : "";
-                if (!IsLongNailAttackPoseName(poseName) || !_longNailDumpDonePoses.Add(poseName))
-                {
-                    return;
-                }
-                string dir = System.IO.Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "_longnail_dump");
-                System.IO.Directory.CreateDirectory(dir);
-                var sb = new System.Text.StringBuilder();
-                sb.AppendLine("pose=" + poseName);
-                int frameCount = seq.countFrames();
-                for (int i = 0; i < frameCount; i++)
-                {
-                    PxlFrame f = seq.getFrame(i);
-                    if (f == null || f.ALay == null)
-                    {
-                        continue;
-                    }
-                    for (int j = 0; j < f.ALay.Length; j++)
-                    {
-                        PxlLayer lay = f.ALay[j];
-                        if (lay == null)
-                        {
-                            continue;
-                        }
-                        PxlImage img = lay.Img;
-                        sb.AppendLine(string.Format(
-                            "frame={0} layer={1} x={2} y={3} zmx={4} zmy={5} rot={6} alpha={7} img={8}x{9} id={10}",
-                            i, lay.name, lay.x, lay.y, lay.zmx, lay.zmy, lay.rotR, lay.alpha,
-                            img != null ? img.width : 0, img != null ? img.height : 0,
-                            img != null ? img.idstr : "-"));
-                        try
-                        {
-                            SaveLayerPng(dir, poseName, i, lay);
-                        }
-                        catch (Exception)
-                        {
-                        }
-                    }
-                }
-                System.IO.File.WriteAllText(System.IO.Path.Combine(dir, LongNailSafeName(poseName) + ".txt"), sb.ToString());
-                KnightInCradlePlugin.PluginLog?.LogInfo("[KIC][长钉导出] 已导出 " + poseName + " 的全部图层 → " + dir);
-            }
-            catch (Exception)
-            {
-            }
-        }
 
         private static void RestoreLongNailPoseLayers()
         {
