@@ -1418,6 +1418,7 @@ namespace KnightInCradle.CharmUi
         /// 卸下护符/切小骑士时把基准写回。层名会打一次日志便于确认。
         /// </summary>
         private static readonly Dictionary<PxlLayer, float> _longNailLayerBaseZmx = new Dictionary<PxlLayer, float>();
+        private static readonly HashSet<PxlFrame> _longNailTouchedFrames = new HashSet<PxlFrame>();
         private static readonly HashSet<string> _longNailLoggedPoses = new HashSet<string>();
         private static bool _longNailLayerFound;
 
@@ -1487,6 +1488,7 @@ namespace KnightInCradle.CharmUi
                     {
                         continue;
                     }
+                    bool frameChanged = false;
                     for (int j = 0; j < lays.Length; j++)
                     {
                         PxlLayer lay = lays[j];
@@ -1499,7 +1501,19 @@ namespace KnightInCradle.CharmUi
                         {
                             _longNailLayerBaseZmx[lay] = lay.zmx;
                         }
-                        lay.zmx = _longNailLayerBaseZmx[lay] * LongNailReachMult;
+                        float target = _longNailLayerBaseZmx[lay] * LongNailReachMult;
+                        if (Mathf.Abs(lay.zmx - target) > 0.001f)
+                        {
+                            lay.zmx = target;
+                            frameChanged = true;
+                        }
+                    }
+                    // 关键：PixelLiner 的姿势网格是缓存的（`PxlFrame.MeshGenerator`），
+                    // 只改 lay.zmx 不会重画，必须 `Apply()` 重建网格才会显示出来。
+                    if (frameChanged && frame != null)
+                    {
+                        frame.Apply();
+                        _longNailTouchedFrames.Add(frame);
                     }
                 }
                 // 每种姿势只打一行（上限 60 行），便于确认挥击姿势里哪一层是弧光
@@ -1530,7 +1544,7 @@ namespace KnightInCradle.CharmUi
 
         private static void RestoreLongNailPoseLayers()
         {
-            if (_longNailLayerBaseZmx.Count == 0)
+            if (_longNailLayerBaseZmx.Count == 0 && _longNailTouchedFrames.Count == 0)
             {
                 return;
             }
@@ -1548,6 +1562,21 @@ namespace KnightInCradle.CharmUi
                 }
             }
             _longNailLayerBaseZmx.Clear();
+            // 缓存网格也要失效，否则还原后画面还是拉长的
+            foreach (PxlFrame f in _longNailTouchedFrames)
+            {
+                try
+                {
+                    if (f != null)
+                    {
+                        f.releaseDrawnMesh();
+                    }
+                }
+                catch (Exception)
+                {
+                }
+            }
+            _longNailTouchedFrames.Clear();
         }
 
         /// <summary>`PR.state`（protected 字段）的快速读取器，用于判断"当前是不是挥击状态"。</summary>
