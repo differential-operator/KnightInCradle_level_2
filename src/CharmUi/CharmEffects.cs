@@ -1514,6 +1514,7 @@ namespace KnightInCradle.CharmUi
                     {
                         frame.Apply();
                         _longNailTouchedFrames.Add(frame);
+                        anm.need_fine = true;
                     }
                 }
                 // 每种姿势只打一行（上限 60 行），便于确认挥击姿势里哪一层是弧光
