@@ -2902,6 +2902,14 @@ PR.moveByHitCheck(AnotherPhy, …)      // 身体撞到别的 mover（魔物）�
 
 验证：`build=2026-09-22.53`，DLL SHA256 `02997CF3EDB9241E…`（两份安装已同步；只覆盖 DLL）。
 
+### 28.5 光圈二稿：1.5 倍 + 上移 1 格（build=2026-09-22.54）
+
+- 大小倍率 `HeavyBlowAuraScale`：`2f` → **`1.5f`**；
+- 锚点新增固定纵向偏移 `HeavyBlowAuraOffY = -1f`（单位格；**AIC 的 y 向下为正，所以 -1 就是向上 1 格**），
+  最终锚点 = `pr.mbottom - pr.sizey*0.5f - 1f`（脚底 − 身高/2 = 身体中心，再上移 1 格）。
+
+验证：`build=2026-09-22.54`，DLL SHA256 `7FF75EF1725ADEB6…`（两份安装已同步；只覆盖 DLL）。
+
 ### 28.2 伤害 +40%
 
 并入已有的"诺艾尔侧最终伤害乘区"（`CircleCast` 前缀/后缀，与护符 5 萨满之石、护符 13 坚固力量

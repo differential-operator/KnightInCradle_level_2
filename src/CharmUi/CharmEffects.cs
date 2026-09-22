@@ -1483,8 +1483,10 @@ namespace KnightInCradle.CharmUi
         };
         /// <summary>光圈播放帧率（与小骑士骨钉技艺蓄力的 20fps 一致）。</summary>
         private const float HeavyBlowAuraFps = 20f;
-        /// <summary>光圈渲染大小倍率（需求：现在的 2 倍）。</summary>
-        private const float HeavyBlowAuraScale = 2f;
+        /// <summary>光圈渲染大小倍率（需求：当前的 1.5 倍）。</summary>
+        private const float HeavyBlowAuraScale = 1.5f;
+        /// <summary>光圈锚点的额外纵向偏移（格；AIC 的 y **向下为正**，所以 -1 = 向上 1 格）。</summary>
+        private const float HeavyBlowAuraOffY = -1f;
         /// <summary>
         /// 同一次"攻击动作"里允许重复调用判定起点的间隔（秒）。
         /// AIC 的一次挥击可能创建多个 `MagicItem`（`M2PrSkill.cs:2573` 用 `executeSmallAttack(num++, Mg)`
@@ -1836,7 +1838,8 @@ namespace KnightInCradle.CharmUi
             }
             // 锚点 = 诺艾尔**身体中心**：`pr.mbottom` 是脚底、`pr.sizey` 是身高（格），
             // 所以中心 = 脚底 − 身高/2（比直接用 `pr.y` 稳，AIC 里 `y` 并不总等于身体中心）。
-            float cy = pr.mbottom - pr.sizey * 0.5f;
+            // 再按需求上移 `HeavyBlowAuraOffY` 格（y 向下为正，-1 = 向上 1 格）。
+            float cy = pr.mbottom - pr.sizey * 0.5f + HeavyBlowAuraOffY;
             float mx = mp.pixel2ux(pr.x * mp.CLEN);
             float my = mp.pixel2uy(cy * mp.CLEN);
             Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
