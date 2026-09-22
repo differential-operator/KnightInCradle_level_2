@@ -1602,7 +1602,9 @@ namespace KnightInCradle.CharmUi
                 NoelLongNailArc arc = _noelLongNailArcs[k];
                 float progress = Mathf.Clamp01(arc.T / LongNailArcLife);
                 float fade = 1f - progress;
-                float span = LongNailArcSpanDeg * Mathf.Deg2Rad;
+                float span = KnightInCradlePlugin.LongNailArcSpanDeg * Mathf.Deg2Rad;
+                float thickK = KnightInCradlePlugin.LongNailArcThickness;
+                float alphaK = KnightInCradlePlugin.LongNailArcAlpha;
                 // 弧带：外缘半径 = 触及距离；宽度中间粗、两端收细
                 for (int i = 0; i < LongNailArcSegments; i++)
                 {
@@ -1617,9 +1619,9 @@ namespace KnightInCradle.CharmUi
                     float span01 = Mathf.Max(0.01f, arc.ReachTo - arc.ReachFrom);
                     float rIn = arc.ReachFrom;
                     float rOut = arc.ReachTo * (0.98f + 0.02f * taper);
-                    if (rOut - rIn < span01 * (0.07f + 0.13f * taper))
+                    if (rOut - rIn < span01 * (0.07f + 0.13f * taper) * thickK)
                     {
-                        rIn = rOut - span01 * (0.07f + 0.13f * taper);
+                        rIn = rOut - span01 * (0.07f + 0.13f * taper) * thickK;
                     }
                     float px0 = arc.Dir * Mathf.Cos(a0) * rIn * clen;
                     float py0 = -Mathf.Sin(a0) * rIn * clen;
@@ -1629,7 +1631,7 @@ namespace KnightInCradle.CharmUi
                     float py2 = -Mathf.Sin(a1) * rOut * clen;
                     float px3 = arc.Dir * Mathf.Cos(a0) * rOut * clen;
                     float py3 = -Mathf.Sin(a0) * rOut * clen;
-                    float alpha = (0.30f + 0.70f * taper) * fade;
+                    float alpha = (0.30f + 0.70f * taper) * fade * alphaK;
                     _noelLongNailArcMesh.Col = new Color(1f, 1f, 1f, alpha);
                     _noelLongNailArcMesh.Triangle(px0, py0, px1, py1, px2, py2, false);
                     _noelLongNailArcMesh.Triangle(px0, py0, px2, py2, px3, py3, false);
