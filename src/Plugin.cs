@@ -63,6 +63,10 @@ namespace KnightInCradle
         /// <summary>剑气长度 = 加成后触及距离 × 该倍率（默认 1）。</summary>
         internal static float LongNailSlashLengthRatio =>
             LongNailArcWidthRatioConfig != null ? Mathf.Clamp(LongNailArcWidthRatioConfig.Value, 0.1f, 3f) : 1f;
+        /// <summary>剑气整体渲染大小倍率（宽高等比，默认 1）。</summary>
+        internal static float LongNailSlashScale =>
+            LongNailSlashScaleConfig != null ? Mathf.Clamp(LongNailSlashScaleConfig.Value, 0.1f, 4f) : 1f;
+        internal static ConfigEntry<float> LongNailSlashScaleConfig;
         internal static float LongNailArcAlpha =>
             LongNailArcAlphaConfig != null ? Mathf.Clamp(LongNailArcAlphaConfig.Value, 0.05f, 3f) : 1f;
 
@@ -223,6 +227,9 @@ namespace KnightInCradle
             LongNailArcWidthRatioConfig = Config.Bind("Charm18", "LongNailSlashLengthRatio", 1f,
                 "修长之钉剑气长度 = 该招加成后触及距离 × 这个倍率（默认 1 = 与判定等长）。" +
                 "调大剑气更长、调小更短；剑气用的是 HK 长钉样式贴图。");
+            LongNailSlashScaleConfig = Config.Bind("Charm18", "LongNailSlashScale", 1f,
+                "修长之钉剑气整体渲染大小倍率（宽高等比，默认 1）。调大整体变大，调小整体变小；" +
+                "与 LongNailSlashLengthRatio 相乘。");
             LongNailArcAlphaConfig = Config.Bind("Charm18", "LongNailArcAlpha", 1f,
                 "修长之钉弧带的亮度倍率（默认 1）。小于 1 更淡，大于 1 更亮。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：

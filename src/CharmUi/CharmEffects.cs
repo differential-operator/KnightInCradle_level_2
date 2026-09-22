@@ -1575,6 +1575,7 @@ namespace KnightInCradle.CharmUi
                         Matrix4x4.Translate(new Vector3(mx, my, 0f));
             float alphaK = KnightInCradlePlugin.LongNailArcAlpha;
             float lenRatio = KnightInCradlePlugin.LongNailSlashLengthRatio;
+            float sizeK = KnightInCradlePlugin.LongNailSlashScale;
             for (int i = 0; i < _noelLongNailArcs.Count; i++)
             {
                 NoelLongNailArc arc = _noelLongNailArcs[i];
@@ -1586,13 +1587,14 @@ namespace KnightInCradle.CharmUi
                 }
                 // 剑气长度：跟判定一致（加成后的触及距离 × 可调倍率）
                 float w = arc.ReachTo * lenRatio * mp.CLEN;
-                float h = w * ((float)tex.height / tex.width);
+                float h = w * ((float)tex.height / tex.width) * sizeK;
+                w *= sizeK;
                 if (w <= 0f || h <= 0f)
                 {
                     continue;
                 }
                 // 剑气中心放在"诺艾尔中心 → 判定末端"的中点，向攻击方向镜像
-                float dx = arc.Dir * (arc.ReachTo * lenRatio * 0.5f) * mp.CLEN;
+                float dx = arc.Dir * (arc.ReachTo * lenRatio * sizeK * 0.5f) * mp.CLEN;
                 _noelLongNailArcMesh.Col = new Color(1f, 1f, 1f, alphaK * (1f - progress));
                 _noelLongNailArcMesh.initForImgAndTexture(tex);
                 _noelLongNailArcMesh.uv_top = 0f;
