@@ -2940,6 +2940,46 @@ PR.moveByHitCheck(AnotherPhy, …)      // 身体撞到别的 mover（魔物）�
 
 验证：`build=2026-09-22.56`，DLL SHA256 `C696790EB8A29EA9…`（两份安装已同步；只覆盖 DLL）。
 
+---
+
+## 30. 诺艾尔的护符第二部分（12）：修长之钉（id 18，2026-09-22，build=2026-09-22.57）
+
+需求：诺艾尔**近战攻击距离 +20%**（轻攻击 Punch、魔法霰弹 Shotgun、凌空横斩 Airpunch、会心重击 Fatal Smash）。
+
+### 30.1 参照 AIC 原生"长法杖"（`ENHA.EH.long_reach`）
+
+长法杖**并不改伤害数值，而是改"攻击包自身的 reach 几何"**：
+
+| 位置 | 做法 |
+|---|---|
+| `M2PrSkill.executeSmallAttack`（`nel/M2PrSkill.cs:2700`） | 轻攻击原本只建 `id=0` 一个判定物；带长法杖时**多建一个 `id=1` 的更远判定物**（`id==0` 时 `sx *= 2.4f`，伤害按 `1.25 - id*0.8` 折到 0.45 倍） |
+| `:2872-2876`（回避反击） | `magicItem.sx *= 2.2f; magicItem.dx *= 2.2f;` |
+| `:2881-2884`（会心重击） | `magicItem.sx *= 1.5f;` |
+| `MDAT.cs:1596/1599` | 还留了 `EH_long_reach = 1.4f`、`EH_long_reach_smash = 0.5f` 两个常量（当前版本已无引用） |
+
+判定几何长什么样（`MagicItem.runTackle`，`nel/MagicItem.cs:2593-2611`）：
+
+```
+sz >= 0 : 射线 = 从施法者中心 Cen 沿 (sx, sy) 方向、长度 |(sx,sy)|、粗细 sz
+sz <  0 : 判定中心 = Cen + (sx, sy)，方向 (dx, dy)，粗细 |sz|
+```
+
+近战基础值来自 `MDAT`：`sx = ±0.75`、`sy = 0.55`、`sz = 0.45`（`nel/MDAT.cs:725-728`），
+之后由 `executeSmallAttack` 里按状态再调（如凌空横斩 `sx += 0.6`）。
+
+### 30.2 本模组的做法
+
+挂 `M2PrSkill.executeSmallAttack` 的**后缀**（在按状态调整几何的大 switch 之后执行，拿到最终几何）：
+
+| 项目 | 说明 |
+|---|---|
+| 放大内容 | `sx / sy / dx / dy` × **1.2**（与长法杖同一套字段：长度/偏移方向） |
+| 覆盖招式 | kind 限定 `PR_PUNCH`（轻攻击、凌空横斩共用）、`PR_SHOTGUN`（魔法霰弹）、`PR_SMASH`（会心重击）——正好是需求里那四招，其它技艺（旋风/彗星/突进等）不受影响 |
+| 防重复 | 用 `MagicItem.id` 环形记录（16 条）保证同一个攻击包只放大一次（同一次挥击可能连续创建多个判定物） |
+| 生效条件 | 本地诺艾尔（`!IsKnightMode`）+ 装备修长之钉 |
+
+验证：`build=2026-09-22.57`，DLL SHA256 `16A20793876599FD…`（两份安装已同步；只覆盖 DLL）。
+
 ### 28.2 伤害 +40%
 
 并入已有的"诺艾尔侧最终伤害乘区"（`CircleCast` 前缀/后缀，与护符 5 萨满之石、护符 13 坚固力量

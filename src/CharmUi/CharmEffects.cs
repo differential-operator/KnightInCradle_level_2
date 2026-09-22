@@ -1273,6 +1273,79 @@ namespace KnightInCradle.CharmUi
         /// <summary>快速劈砍：诺艾尔挥杖速度倍率（需求：+50%）。</summary>
         public const float FastSlashSpeedMult = 1.5f;
 
+        // ================= 护符18 修长之钉（诺艾尔侧：近战攻击距离 +20%） =================
+        /// <summary>修长之钉：近战攻击距离倍率（需求：+20%）。</summary>
+        public const float LongNailReachMult = 1.2f;
+
+        /// <summary>已放大过的 MagicItem.id 环形记录（防止同一攻击包被重复放大）。</summary>
+        private static readonly int[] _longNailScaledIds = new int[16];
+        private static int _longNailScaledSeek;
+
+        private static bool WasLongNailScaled(int mgId)
+        {
+            for (int i = 0; i < _longNailScaledIds.Length; i++)
+            {
+                if (_longNailScaledIds[i] == mgId)
+                {
+                    return true;
+                }
+            }
+            _longNailScaledIds[_longNailScaledSeek] = mgId;
+            _longNailScaledSeek = (_longNailScaledSeek + 1) % _longNailScaledIds.Length;
+            return false;
+        }
+
+        /// <summary>
+        /// 护符18 修长之钉（**诺艾尔侧**）：近战攻击距离 +20%
+        /// （轻攻击 Punch / 魔法霰弹 Shotgun / 凌空横斩 Airpunch / 会心重击 Fatal Smash）。
+        ///
+        /// 参照 AIC 原生的"长法杖"强化 `ENHA.EH.long_reach` 的用法：它并不改数值，而是改
+        /// **攻击包自身的 reach 几何**——例如 `M2PrSkill.executeSmallAttack` 里
+        /// `magicItem.sx *= 2.2f; magicItem.dx *= 2.2f`（`:2872-2876`，回避反击）、
+        /// `magicItem.sx *= 1.5f`（`:2881-2884`，会心重击），以及给轻攻击多生成一个
+        /// 更远的判定物（`:2700` 的 `id == 1`）。
+        ///
+        /// 判定几何在这些字段里（`MagicItem.runTackle`，`nel/MagicItem.cs:2593-2611`）：
+        /// `sz >= 0` 时射线 = 从施法者中心 `Cen` 沿 `(sx, sy)` 方向、长度 `|(sx,sy)|`、粗细 `sz`；
+        /// `sz &lt; 0` 时判定中心 = `Cen + (sx, sy)`、方向 `(dx, dy)`。
+        /// 所以把 `sx/sy/dx/dy` 乘 1.2 就是"打得更远 20%"，与长法杖同一套做法。
+        ///
+        /// 挂点选 `M2PrSkill.executeSmallAttack` 的**后缀**：它是所有挥击/技艺创建攻击包的地方，
+        /// 后缀在"按状态调整几何"（`:2757` 起的大 switch）之后执行，拿到的是最终几何。
+        /// 只对本地诺艾尔 + 装备修长之钉生效；kind 限定 `PR_PUNCH`（轻攻击/凌空横斩）、
+        /// `PR_SHOTGUN`（魔法霰弹）、`PR_SMASH`（会心重击），正好对应需求里的四招。
+        /// </summary>
+        private static void LongNailSmallAttackPostfix(MagicItem __result)
+        {
+            try
+            {
+                if (__result == null || IsKnightMode || !IsEquipped(CharmOwner.Noel, LongNailId))
+                {
+                    return;
+                }
+                switch (__result.kind)
+                {
+                    case MGKIND.PR_PUNCH:
+                    case MGKIND.PR_SHOTGUN:
+                    case MGKIND.PR_SMASH:
+                        break;
+                    default:
+                        return;
+                }
+                if (WasLongNailScaled(__result.id))
+                {
+                    return; // 同一个攻击包只放大一次
+                }
+                __result.sx *= LongNailReachMult;
+                __result.sy *= LongNailReachMult;
+                __result.dx *= LongNailReachMult;
+                __result.dy *= LongNailReachMult;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         /// <summary>`PR.state`（protected 字段）的快速读取器，用于判断"当前是不是挥击状态"。</summary>
         private static AccessTools.FieldRef<PR, PR.STATE> _prStateRef;
 
@@ -2851,6 +2924,10 @@ namespace KnightInCradle.CharmUi
                         // 护符16 沉重之击（诺艾尔侧）：挥击/骨钉技艺的"出手"登记
                         harmony.Patch(smallAttack, postfix: new HarmonyMethod(
                             typeof(CharmEffects).GetMethod(nameof(HeavyBlowSmallAttackPostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                        // 护符18 修长之钉（诺艾尔侧）：近战攻击包 reach 几何 ×1.2
+                        harmony.Patch(smallAttack, postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(LongNailSmallAttackPostfix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
                     }
                     // 护符14 法术扭曲者（诺艾尔侧）：施法起手消耗 -10
