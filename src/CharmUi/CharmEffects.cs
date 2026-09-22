@@ -717,11 +717,11 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                // 护符16 沉重之击：剑气也是"诺艾尔造成的伤害"，同样吃 20% 翻倍。
+                // 护符16 沉重之击：剑气也是"诺艾尔造成的伤害"，"会心"期间同样 +40%。
                 int dmg = ElegyDamage;
-                if (IsEquipped(CharmOwner.Noel, HeavyBlowId) && RollHeavyBlow())
+                if (IsHeavyFocusActive)
                 {
-                    dmg = Mathf.FloorToInt(dmg * HeavyBlowDamageMult + 0.5f);
+                    dmg = Mathf.FloorToInt(dmg * HeavyBlowFocusMult + 0.5f);
                 }
                 var atk = new NelAttackInfo();
                 atk.hpdmg_current = dmg;
@@ -1465,16 +1465,302 @@ namespace KnightInCradle.CharmUi
             public int Hp0;
         }
 
-        // ================= 护符16 沉重之击（诺艾尔侧：20% 概率伤害翻倍） =================
-        /// <summary>沉重之击：触发概率（需求 20%）。</summary>
-        public const float HeavyBlowChance = 0.2f;
-        /// <summary>沉重之击：触发时的伤害倍率。</summary>
-        public const float HeavyBlowDamageMult = 2f;
-
-        /// <summary>20% 骰子（与模组其它概率实现一致，用 Unity 随机源）。</summary>
-        private static bool RollHeavyBlow()
+        // ================= 护符16 沉重之击（诺艾尔侧：连击 5 次进入"会心"） =================
+        /// <summary>沉重之击：连续命中多少次进入"会心"（需求：5 次）。</summary>
+        public const int HeavyBlowHitsToFocus = 5;
+        /// <summary>沉重之击："会心"期间命中造成伤害的倍率（需求：+40%）。</summary>
+        public const float HeavyBlowFocusMult = 1.4f;
+        /// <summary>"会心"光圈素材（需求指定 nail_charge_effect0005～0009，与小骑士骨钉技艺蓄力同款）。</summary>
+        private static readonly string[] HeavyBlowAuraSprites =
         {
-            return UnityEngine.Random.value < HeavyBlowChance;
+            "nail_charge_effect0005",
+            "nail_charge_effect0006",
+            "nail_charge_effect0007",
+            "nail_charge_effect0008",
+            "nail_charge_effect0009",
+        };
+        /// <summary>光圈播放帧率（与小骑士骨钉技艺蓄力的 20fps 一致）。</summary>
+        private const float HeavyBlowAuraFps = 20f;
+
+        /// <summary>"会心"连击计数（0～5）。</summary>
+        private static int _heavyFocusHits;
+        /// <summary>是否已进入"会心"（进入后一直保持，直到有攻击未命中）。</summary>
+        private static bool _heavyFocusActive;
+        /// <summary>最近一次诺艾尔攻击的 `MagicItem.id`（池化复用也能区分不同攻击）。</summary>
+        private static int _heavyFocusLastMgId = -1;
+        private static MagicItem _heavyFocusLastMg;
+        private static bool _heavyFocusLastMgHit;
+        private static float _heavyFocusAuraTime;
+        private static Texture2D[] _heavyFocusAuraTex;
+        private static MeshDrawer _heavyFocusAuraMesh;
+        private static Material _heavyFocusAuraMat;
+        private static M2RenderTicket _heavyFocusAuraTicket;
+        private static Map2d _heavyFocusAuraMap;
+
+        /// <summary>"会心"是否成立（伤害乘区查询用；换模式/卸下护符时一律按不成立处理）。</summary>
+        private static bool IsHeavyFocusActive
+        {
+            get
+            {
+                return _heavyFocusActive && !IsKnightMode && IsEquipped(CharmOwner.Noel, HeavyBlowId);
+            }
+        }
+
+        private static void ResetHeavyFocus()
+        {
+            _heavyFocusHits = 0;
+            _heavyFocusActive = false;
+            _heavyFocusLastMg = null;
+            _heavyFocusLastMgId = -1;
+            _heavyFocusLastMgHit = false;
+            _heavyFocusAuraTime = 0f;
+        }
+
+        /// <summary>命中一次：计数 +1；满 5 次进入"会心"（进入后保持，不再清零）。</summary>
+        private static void OnHeavyFocusHit()
+        {
+            if (_heavyFocusHits < HeavyBlowHitsToFocus)
+            {
+                _heavyFocusHits++;
+            }
+            if (_heavyFocusHits >= HeavyBlowHitsToFocus)
+            {
+                _heavyFocusActive = true;
+            }
+        }
+
+        /// <summary>未命中：计数清零；若已进入"会心"则退出（光圈随之消失）。</summary>
+        private static void OnHeavyFocusMiss()
+        {
+            _heavyFocusHits = 0;
+            if (_heavyFocusActive)
+            {
+                _heavyFocusActive = false;
+                _heavyFocusAuraTime = 0f;
+            }
+        }
+
+        /// <summary>诺艾尔"会造成伤害的攻击"判据（连击统计用）：法术/魔法霰弹 ∪ 骨钉系招式。</summary>
+        private static bool IsNoelDamagingAttack(MGKIND kind)
+        {
+            return IsPlayerMagicKind(kind) || IsPowerBoostKind(kind);
+        }
+
+        /// <summary>
+        /// 护符16 沉重之击（诺艾尔侧）：在诺艾尔攻击命中的汇聚点 `MGContainer.CircleCast` 上统计连击。
+        ///
+        /// - **命中**：`__result` 含 `HITTYPE.HITTED_EN` → 计数 +1；同一发攻击只计一次
+        ///   （用 `MagicItem.id` 区分，`MagicItem` 是对象池复用的，不能只比引用）；
+        /// - **未命中**：等到"这一发攻击已经结束"再判定（见 `TickNoelHeavyBlowCharm` 里的
+        ///   `killed` 检查，以及这里"换到下一发攻击时上一发没命中"的兜底），
+        ///   因为攻击判定框通常要存活几帧才可能碰到敌人，逐帧判"没打中"会把刚要命中的攻击误判成 miss。
+        /// </summary>
+        private static void HeavyBlowCircleCastPostfix(MagicItem Mg, ref HITTYPE __result)
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, HeavyBlowId))
+                {
+                    ResetHeavyFocus();
+                    return;
+                }
+                if (Mg == null || !(Mg.Caster is PRNoel) || !IsNoelDamagingAttack(Mg.kind))
+                {
+                    return;
+                }
+                if (Mg.id != _heavyFocusLastMgId)
+                {
+                    if (_heavyFocusLastMg != null && !_heavyFocusLastMgHit)
+                    {
+                        OnHeavyFocusMiss(); // 上一发一次都没打中
+                    }
+                    _heavyFocusLastMg = Mg;
+                    _heavyFocusLastMgId = Mg.id;
+                    _heavyFocusLastMgHit = false;
+                }
+                if ((__result & HITTYPE.HITTED_EN) != HITTYPE.NONE && !_heavyFocusLastMgHit)
+                {
+                    _heavyFocusLastMgHit = true;
+                    OnHeavyFocusHit();
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>每帧推进（诺艾尔模式调用）：未命中判定 + 光圈播放 + 票据维护。</summary>
+        public static void TickNoelHeavyBlowCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    return;
+                }
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, HeavyBlowId))
+                {
+                    ResetHeavyFocus();
+                    EnsureHeavyFocusAuraTicket(pr, false);
+                    return;
+                }
+                // 上一发攻击已经结束（`killed`）且一次都没命中 → 立刻判未命中，不用等下一发
+                if (_heavyFocusLastMg != null && !_heavyFocusLastMgHit &&
+                    _heavyFocusLastMg.id == _heavyFocusLastMgId && _heavyFocusLastMg.killed)
+                {
+                    _heavyFocusLastMg = null;
+                    _heavyFocusLastMgId = -1;
+                    OnHeavyFocusMiss();
+                }
+                if (IsHeavyFocusActive)
+                {
+                    _heavyFocusAuraTime += Time.deltaTime;
+                }
+                EnsureHeavyFocusAuraTicket(pr, IsHeavyFocusActive);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>"会心"光圈票据：绑当前地图的 MovRenderer（玩家身后层 PR0，同小骑士蓄力光圈）。</summary>
+        private static void EnsureHeavyFocusAuraTicket(PRNoel pr, bool want)
+        {
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null)
+            {
+                return;
+            }
+            if (!want)
+            {
+                ReleaseHeavyFocusAuraTicket();
+                return;
+            }
+            if (_heavyFocusAuraTex == null)
+            {
+                _heavyFocusAuraTex = LoadHeavyFocusAuraTextures();
+            }
+            if (_heavyFocusAuraTex == null)
+            {
+                return; // 素材缺失：只是不显示，连击与伤害照常
+            }
+            if (_heavyFocusAuraMesh != null && _heavyFocusAuraMap == mp && _heavyFocusAuraTicket != null)
+            {
+                return;
+            }
+            ReleaseHeavyFocusAuraTicket();
+            _heavyFocusAuraMap = mp;
+            _heavyFocusAuraMesh = new MeshDrawer(null, 4 * 16, 6 * 16);
+            _heavyFocusAuraMesh.draw_gl_only = true;
+            _heavyFocusAuraMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _heavyFocusAuraMat.EnableKeyword("NO_PIXELSNAP");
+            _heavyFocusAuraMesh.activate("noel_heavy_focus", _heavyFocusAuraMat, false, MTRX.ColWhite, null);
+            _heavyFocusAuraTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR0, null, PrepareHeavyFocusAuraMesh, _heavyFocusAuraMesh, null, null);
+        }
+
+        private static void ReleaseHeavyFocusAuraTicket()
+        {
+            try
+            {
+                if (_heavyFocusAuraTicket != null && _heavyFocusAuraMap != null &&
+                    _heavyFocusAuraMap.MovRenderer != null)
+                {
+                    _heavyFocusAuraMap.MovRenderer.deassignDrawable(_heavyFocusAuraTicket, -1);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (_heavyFocusAuraMat != null)
+                {
+                    IN.DestroyOne(_heavyFocusAuraMat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _heavyFocusAuraTicket = null;
+            _heavyFocusAuraMesh = null;
+            _heavyFocusAuraMat = null;
+            _heavyFocusAuraMap = null;
+        }
+
+        /// <summary>光圈绘制：锚定诺艾尔中心，按 20fps 循环播 nail_charge_effect0005～0009。</summary>
+        private static bool PrepareHeavyFocusAuraMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _heavyFocusAuraMap;
+            if (mp == null || _heavyFocusAuraMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _heavyFocusAuraMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || _heavyFocusAuraTex == null || !IsHeavyFocusActive)
+            {
+                MdOut = _heavyFocusAuraMesh;
+                return true;
+            }
+            int frame = Mathf.Abs((int)(_heavyFocusAuraTime * HeavyBlowAuraFps)) % _heavyFocusAuraTex.Length;
+            Texture2D tex = _heavyFocusAuraTex[frame];
+            if (tex == null)
+            {
+                MdOut = _heavyFocusAuraMesh;
+                return true;
+            }
+            float mx = mp.pixel2ux(pr.x * mp.CLEN);
+            float my = mp.pixel2uy(pr.y * mp.CLEN);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mx, my, 0f));
+            float scale = KnightInCradlePlugin.ScaleConfig != null
+                ? KnightInCradlePlugin.ScaleConfig.Value
+                : 0.325f;
+            float w = tex.width * scale;
+            float h = tex.height * scale;
+            _heavyFocusAuraMesh.Col = MTRX.ColWhite;
+            _heavyFocusAuraMesh.initForImgAndTexture(tex);
+            _heavyFocusAuraMesh.uv_top = 0f;
+            _heavyFocusAuraMesh.uv_height = 1f;
+            _heavyFocusAuraMesh.uv_left = 0f;
+            _heavyFocusAuraMesh.uv_width = 1f;
+            _heavyFocusAuraMesh.Rect(-w * 0.5f, -h * 0.5f, w, h, false);
+            MdOut = _heavyFocusAuraMesh;
+            return true;
+        }
+
+        private static Texture2D[] LoadHeavyFocusAuraTextures()
+        {
+            try
+            {
+                var list = new Texture2D[HeavyBlowAuraSprites.Length];
+                for (int i = 0; i < list.Length; i++)
+                {
+                    string path = System.IO.Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "assets",
+                        "hk", "sprites", HeavyBlowAuraSprites[i] + ".png");
+                    if (!System.IO.File.Exists(path))
+                    {
+                        return null;
+                    }
+                    var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                    if (!ImageConversion.LoadImage(tex, System.IO.File.ReadAllBytes(path)))
+                    {
+                        UnityEngine.Object.Destroy(tex);
+                        return null;
+                    }
+                    tex.filterMode = FilterMode.Point;
+                    tex.wrapMode = TextureWrapMode.Clamp;
+                    list[i] = tex;
+                }
+                return list;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         /// <summary>
@@ -1512,10 +1798,11 @@ namespace KnightInCradle.CharmUi
                 {
                     mult *= PowerDamageMult;
                 }
-                // 护符16 沉重之击：**诺艾尔造成的任何伤害**都有 20% 概率翻倍（不限定招式）
-                if (IsEquipped(CharmOwner.Noel, HeavyBlowId) && RollHeavyBlow())
+                // 护符16 沉重之击：进入"会心"后，诺艾尔造成的伤害 +40%（不限定招式），
+                // 与萨满之石/坚固力量连乘。
+                if (IsHeavyFocusActive)
                 {
-                    mult *= HeavyBlowDamageMult;
+                    mult *= HeavyBlowFocusMult;
                 }
                 if (mult <= 1f)
                 {
@@ -2419,6 +2706,10 @@ namespace KnightInCradle.CharmUi
                         postfix: new HarmonyMethod(
                             typeof(CharmEffects).GetMethod(nameof(ShamanCircleCastPostfix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
+                    // 护符16 沉重之击（诺艾尔侧）：在同一个命中汇聚点上统计连击（命中/未命中）
+                    harmony.Patch(circleCast, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(HeavyBlowCircleCastPostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符15 稳定之体（诺艾尔侧）：风力（等级 + 推力两个入口）
                 MethodInfo windLevel = AccessTools.Method(typeof(PR), "getWindApplyLevel");
