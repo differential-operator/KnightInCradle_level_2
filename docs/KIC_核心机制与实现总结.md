@@ -2757,6 +2757,26 @@ public const float DashmasterRunSpeedMult = 0.8f;   // 0.17 → 0.136，仍快�
   `X.ZPOW(mp_hold, reduce_mp)` 缩放伤害）都保持原样；
 - `PR.applyBurstMpDamage`（爆发型魔法起手，走另一条 7 参重载）仍单独在前缀改参数。
 
-例：纯白之箭 20 MP → 直接扣 10。
+### 26.2 法术扭曲者四稿：连"咏唱中的待扣预算"一起减 10（build=2026-09-22.46）
 
-验证：`build=2026-09-22.45`，DLL SHA256 `C2595FA41D2B5893…`（两份安装已同步；只覆盖 DLL）。
+**问题**：三稿只改了**实际扣魔**（`applyMpDamage` 的 val）。实测仍然"释放之后返还"——
+因为 AIC 在**咏唱时**就把"这一发要花多少"画在魔力条上：
+
+- `UIStatus.cs:743`：`num2 = (int)X.Mn(Pr.get_maxmp(), Pr.Skill.getHoldingMp(false))`，
+  赋给 UI 的 `mp_hold` 字段，绘制时（`:2271`/`:2352`）作为魔力条上的暗色"蓄力段"；
+- `PR.getCastableMp()`（`PR.cs:5312`）= `X.Mx(mp - Skill.getHoldingMp(false), 0)`，
+  即"还能用来施法的魔力"，魔力条的亮色段按它画。
+
+也就是说：咏唱中预算显示 20、实际只扣 10 → 魔力条在释放瞬间"涨回 10"，看起来就是返还。
+
+**做法**：给 `M2PrSkill.getHoldingMp(bool)` 挂后缀，对本地诺艾尔把返回值减 10（不低于 0）。
+于是咏唱中的**预算**与释放时的**扣魔**都是 10，魔力条长度守恒、不再有跳变；
+`getCastableMp()` 也随之认为多出 10 点可用魔力，与"少花 10"一致。
+
+由于 `explodeMagic` 在"过充槽持有"分支里正是用 `getHoldingMp(false)` 当扣魔金额
+（`:3651`），这一路已经被后缀减过，所以标记用三态
+（`0` 不管 / `1` 在 `applyMpDamage` 里减 / `2` 已减过别再减），避免重复减免。
+
+例：纯白之箭 20 MP → 咏唱时预算就是 10、释放时扣 10，中途没有任何返还。
+
+验证：`build=2026-09-22.46`，DLL SHA256 `3CE694678A1F8F0C…`（两份安装已同步；只覆盖 DLL）。

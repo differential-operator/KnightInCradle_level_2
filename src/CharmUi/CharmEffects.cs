@@ -1109,14 +1109,17 @@ namespace KnightInCradle.CharmUi
             return true;
         }
 
-        // ---------- 护符14 续：把"施法扣魔"本身就减 10（不是先扣后退） ----------
+        // ---------- 护符14 续：咏唱时"这一发要花多少魔力"就直接是 10 少 ----------
         /// <summary>
-        /// 诺艾尔魔法消耗结算的**标记**：施法的三个扣魔入口
-        /// （`M2PrSkill.explodeMagic` 咏唱完毕/松手施放、`M2PrSkill.killHoldMagic(MANA_HIT,…)` 被打断取消、
-        /// `M2PrSkill.digestShotgunHoldMp` 霰弹蓄力结算）都在前缀置位、后缀清除；
-        /// 真正扣魔的 `PR.applyMpDamage` 前缀读一次就把它消费掉，保证同一次结算只减一次。
+        /// 诺艾尔魔法消耗结算的标记（0=不管，1=`applyMpDamage` 里减 10，2=已经减过、别再减）。
+        /// 施法的三个扣魔入口（`M2PrSkill.explodeMagic` 咏唱完毕/松手施放、
+        /// `M2PrSkill.killHoldMagic(MANA_HIT,…)` 被打断取消、`M2PrSkill.digestShotgunHoldMp` 霰弹蓄力结算）
+        /// 都在前缀置位、后缀清除；真正扣魔的 `PR.applyMpDamage` 前缀读一次就把它消费掉。
         /// </summary>
-        private static bool _noelSpellTwisterCostScope;
+        private const int SpellTwisterScopeOff = 0;
+        private const int SpellTwisterScopeReduce = 1;
+        private const int SpellTwisterScopeAlreadyReduced = 2;
+        private static int _noelSpellTwisterCostScope = SpellTwisterScopeOff;
 
         /// <summary>本次调用是否"本地诺艾尔在付魔法消耗"（小骑士模式/其它施法者不算）。</summary>
         private static bool IsNoelSpellTwisterCast(M2PrSkill skill)
@@ -1130,6 +1133,28 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
+        /// `M2PrSkill.getHoldingMp(bool)` 后缀：**咏唱中的"待扣魔力"预算**也减 10。
+        /// 这是关键的一步——AIC 在咏唱时就用它画魔力条的暗色蓄力段（`UIStatus.cs:743`
+        /// `num2 = min(maxmp, Skill.getHoldingMp(false))`），`PR.getCastableMp()`
+        /// （`PR.cs:5312` = `mp - getHoldingMp(false)`）也用它。
+        /// 只改扣魔预算（不动 `mp_hold`），所以魔法威力（`X.ZPOW(mp_hold, reduce_mp)`）不受影响。
+        /// </summary>
+        private static void SpellTwisterHoldingMpPostfix(M2PrSkill __instance, ref int __result)
+        {
+            try
+            {
+                if (__result <= 0 || !IsNoelSpellTwisterCast(__instance))
+                {
+                    return;
+                }
+                __result = Mathf.Max(0, __result - SpellTwisterMpReduce);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
         /// `PR.applyMpDamage(int val, bool force, AttackInfo Atk, bool use_quake, bool calc_gsaver)` 前缀：
         /// 把"这次施法要扣的魔力"直接减 10（不低于 1），**不是**先扣后还。
         /// 只改扣魔数额、不动 `mp_hold`，因此魔法威力（由 `mp_hold` 缩放）不受影响；
@@ -1139,9 +1164,9 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                bool scoped = _noelSpellTwisterCostScope;
-                _noelSpellTwisterCostScope = false;
-                if (!scoped || IsKnightMode || !IsEquipped(CharmOwner.Noel, SpellTwisterId))
+                int scope = _noelSpellTwisterCostScope;
+                _noelSpellTwisterCostScope = SpellTwisterScopeOff;
+                if (scope != SpellTwisterScopeReduce || IsKnightMode || !IsEquipped(CharmOwner.Noel, SpellTwisterId))
                 {
                     return true;
                 }
@@ -1161,12 +1186,24 @@ namespace KnightInCradle.CharmUi
             return true;
         }
 
-        /// <summary>`M2PrSkill.explodeMagic` 前缀/后缀：咏唱完毕（或松手）施放时的扣魔标记。</summary>
+        /// <summary>
+        /// `M2PrSkill.explodeMagic` 前缀/后缀：咏唱完毕（或松手）施放时的扣魔标记。
+        /// 走"过充槽持有"分支时 `num2` 取自 `getHoldingMp(false)`（已经被上面的后缀减过 10），
+        /// 因此标记为"已减过"，避免重复减免。
+        /// </summary>
         private static void SpellTwisterCastScopePrefix(M2PrSkill __instance)
         {
             try
             {
-                _noelSpellTwisterCostScope = IsNoelSpellTwisterCast(__instance);
+                if (!IsNoelSpellTwisterCast(__instance))
+                {
+                    _noelSpellTwisterCostScope = SpellTwisterScopeOff;
+                    return;
+                }
+                M2PrOverChargeSlot slots = __instance.getOverChargeSlots();
+                _noelSpellTwisterCostScope = (slots != null && slots.isUseHolding())
+                    ? SpellTwisterScopeAlreadyReduced
+                    : SpellTwisterScopeReduce;
             }
             catch (Exception)
             {
@@ -1175,7 +1212,7 @@ namespace KnightInCradle.CharmUi
 
         private static void SpellTwisterCastScopePostfix()
         {
-            _noelSpellTwisterCostScope = false;
+            _noelSpellTwisterCostScope = SpellTwisterScopeOff;
         }
 
         /// <summary>
@@ -1187,7 +1224,9 @@ namespace KnightInCradle.CharmUi
             try
             {
                 _noelSpellTwisterCostScope =
-                    split_mana != MANA_HIT.NOUSE && IsNoelSpellTwisterCast(__instance);
+                    (split_mana != MANA_HIT.NOUSE && IsNoelSpellTwisterCast(__instance))
+                        ? SpellTwisterScopeReduce
+                        : SpellTwisterScopeOff;
             }
             catch (Exception)
             {
@@ -1196,7 +1235,7 @@ namespace KnightInCradle.CharmUi
 
         private static void SpellTwisterHoldKillPostfix()
         {
-            _noelSpellTwisterCostScope = false;
+            _noelSpellTwisterCostScope = SpellTwisterScopeOff;
         }
 
         /// <summary>
@@ -1208,7 +1247,9 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                _noelSpellTwisterCostScope = IsNoelSpellTwisterCast(__instance);
+                _noelSpellTwisterCostScope = IsNoelSpellTwisterCast(__instance)
+                    ? SpellTwisterScopeReduce
+                    : SpellTwisterScopeOff;
             }
             catch (Exception)
             {
@@ -1217,7 +1258,7 @@ namespace KnightInCradle.CharmUi
 
         private static void SpellTwisterHoldScopePostfix()
         {
-            _noelSpellTwisterCostScope = false;
+            _noelSpellTwisterCostScope = SpellTwisterScopeOff;
         }
 
         // ================= 护符13 坚固力量（诺艾尔侧：骨钉系技能最终伤害 +25%） =================
@@ -2168,6 +2209,15 @@ namespace KnightInCradle.CharmUi
                     {
                         harmony.Patch(prMpDamage, prefix: new HarmonyMethod(
                             typeof(CharmEffects).GetMethod(nameof(SpellTwisterMpDamagePrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    // 护符14 法术扭曲者（续4）：咏唱中的"待扣魔力预算"也减 10
+                    // （魔力条暗色蓄力段 = getHoldingMp(false)，见 UIStatus.cs:743）
+                    MethodInfo holdingMp = AccessTools.Method(typeof(M2PrSkill), "getHoldingMp");
+                    if (holdingMp != null)
+                    {
+                        harmony.Patch(holdingMp, postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(SpellTwisterHoldingMpPostfix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
                     }
                     // 护符5 萨满之石（诺艾尔侧）：法术最终伤害 +25%（前缀抬高、后缀还原）
