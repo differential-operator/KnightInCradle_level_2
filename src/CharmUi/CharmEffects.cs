@@ -1616,13 +1616,14 @@ namespace KnightInCradle.CharmUi
                     float taper = Mathf.Sin(Mathf.PI * tm);
                     // 只画"加成区"：内半径 = 原版触及距离，外半径 = 加成后的触及距离；
                     // 中段再向外多探出去一点，让弧带看起来是一道月牙而不是等宽的环。
+                    // 径向线 = "普通法杖触及距离"那道弧 → "修长之钉加成后触及距离"那道弧之间的距离（加成区）。
+                    // 弧带厚度 = 加成区厚度 × LongNailArcThickness（默认 0.2，即加成区的 1/5），
+                    // 居中放在加成区里，中段略粗、两端收细。
                     float span01 = Mathf.Max(0.01f, arc.ReachTo - arc.ReachFrom);
-                    float rIn = arc.ReachFrom;
-                    float rOut = arc.ReachTo * (0.98f + 0.02f * taper);
-                    if (rOut - rIn < span01 * (0.07f + 0.13f * taper) * thickK)
-                    {
-                        rIn = rOut - span01 * (0.07f + 0.13f * taper) * thickK;
-                    }
+                    float rMid = (arc.ReachFrom + arc.ReachTo) * 0.5f;
+                    float half = span01 * 0.5f * thickK * (0.45f + 0.55f * taper);
+                    float rIn = rMid - half;
+                    float rOut = rMid + half;
                     float px0 = arc.Dir * Mathf.Cos(a0) * rIn * clen;
                     float py0 = -Mathf.Sin(a0) * rIn * clen;
                     float px1 = arc.Dir * Mathf.Cos(a1) * rIn * clen;
