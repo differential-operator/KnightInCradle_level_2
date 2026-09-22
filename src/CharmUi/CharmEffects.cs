@@ -1534,25 +1534,35 @@ namespace KnightInCradle.CharmUi
                         anm.need_fine = true;
                     }
                 }
-                // 每种姿势只打一行（上限 60 行），便于确认挥击姿势里哪一层是弧光
-                if (poseName.Length > 0 && _longNailLoggedPoses.Count < 60 && _longNailLoggedPoses.Add(poseName))
+                // 每帧打一行（上限 80 行）：弧光可能只出现在挥击中段的某几帧、层名也可能不同，
+                // 只打 frame=0 会漏掉候选层名。
+                if (poseName.Length > 0 && _longNailLoggedPoses.Count < 80)
                 {
-                    var sb = new System.Text.StringBuilder();
-                    PxlFrame f0 = frameCount > 0 ? seq.getFrame(0) : null;
-                    if (f0 != null && f0.ALay != null)
+                    for (int i = 0; i < frameCount; i++)
                     {
-                        for (int j = 0; j < f0.ALay.Length; j++)
+                        string key = poseName + "#" + i;
+                        if (_longNailLoggedPoses.Count >= 80 || !_longNailLoggedPoses.Add(key))
                         {
-                            if (j > 0)
-                            {
-                                sb.Append('|');
-                            }
-                            PxlLayer lay0 = f0.ALay[j];
-                            sb.Append(lay0 != null ? (lay0.name + "(zmx=" + lay0.zmx + ")") : "null");
+                            continue;
                         }
+                        PxlFrame f = seq.getFrame(i);
+                        var sb = new System.Text.StringBuilder();
+                        if (f != null && f.ALay != null)
+                        {
+                            for (int j = 0; j < f.ALay.Length; j++)
+                            {
+                                if (j > 0)
+                                {
+                                    sb.Append('|');
+                                }
+                                PxlLayer lay = f.ALay[j];
+                                sb.Append(lay != null ? (lay.name + "(zmx=" + lay.zmx + ")") : "null");
+                            }
+                        }
+                        KnightInCradlePlugin.PluginLog?.LogInfo(
+                            "[KIC][长钉图层] pose=" + poseName + " frame=" + i +
+                            " 命中=" + _longNailLayerFound + " 层=" + sb);
                     }
-                    KnightInCradlePlugin.PluginLog?.LogInfo(
-                        "[KIC][长钉图层] pose=" + poseName + " 命中弧光层=" + _longNailLayerFound + " 层=" + sb);
                 }
             }
             catch (Exception)
