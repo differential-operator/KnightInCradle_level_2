@@ -2967,18 +2967,27 @@ sz <  0 : 判定中心 = Cen + (sx, sy)，方向 (dx, dy)，粗细 |sz|
 近战基础值来自 `MDAT`：`sx = ±0.75`、`sy = 0.55`、`sz = 0.45`（`nel/MDAT.cs:725-728`），
 之后由 `executeSmallAttack` 里按状态再调（如凌空横斩 `sx += 0.6`）。
 
-### 30.2 本模组的做法
+### 30.2 一稿（作废）：在 `executeSmallAttack` 后缀改 `Mg.sx/sy`
 
-挂 `M2PrSkill.executeSmallAttack` 的**后缀**（在按状态调整几何的大 switch 之后执行，拿到最终几何）：
+一稿挂 `M2PrSkill.executeSmallAttack` 后缀，直接把攻击包的 `sx/sy/dx/dy` ×1.2。实测**没有效果**。
+原因：这个位置拿到的只是"判定包的几何"，而 AIC 延长近战距离真正走的是**手杖 reach 管线**
+（见 30.3），而且挥击特效长度也由同一处决定——只改攻击包既覆盖不到特效，观感上也就"没变"。
 
-| 项目 | 说明 |
+### 30.3 二稿（现用）：挂 `PrCaneEquip.reach_ratio`
+
+`PrCaneEquip.reach_ratio(reach_level)`（`nel/PrCaneEquip.cs:246`，`Pow(near_reach, level) = (near_reach-1)*level + 1`）
+就是 AIC 自己的"手杖攻击距离"入口，给它挂后缀 ×1.2，判定与特效一起变长：
+
+| 位置 | 受影响的东西 |
 |---|---|
-| 放大内容 | `sx / sy / dx / dy` × **1.2**（与长法杖同一套字段：长度/偏移方向） |
-| 覆盖招式 | kind 限定 `PR_PUNCH`（轻攻击、凌空横斩共用）、`PR_SHOTGUN`（魔法霰弹）、`PR_SMASH`（会心重击）——正好是需求里那四招，其它技艺（旋风/彗星/突进等）不受影响 |
-| 防重复 | 用 `MagicItem.id` 环形记录（16 条）保证同一个攻击包只放大一次（同一次挥击可能连续创建多个判定物） |
-| 生效条件 | 本地诺艾尔（`!IsKnightMode`）+ 装备修长之钉 |
+| `PrCaneEquip.initChantMagicAwaken`（`:101-121`） | 对"基础近战攻击包"（`Mg.is_normal_attack && Mg.run_fn_is_basic_tackle`）做 `Mg.sx *= reach_ratio(...)`（sx 为 0 时乘 `Mg.sy`）→ 直接决定射线长度（`MagicItem.runTackle` → `M2Ray.CastRayAndColliderS(..., Dir_, len, ...)`） |
+| `M2PrSkill` 的挥击粒子 | 挥杖 `lax`（`:2581`）、突进 `msx`（`:2834`）、重击 `msx`（`:2885`）、回避反击 `len`（`:1478`）都乘同一个 `reach_ratio` → **特效长度同步 +20%** |
 
-验证：`build=2026-09-22.57`，DLL SHA256 `16A20793876599FD…`（两份安装已同步；只覆盖 DLL）。
+覆盖范围：所有用 `MDAT.FD_runBasicTackle` 的近战攻击包 —— 轻攻击 Punch、魔法霰弹 Shotgun、
+凌空横斩 Airpunch、会心重击 Fatal Smash，另外彗星俯冲/突进冲击/回避反击也在这条管线上（一并变长，与
+HK 的"长钉延长所有骨钉攻击"一致）。生效条件：诺艾尔模式 + 装备修长之钉。
+
+验证：`build=2026-09-22.58`，DLL SHA256 `142F705B137B52DC…`（两份安装已同步；只覆盖 DLL）。
 
 ### 28.2 伤害 +40%
 
