@@ -1304,7 +1304,55 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
+                float before = __result;
                 __result *= LongNailReachMult;
+                LongNailDiag("reach_ratio " + before + " -> " + __result);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>临时诊断：把修长之钉相关的关键数值写进 BepInEx 日志（上限 40 行，排除后删除）。</summary>
+        private static int _longNailDiagCount;
+
+        private static void LongNailDiag(string msg)
+        {
+            if (_longNailDiagCount >= 40)
+            {
+                return;
+            }
+            _longNailDiagCount++;
+            KnightInCradlePlugin.PluginLog?.LogInfo("[KIC][长钉诊断] " + msg);
+        }
+
+        /// <summary>临时诊断：记录诺艾尔近战攻击包每帧的判定几何（sx/sy/sz + 射线长度/半径 + 命中）。</summary>
+        private static void LongNailDiagCircleCastPostfix(MagicItem Mg, ref HITTYPE __result)
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, LongNailId))
+                {
+                    return;
+                }
+                if (Mg == null || !(Mg.Caster is PRNoel))
+                {
+                    return;
+                }
+                switch (Mg.kind)
+                {
+                    case MGKIND.PR_PUNCH:
+                    case MGKIND.PR_SHOTGUN:
+                    case MGKIND.PR_SMASH:
+                        break;
+                    default:
+                        return;
+                }
+                float len = Mg.Ray != null ? Mg.Ray.lenmp : -1f;
+                float rad = Mg.Ray != null ? Mg.Ray.radius_map : -1f;
+                LongNailDiag("kind=" + Mg.kind + " id=" + Mg.id + " sx=" + Mg.sx + " sy=" + Mg.sy +
+                             " sz=" + Mg.sz + " rayLen=" + len + " rayRad=" + rad +
+                             " 触及=" + (len + rad) + " hit=" + __result);
             }
             catch (Exception)
             {
@@ -2977,6 +3025,10 @@ namespace KnightInCradle.CharmUi
                     // 护符16 沉重之击（诺艾尔侧）：在同一个命中汇聚点上统计连击（命中/未命中）
                     harmony.Patch(circleCast, postfix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(HeavyBlowCircleCastPostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                    // 临时诊断（修长之钉）：记录近战攻击包的判定几何
+                    harmony.Patch(circleCast, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(LongNailDiagCircleCastPostfix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符15 稳定之体（诺艾尔侧）：风力（等级 + 推力两个入口）
