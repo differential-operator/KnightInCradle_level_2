@@ -67,6 +67,10 @@ namespace KnightInCradle
         internal static float LongNailSlashScale =>
             LongNailSlashScaleConfig != null ? Mathf.Clamp(LongNailSlashScaleConfig.Value, 0.1f, 4f) : 1f;
         internal static ConfigEntry<float> LongNailSlashScaleConfig;
+        /// <summary>剑气渲染高度倍率（只改高度，默认 1）。</summary>
+        internal static float LongNailSlashHeightRatio =>
+            LongNailSlashHeightConfig != null ? Mathf.Clamp(LongNailSlashHeightConfig.Value, 0.1f, 4f) : 1f;
+        internal static ConfigEntry<float> LongNailSlashHeightConfig;
         internal static float LongNailArcAlpha =>
             LongNailArcAlphaConfig != null ? Mathf.Clamp(LongNailArcAlphaConfig.Value, 0.05f, 3f) : 1f;
 
@@ -230,6 +234,8 @@ namespace KnightInCradle
             LongNailSlashScaleConfig = Config.Bind("Charm18", "LongNailSlashScale", 1f,
                 "修长之钉剑气整体渲染大小倍率（宽高等比，默认 1）。调大整体变大，调小整体变小；" +
                 "与 LongNailSlashLengthRatio 相乘。");
+            LongNailSlashHeightConfig = Config.Bind("Charm18", "LongNailSlashHeightRatio", 1f,
+                "修长之钉剑气渲染高度倍率（只改高度、不改长度，默认 1）。调大剑气更厚/更高，调小更扁。");
             LongNailArcAlphaConfig = Config.Bind("Charm18", "LongNailArcAlpha", 1f,
                 "修长之钉弧带的亮度倍率（默认 1）。小于 1 更淡，大于 1 更亮。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：

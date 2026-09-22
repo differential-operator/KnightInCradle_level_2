@@ -1587,7 +1587,8 @@ namespace KnightInCradle.CharmUi
                 }
                 // 剑气长度：跟判定一致（加成后的触及距离 × 可调倍率）
                 float w = arc.ReachTo * lenRatio * mp.CLEN;
-                float h = w * ((float)tex.height / tex.width) * sizeK;
+                float h = w * ((float)tex.height / tex.width) * sizeK *
+                          KnightInCradlePlugin.LongNailSlashHeightRatio;
                 w *= sizeK;
                 if (w <= 0f || h <= 0f)
                 {
