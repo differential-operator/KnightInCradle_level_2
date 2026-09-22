@@ -1616,10 +1616,10 @@ namespace KnightInCradle.CharmUi
                     // 中段再向外多探出去一点，让弧带看起来是一道月牙而不是等宽的环。
                     float span01 = Mathf.Max(0.01f, arc.ReachTo - arc.ReachFrom);
                     float rIn = arc.ReachFrom;
-                    float rOut = arc.ReachTo * (0.94f + 0.06f * taper);
-                    if (rOut - rIn < span01 * (0.35f + 0.65f * taper))
+                    float rOut = arc.ReachTo * (0.98f + 0.02f * taper);
+                    if (rOut - rIn < span01 * (0.07f + 0.13f * taper))
                     {
-                        rIn = rOut - span01 * (0.35f + 0.65f * taper);
+                        rIn = rOut - span01 * (0.07f + 0.13f * taper);
                     }
                     float px0 = arc.Dir * Mathf.Cos(a0) * rIn * clen;
                     float py0 = -Mathf.Sin(a0) * rIn * clen;

@@ -58,7 +58,7 @@ namespace KnightInCradle
         internal static float LongNailReachMult =>
             LongNailReachPercentConfig != null
                 ? 1f + Mathf.Clamp(LongNailReachPercentConfig.Value, 0, 200) / 100f
-                : 1.2f;
+                : 1.25f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -203,8 +203,8 @@ namespace KnightInCradle
                 "0.75≈挥砍可视帧播完就接刀，间隔缩短为 0.3 / 0.225 秒");
             DashAudio.Init(DashVolumeConfig, ShadowDashVolumeConfig);
             // 护符18 修长之钉：近战距离加成（判定与自绘弧带同一口径）
-            LongNailReachPercentConfig = Config.Bind("Charm18", "LongNailReachPercent", 20,
-                "修长之钉：诺艾尔近战距离加成百分比（默认 20 = +20%；填 0 = 关闭）。" +
+            LongNailReachPercentConfig = Config.Bind("Charm18", "LongNailReachPercent", 25,
+                "修长之钉：诺艾尔近战距离加成百分比（默认 25 = +25%；填 0 = 关闭）。" +
                 "判定距离按这个百分比放大，自绘的白色弧带只画'多出来的那一段'。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
