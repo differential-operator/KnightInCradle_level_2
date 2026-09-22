@@ -1293,6 +1293,8 @@ namespace KnightInCradle.CharmUi
             public float ReachFrom;   // 原版触及距离
             public float ReachTo;     // 加成后的触及距离（只画这一段）
             public float T;
+            public int Frame;         // 生成帧（同一次挥击的多个攻击包合并成一条弧带）
+            public MGKIND Kind;
         }
 
         private static readonly List<NoelLongNailArc> _noelLongNailArcs = new List<NoelLongNailArc>();
@@ -1331,6 +1333,7 @@ namespace KnightInCradle.CharmUi
         private static Map2d _longNailDoneMap;
         /// <summary>每个攻击包的"原版触及距离"（用于只画加成区那一段弧带）。</summary>
         private static readonly Dictionary<int, float> _longNailBaseReachById = new Dictionary<int, float>();
+        private static int _longNailArcLogCount;
 
         private static void LongNailCaneAwakenPrefix(MagicItem Mg)
         {
@@ -1444,6 +1447,20 @@ namespace KnightInCradle.CharmUi
                 {
                     return; // 没有加成就不画
                 }
+                // 一次挥击会连续生成多个攻击包（id=0 主判定 + id=1 长距离补判定），
+                // 它们属于同一刀 —— 合并成一条弧带（取最小内半径 / 最大外半径），否则会画出两道弧。
+                int frame = Time.frameCount;
+                for (int i = 0; i < _noelLongNailArcs.Count; i++)
+                {
+                    NoelLongNailArc ex = _noelLongNailArcs[i];
+                    if (ex.Frame == frame && ex.Kind == __result.kind && Mathf.Sign(ex.Dir) == Mathf.Sign(dir))
+                    {
+                        ex.ReachFrom = Mathf.Min(ex.ReachFrom, baseReach);
+                        ex.ReachTo = Mathf.Max(ex.ReachTo, reach);
+                        ex.T = 0f;
+                        return;
+                    }
+                }
                 _noelLongNailArcs.Add(new NoelLongNailArc
                 {
                     X = pr.x,
@@ -1452,7 +1469,16 @@ namespace KnightInCradle.CharmUi
                     ReachFrom = baseReach,
                     ReachTo = reach,
                     T = 0f,
+                    Frame = frame,
+                    Kind = __result.kind,
                 });
+                if (_longNailArcLogCount < 12)
+                {
+                    _longNailArcLogCount++;
+                    KnightInCradlePlugin.PluginLog?.LogInfo(
+                        "[KIC][长钉弧带] kind=" + __result.kind + " 原版触及=" + baseReach +
+                        " 加成后=" + reach + "（倍率 " + KnightInCradlePlugin.LongNailReachMult + "）");
+                }
             }
             catch (Exception)
             {
