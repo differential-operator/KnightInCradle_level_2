@@ -2856,12 +2856,28 @@ PR.moveByHitCheck(AnotherPhy, …)      // 身体撞到别的 mover（魔物）�
 |---|---|---|
 | 出手（近战/骨钉技艺） | `M2PrSkill.executeSmallAttack` postfix（返回非 null 才算真出手） | `HeavyBlowMeleeWindow = 0.6s` 内打中算命中 |
 | 出手（魔法） | `M2PrSkill.explodeMagic` postfix（`__result == true` 才算真放出去） | `HeavyBlowMagicWindow = 3s`，留给弹道飞行 |
-| 命中 | `MGContainer.CircleCast` postfix：`__result` 含 `HITTYPE.HITTED_EN` 且 `Mg.Caster is PRNoel`、kind ∈ 法术∪骨钉系 | 一次动作**只结算一次**（打中即消费掉 pending，多目标/多判定物不重复计数） |
+| 命中 | `MGContainer.CircleCast` postfix：`__result` 含 `HITTYPE.HITTED_EN` 且 `Mg.Caster is PRNoel`、**该攻击包自己带伤害** | 一次动作**只结算一次**（打中即消费掉 pending，多目标/多判定物不重复计数） |
 | 未命中 | `TickNoelHeavyBlowCharm` 里"出手后超过窗口仍没命中" | 计数清零 + 退出会心；**没有出手就不会有任何清零**（挂机不会掉会心） |
 | 同一次挥击的多个判定物 | `HeavyBlowSameAttackGap = 0.12s` 内重复"出手"合并为同一发 | 解决上面"一次挥击被算成两发"的根因 |
 | 额外命中源 | 蜕变挽歌剑气打中敌人也调用同一个"命中登记" | 剑气属于诺艾尔的攻击 |
 
 计数与状态：命中 +1，满 5 → 会心成立（进入后保持）；未命中 → 计数清零 + 退出会心。
+
+### 28.1.1 三稿：判定口径改成"看伤害值"，并修掉"命中早于出手登记"的时序（build=2026-09-22.52）
+
+实测反馈："好像只算轻攻击，其它攻击不算"。两处原因：
+
+1. **判定口径太窄**：原判据是 `MGKIND` 白名单（法术 kind ∪ 骨钉系 kind），
+   于是滑铲（`PR_SLIDING`）、回避反击（`PR_EVADECOUNTER`）、盾击等**能造成伤害但不在白名单里**的攻击全被漏掉。
+   改为**直接看攻击包自己的伤害**：`Mg.Atk0._hpdmg &gt; 0 || Mg.Atk0._mpdmg &gt; 0`
+   （`AttackInfo._hpdmg` = `hpdmg_current ?? hpdmg0`）——只要这一发真能造成伤害就算，
+   与"任何能造成伤害的攻击"一致。出手登记（`executeSmallAttack` 的返回值）用同一个判据。
+2. **命中事件早于出手登记的时序**：`executeSmallAttack` 内部会立刻 `magicItem.run(0f)`（`:2730`）、
+   `explodeMagic` 内部也会 `_Expl.run(0f)`（`:3682`），如果判定物在**创建瞬间**就碰到敌人，
+   命中回调会跑在模组的"出手登记"之前 → 那次命中被丢弃，随后登记出的 pending 还会超时判成"未命中"、反而清零。
+   现在命中事件会记下时间戳，出手登记时若发现"刚刚（`HeavyBlowSameAttackGap` 内）已经命中过"就直接按命中结算。
+
+验证：`build=2026-09-22.52`，DLL SHA256 `AC691266C4F3BB97…`（两份安装已同步；只覆盖 DLL）。
 
 ### 28.2 伤害 +40%
 

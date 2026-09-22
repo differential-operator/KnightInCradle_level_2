@@ -1504,6 +1504,11 @@ namespace KnightInCradle.CharmUi
         private static bool _heavyFocusPendingHit;
         private static float _heavyFocusPendingAt;
         private static float _heavyFocusPendingUntil;
+        /// <summary>最近一次"命中事件"的时间（用于识别"命中发生在出手登记之前"的时序）。</summary>
+        private static bool _heavyFocusHasHit;
+        private static float _heavyFocusLastHitAt;
+        private static bool _heavyFocusHasLastBegin;
+        private static float _heavyFocusLastBeginAt;
         private static float _heavyFocusAuraTime;
         private static Texture2D[] _heavyFocusAuraTex;
         private static MeshDrawer _heavyFocusAuraMesh;
@@ -1525,6 +1530,10 @@ namespace KnightInCradle.CharmUi
             _heavyFocusHits = 0;
             _heavyFocusActive = false;
             ClearHeavyFocusPending();
+            _heavyFocusHasHit = false;
+            _heavyFocusLastHitAt = 0f;
+            _heavyFocusHasLastBegin = false;
+            _heavyFocusLastBeginAt = 0f;
             _heavyFocusAuraTime = 0f;
         }
 
@@ -1571,15 +1580,32 @@ namespace KnightInCradle.CharmUi
                 return;
             }
             float now = Time.unscaledTime;
+            if (_heavyFocusHasLastBegin && now - _heavyFocusLastBeginAt <= HeavyBlowSameAttackGap)
+            {
+                // 同一次攻击动作的后续判定物（例如一次挥击循环创建多个 MagicItem）：
+                // 只把判定窗口往后延，不新开一发、也不算未命中。
+                if (_heavyFocusPending && !_heavyFocusPendingHit)
+                {
+                    _heavyFocusPendingUntil = Mathf.Max(_heavyFocusPendingUntil, now + window);
+                }
+                _heavyFocusLastBeginAt = now;
+                return;
+            }
+            // 新的一发：上一发如果一次都没打中，先结算成"未命中"
             if (_heavyFocusPending && !_heavyFocusPendingHit)
             {
-                if (now - _heavyFocusPendingAt <= HeavyBlowSameAttackGap)
-                {
-                    // 同一次攻击动作的第二个/第三个判定物
-                    _heavyFocusPendingUntil = Mathf.Max(_heavyFocusPendingUntil, now + window);
-                    return;
-                }
-                OnHeavyFocusMiss(); // 上一发确实没打中，先结算掉
+                OnHeavyFocusMiss();
+            }
+            ClearHeavyFocusPending();
+            _heavyFocusHasLastBegin = true;
+            _heavyFocusLastBeginAt = now;
+            // 命中事件早于"出手登记"的时序（法术在 `explodeMagic` 内部同一帧就命中、
+            // 或判定物创建瞬间(`magicItem.run(0f)`)就碰到敌人）→ 直接按命中结算。
+            if (_heavyFocusHasHit && now - _heavyFocusLastHitAt <= HeavyBlowSameAttackGap)
+            {
+                _heavyFocusHasHit = false;
+                OnHeavyFocusHit();
+                return;
             }
             _heavyFocusPending = true;
             _heavyFocusPendingHit = false;
@@ -1590,6 +1616,8 @@ namespace KnightInCradle.CharmUi
         /// <summary>当前这一发打中了：结算成一次"击中"（同一发只结算一次）。</summary>
         private static void ResolveHeavyFocusHit()
         {
+            _heavyFocusHasHit = true;
+            _heavyFocusLastHitAt = Time.unscaledTime;
             if (!_heavyFocusPending || _heavyFocusPendingHit)
             {
                 return;
@@ -1598,10 +1626,22 @@ namespace KnightInCradle.CharmUi
             OnHeavyFocusHit();
         }
 
-        /// <summary>诺艾尔"会造成伤害的攻击"判据（连击统计用）：法术/魔法霰弹 ∪ 骨钉系招式。</summary>
-        private static bool IsNoelDamagingAttack(MGKIND kind)
+        /// <summary>
+        /// 诺艾尔"会造成伤害的攻击"判据（连击统计用）：**直接看攻击包自己的伤害值**，
+        /// 而不是按 `MGKIND` 白名单——这样轻攻击、各类骨钉技艺、滑铲、回避反击、盾击、
+        /// 所有法术（含魔法霰弹）只要真的能造成伤害都会算进去，符合"任何能造成伤害的攻击"。
+        /// </summary>
+        private static bool IsDamagingAttack(MagicItem Mg)
         {
-            return IsPlayerMagicKind(kind) || IsPowerBoostKind(kind);
+            try
+            {
+                AttackInfo atk = Mg != null ? Mg.Atk0 : null;
+                return atk != null && (atk._hpdmg > 0 || atk._mpdmg > 0);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         /// <summary>
@@ -1617,7 +1657,7 @@ namespace KnightInCradle.CharmUi
                     ResetHeavyFocus();
                     return;
                 }
-                if (Mg == null || !(Mg.Caster is PRNoel) || !IsNoelDamagingAttack(Mg.kind))
+                if (Mg == null || !(Mg.Caster is PRNoel) || !IsDamagingAttack(Mg))
                 {
                     return;
                 }
@@ -1640,7 +1680,7 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (__result == null || !IsNoelDamagingAttack(__result.kind))
+                if (!IsDamagingAttack(__result))
                 {
                     return;
                 }
