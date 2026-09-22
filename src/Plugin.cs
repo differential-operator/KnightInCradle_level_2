@@ -51,11 +51,14 @@ namespace KnightInCradle
         internal static ConfigEntry<bool> HostPoseOverrideConfig;
         internal static ConfigEntry<float> PvPDamageMulConfig;
         internal static ConfigEntry<float> AttackChainCancelConfig;
-        /// <summary>护符18 修长之钉：近战"总触及距离"倍率（自绘白色弧带长度也用这个值；1 = 关闭）。</summary>
-        internal static ConfigEntry<float> LongNailReachMultConfig;
+        /// <summary>护符18 修长之钉：近战距离加成百分比（默认 20 = +20%；0 = 关闭）。</summary>
+        internal static ConfigEntry<int> LongNailReachPercentConfig;
 
+        /// <summary>距离倍率 = 1 + 百分比/100（自绘白色弧带的长度也用这个值）。</summary>
         internal static float LongNailReachMult =>
-            LongNailReachMultConfig != null ? Mathf.Max(1f, LongNailReachMultConfig.Value) : 2f;
+            LongNailReachPercentConfig != null
+                ? 1f + Mathf.Clamp(LongNailReachPercentConfig.Value, 0, 200) / 100f
+                : 1.2f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -199,10 +202,10 @@ namespace KnightInCradle
                 "1=不取消（默认）：两次攻击的间隔 = 一整刀 = 0.4 秒（佩戴快速劈砍 0.3 秒）；" +
                 "0.75≈挥砍可视帧播完就接刀，间隔缩短为 0.3 / 0.225 秒");
             DashAudio.Init(DashVolumeConfig, ShadowDashVolumeConfig);
-            // 护符18 修长之钉：近战距离倍率（同时决定自绘白色弧带长度）
-            LongNailReachMultConfig = Config.Bind("Charm18", "LongNailReachMultiplier", 2f,
-                "修长之钉：诺艾尔近战'总触及距离'的倍率（默认 2 = +100%）。" +
-                "自绘的白色弧带长度等于这个倍率放大后的判定触及距离；填 1 = 关闭该护符效果。");
+            // 护符18 修长之钉：近战距离加成（判定与自绘弧带同一口径）
+            LongNailReachPercentConfig = Config.Bind("Charm18", "LongNailReachPercent", 20,
+                "修长之钉：诺艾尔近战距离加成百分比（默认 20 = +20%；填 0 = 关闭）。" +
+                "判定距离按这个百分比放大，自绘的白色弧带只画'多出来的那一段'。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

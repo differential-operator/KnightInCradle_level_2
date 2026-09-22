@@ -1290,7 +1290,8 @@ namespace KnightInCradle.CharmUi
             public float X;
             public float Y;
             public float Dir;
-            public float Reach;
+            public float ReachFrom;   // 原版触及距离
+            public float ReachTo;     // 加成后的触及距离（只画这一段）
             public float T;
         }
 
@@ -1328,6 +1329,8 @@ namespace KnightInCradle.CharmUi
         private static int _longNailBaseMgId = -1;
         private static readonly HashSet<int> _longNailDoneIds = new HashSet<int>();
         private static Map2d _longNailDoneMap;
+        /// <summary>每个攻击包的"原版触及距离"（用于只画加成区那一段弧带）。</summary>
+        private static readonly Dictionary<int, float> _longNailBaseReachById = new Dictionary<int, float>();
 
         private static void LongNailCaneAwakenPrefix(MagicItem Mg)
         {
@@ -1348,6 +1351,7 @@ namespace KnightInCradle.CharmUi
                 {
                     _longNailDoneMap = Mg.Mp;
                     _longNailDoneIds.Clear(); // 换图后 MagicItem.id 会从 0 重新开始
+                    _longNailBaseReachById.Clear();
                 }
                 if (_longNailDoneIds.Contains(Mg.id))
                 {
@@ -1392,6 +1396,11 @@ namespace KnightInCradle.CharmUi
                     Mg.sy *= k;
                 }
                 _longNailDoneIds.Add(Mg.id);
+                _longNailBaseReachById[Mg.id] = _longNailBaseReach;
+                if (_longNailBaseReachById.Count > 256)
+                {
+                    _longNailBaseReachById.Clear();
+                }
                 _longNailBaseReach = 0f;
             }
             catch (Exception)
@@ -1425,12 +1434,23 @@ namespace KnightInCradle.CharmUi
                 float dir = Mathf.Abs(__result.sx) > 0.0001f
                     ? Mathf.Sign(__result.sx)
                     : (pr.mpf_is_right >= 0f ? 1f : -1f);
+                // 只画"护符多出来的那一段"：内半径 = 原版触及距离，外半径 = 加成后的触及距离
+                float baseReach;
+                if (!_longNailBaseReachById.TryGetValue(__result.id, out baseReach) || baseReach <= 0f)
+                {
+                    baseReach = reach / Mathf.Max(1.0001f, KnightInCradlePlugin.LongNailReachMult);
+                }
+                if (baseReach >= reach - 0.02f)
+                {
+                    return; // 没有加成就不画
+                }
                 _noelLongNailArcs.Add(new NoelLongNailArc
                 {
                     X = pr.x,
                     Y = pr.y,
                     Dir = dir,
-                    Reach = reach,
+                    ReachFrom = baseReach,
+                    ReachTo = reach,
                     T = 0f,
                 });
             }
@@ -1566,8 +1586,15 @@ namespace KnightInCradle.CharmUi
                     float a1 = Mathf.Lerp(-span, span, t1);
                     float tm = (t0 + t1) * 0.5f;
                     float taper = Mathf.Sin(Mathf.PI * tm);
-                    float rOut = arc.Reach * (0.86f + 0.14f * taper);
-                    float rIn = rOut - arc.Reach * (0.10f + 0.22f * taper);
+                    // 只画"加成区"：内半径 = 原版触及距离，外半径 = 加成后的触及距离；
+                    // 中段再向外多探出去一点，让弧带看起来是一道月牙而不是等宽的环。
+                    float span01 = Mathf.Max(0.01f, arc.ReachTo - arc.ReachFrom);
+                    float rIn = arc.ReachFrom;
+                    float rOut = arc.ReachTo * (0.94f + 0.06f * taper);
+                    if (rOut - rIn < span01 * (0.35f + 0.65f * taper))
+                    {
+                        rIn = rOut - span01 * (0.35f + 0.65f * taper);
+                    }
                     float px0 = arc.Dir * Mathf.Cos(a0) * rIn * clen;
                     float py0 = -Mathf.Sin(a0) * rIn * clen;
                     float px1 = arc.Dir * Mathf.Cos(a1) * rIn * clen;
