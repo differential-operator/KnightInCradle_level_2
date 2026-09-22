@@ -60,9 +60,9 @@ namespace KnightInCradle
 
         internal static float LongNailArcSpanDeg =>
             LongNailArcSpanDegConfig != null ? Mathf.Clamp(LongNailArcSpanDegConfig.Value, 2f, 90f) : 42f;
-        /// <summary>弧带自身厚度 = 加成后半径 × 该比例（默认 0.05 ≈ 2~3 像素）。</summary>
-        internal static float LongNailArcWidthRatio =>
-            LongNailArcWidthRatioConfig != null ? Mathf.Clamp(LongNailArcWidthRatioConfig.Value, 0.005f, 0.5f) : 0.05f;
+        /// <summary>剑气长度 = 加成后触及距离 × 该倍率（默认 1）。</summary>
+        internal static float LongNailSlashLengthRatio =>
+            LongNailArcWidthRatioConfig != null ? Mathf.Clamp(LongNailArcWidthRatioConfig.Value, 0.1f, 3f) : 1f;
         internal static float LongNailArcAlpha =>
             LongNailArcAlphaConfig != null ? Mathf.Clamp(LongNailArcAlphaConfig.Value, 0.05f, 3f) : 1f;
 
@@ -220,9 +220,9 @@ namespace KnightInCradle
                 "判定距离按这个百分比放大，自绘的白色弧带只画'多出来的那一段'。");
             LongNailArcSpanDegConfig = Config.Bind("Charm18", "LongNailArcSpanDeg", 42f,
                 "修长之钉弧带的圆周张角（±度，默认 42 = 总张角 84°）。调小 → 弧变短，只留身前一小段。");
-            LongNailArcWidthRatioConfig = Config.Bind("Charm18", "LongNailArcWidthRatio", 0.05f,
-                "修长之钉弧带自身厚度 = 加成后半径 × 这个比例。弧带只画'修长之钉加成后那一圈'。" +
-                "默认 0.05（约 2~3 像素）；调大更粗，调小更细。");
+            LongNailArcWidthRatioConfig = Config.Bind("Charm18", "LongNailSlashLengthRatio", 1f,
+                "修长之钉剑气长度 = 该招加成后触及距离 × 这个倍率（默认 1 = 与判定等长）。" +
+                "调大剑气更长、调小更短；剑气用的是 HK 长钉样式贴图。");
             LongNailArcAlphaConfig = Config.Bind("Charm18", "LongNailArcAlpha", 1f,
                 "修长之钉弧带的亮度倍率（默认 1）。小于 1 更淡，大于 1 更亮。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：

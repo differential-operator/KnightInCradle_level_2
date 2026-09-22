@@ -1298,7 +1298,9 @@ namespace KnightInCradle.CharmUi
         }
 
         private static readonly List<NoelLongNailArc> _noelLongNailArcs = new List<NoelLongNailArc>();
-        private static Texture2D _noelLongNailWhiteTex;
+        /// <summary>剑气贴图（HK 长钉样式，与小骑士戴修长之钉时同款）。</summary>
+        private static readonly string[] LongNailSlashSprites = { "mantis_slash_left0001", "mantis_slash_left0002" };
+        private static Texture2D[] _noelLongNailSlashTex;
         private static MeshDrawer _noelLongNailArcMesh;
         private static Material _noelLongNailArcMat;
         private static M2RenderTicket _noelLongNailArcTicket;
@@ -1523,12 +1525,13 @@ namespace KnightInCradle.CharmUi
                 ReleaseLongNailArcTicket();
                 return;
             }
-            if (_noelLongNailWhiteTex == null)
+            if (_noelLongNailSlashTex == null)
             {
-                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                tex.SetPixels(new[] { Color.white, Color.white, Color.white, Color.white });
-                tex.Apply();
-                _noelLongNailWhiteTex = tex;
+                _noelLongNailSlashTex = LoadLongNailSlashTextures();
+            }
+            if (_noelLongNailSlashTex == null)
+            {
+                return; // 素材缺失：判定照常，只是不显示
             }
             if (_noelLongNailArcMesh != null && _noelLongNailArcMap == mp && _noelLongNailArcTicket != null)
             {
@@ -1543,6 +1546,102 @@ namespace KnightInCradle.CharmUi
             _noelLongNailArcMesh.activate("noel_longnail_arc", _noelLongNailArcMat, false, MTRX.ColWhite, null);
             _noelLongNailArcTicket = mp.MovRenderer.assignDrawable(
                 M2Mover.DRAW_ORDER.PR1, null, PrepareLongNailArcMesh, _noelLongNailArcMesh, null, null);
+        }
+
+        /// <summary>
+        /// 剑气绘制（复用 HK"长钉样式"斩击帧，与小骑士戴修长之钉时同款）：
+        /// 以诺艾尔中心为锚点，朝攻击方向画一道**长度 = 该招加成后触及距离 × 长度倍率**的剑气，
+        /// 两帧交替、随时间淡出。
+        /// </summary>
+        private static bool PrepareLongNailArcMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelLongNailArcMap;
+            if (mp == null || _noelLongNailArcMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelLongNailArcMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || _noelLongNailSlashTex == null || _noelLongNailArcs.Count == 0)
+            {
+                MdOut = _noelLongNailArcMesh;
+                return true;
+            }
+            float mx = mp.pixel2ux(pr.x * mp.CLEN);
+            float my = mp.pixel2uy(pr.y * mp.CLEN);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mx, my, 0f));
+            float alphaK = KnightInCradlePlugin.LongNailArcAlpha;
+            float lenRatio = KnightInCradlePlugin.LongNailSlashLengthRatio;
+            for (int i = 0; i < _noelLongNailArcs.Count; i++)
+            {
+                NoelLongNailArc arc = _noelLongNailArcs[i];
+                float progress = Mathf.Clamp01(arc.T / LongNailArcLife);
+                Texture2D tex = _noelLongNailSlashTex[progress < 0.5f ? 0 : _noelLongNailSlashTex.Length - 1];
+                if (tex == null)
+                {
+                    continue;
+                }
+                // 剑气长度：跟判定一致（加成后的触及距离 × 可调倍率）
+                float w = arc.ReachTo * lenRatio * mp.CLEN;
+                float h = w * ((float)tex.height / tex.width);
+                if (w <= 0f || h <= 0f)
+                {
+                    continue;
+                }
+                // 剑气中心放在"诺艾尔中心 → 判定末端"的中点，向攻击方向镜像
+                float dx = arc.Dir * (arc.ReachTo * lenRatio * 0.5f) * mp.CLEN;
+                _noelLongNailArcMesh.Col = new Color(1f, 1f, 1f, alphaK * (1f - progress));
+                _noelLongNailArcMesh.initForImgAndTexture(tex);
+                _noelLongNailArcMesh.uv_top = 0f;
+                _noelLongNailArcMesh.uv_height = 1f;
+                if (arc.Dir > 0f)
+                {
+                    _noelLongNailArcMesh.uv_left = 1f;
+                    _noelLongNailArcMesh.uv_width = -1f;
+                }
+                else
+                {
+                    _noelLongNailArcMesh.uv_left = 0f;
+                    _noelLongNailArcMesh.uv_width = 1f;
+                }
+                _noelLongNailArcMesh.Rect(dx, 0f, w, h, false);
+            }
+            MdOut = _noelLongNailArcMesh;
+            return true;
+        }
+
+        private static Texture2D[] LoadLongNailSlashTextures()
+        {
+            try
+            {
+                var list = new Texture2D[LongNailSlashSprites.Length];
+                for (int i = 0; i < list.Length; i++)
+                {
+                    string path = System.IO.Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "assets",
+                        "hk", "sprites", LongNailSlashSprites[i] + ".png");
+                    if (!System.IO.File.Exists(path))
+                    {
+                        return null;
+                    }
+                    var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                    if (!ImageConversion.LoadImage(tex, System.IO.File.ReadAllBytes(path)))
+                    {
+                        UnityEngine.Object.Destroy(tex);
+                        return null;
+                    }
+                    tex.filterMode = FilterMode.Point;
+                    tex.wrapMode = TextureWrapMode.Clamp;
+                    list[i] = tex;
+                }
+                return list;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         private static void ReleaseLongNailArcTicket()
@@ -1575,74 +1674,6 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>弧带绘制：以诺艾尔中心为圆心，朝攻击方向画一条白色弯月带（张角 ±42°，半径 = 触及距离）。</summary>
-        private static bool PrepareLongNailArcMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
-            out MeshDrawer MdOut, ref bool color_one_overwrite)
-        {
-            MdOut = null;
-            Map2d mp = _noelLongNailArcMap;
-            if (mp == null || _noelLongNailArcMesh == null || draw_id != 0)
-            {
-                return false;
-            }
-            _noelLongNailArcMesh.clearSimple();
-            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
-            if (pr == null || _noelLongNailWhiteTex == null || _noelLongNailArcs.Count == 0)
-            {
-                MdOut = _noelLongNailArcMesh;
-                return true;
-            }
-            float mx = mp.pixel2ux(pr.x * mp.CLEN);
-            float my = mp.pixel2uy(pr.y * mp.CLEN);
-            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
-                        Matrix4x4.Translate(new Vector3(mx, my, 0f));
-            float clen = mp.CLEN;
-            _noelLongNailArcMesh.initForImgAndTexture(_noelLongNailWhiteTex);
-            for (int k = 0; k < _noelLongNailArcs.Count; k++)
-            {
-                NoelLongNailArc arc = _noelLongNailArcs[k];
-                float progress = Mathf.Clamp01(arc.T / LongNailArcLife);
-                float fade = 1f - progress;
-                float span = KnightInCradlePlugin.LongNailArcSpanDeg * Mathf.Deg2Rad;
-                float widthK = KnightInCradlePlugin.LongNailArcWidthRatio;
-                float alphaK = KnightInCradlePlugin.LongNailArcAlpha;
-                // 弧带：外缘半径 = 触及距离；宽度中间粗、两端收细
-                for (int i = 0; i < LongNailArcSegments; i++)
-                {
-                    float t0 = (float)i / LongNailArcSegments;
-                    float t1 = (float)(i + 1) / LongNailArcSegments;
-                    float a0 = Mathf.Lerp(-span, span, t0);
-                    float a1 = Mathf.Lerp(-span, span, t1);
-                    float tm = (t0 + t1) * 0.5f;
-                    float taper = Mathf.Sin(Mathf.PI * tm);
-                    // 只画"加成区"：内半径 = 原版触及距离，外半径 = 加成后的触及距离；
-                    // 中段再向外多探出去一点，让弧带看起来是一道月牙而不是等宽的环。
-                    // 只画"修长之钉加成后那一圈"：弧带以加成后的触及距离为半径，自身很细
-                    // （厚度 = 该半径 × LongNailArcWidthRatio，默认 5% ≈ 2~3 像素），
-                    // 中段略粗、两端收细；不再画"普通法杖那圈 → 加成后那圈"之间的整片环形区域。
-                    float rMid = arc.ReachTo;
-                    float half = rMid * widthK * (0.45f + 0.55f * taper);
-                    float rIn = rMid - half;
-                    float rOut = rMid + half;
-                    float px0 = arc.Dir * Mathf.Cos(a0) * rIn * clen;
-                    float py0 = -Mathf.Sin(a0) * rIn * clen;
-                    float px1 = arc.Dir * Mathf.Cos(a1) * rIn * clen;
-                    float py1 = -Mathf.Sin(a1) * rIn * clen;
-                    float px2 = arc.Dir * Mathf.Cos(a1) * rOut * clen;
-                    float py2 = -Mathf.Sin(a1) * rOut * clen;
-                    float px3 = arc.Dir * Mathf.Cos(a0) * rOut * clen;
-                    float py3 = -Mathf.Sin(a0) * rOut * clen;
-                    float alpha = (0.30f + 0.70f * taper) * fade * alphaK;
-                    _noelLongNailArcMesh.Col = new Color(1f, 1f, 1f, alpha);
-                    _noelLongNailArcMesh.Triangle(px0, py0, px1, py1, px2, py2, false);
-                    _noelLongNailArcMesh.Triangle(px0, py0, px2, py2, px3, py3, false);
-                    // 反向再画一次，避免背面剔除
-                    _noelLongNailArcMesh.Triangle(px1, py1, px0, py0, px2, py2, false);
-                    _noelLongNailArcMesh.Triangle(px2, py2, px0, py0, px3, py3, false);
-                }
-            }
-            MdOut = _noelLongNailArcMesh;
-            return true;
-        }
 
         // ================= 护符17 快速劈砍（诺艾尔侧：挥杖速度 +50%） =================
         /// <summary>快速劈砍：诺艾尔挥杖速度倍率（需求：+50%）。</summary>
