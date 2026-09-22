@@ -2780,3 +2780,26 @@ public const float DashmasterRunSpeedMult = 0.8f;   // 0.17 → 0.136，仍快�
 例：纯白之箭 20 MP → 咏唱时预算就是 10、释放时扣 10，中途没有任何返还。
 
 验证：`build=2026-09-22.46`，DLL SHA256 `3CE694678A1F8F0C…`（两份安装已同步；只覆盖 DLL）。
+
+---
+
+## 27. 诺艾尔的护符第二部分（9）：稳定之体（id 15，2026-09-22，build=2026-09-22.47）
+
+需求：① 诺艾尔不会因为触碰魔物而摔倒；② 免疫风力；③ 免疫黏滑地面对移动的干扰。
+
+三条效果各自的原生机制（0.30g 反编译实证）与挂点：
+
+| 效果 | 原生机制 | 挂点 |
+|---|---|---|
+| ① 触碰魔物不摔倒 | 魔物"身体接触"伤害是 `MGKIND.TACKLE` 的魔法（`NelEnemy.tackleInit`，`:3495` 建 Mg、`：3499` `magicItem.Atk0 = Atk`）；命中时 `MGContainer.CircleCast` 会 `Atk.PublishMagic = Mg`（`:498`）。这种小击退伤害在 `M2PrADmg.applyDamage` 里会走 `changeState(PR.STATE.DAMAGE_LT)`（`:1315`，就是"摔倒/dmg_t"姿势） | `M2PrADmg.applyDamage(NelAttackInfo, ref HITTYPE, bool, string, bool, bool)` 前缀记下"本帧这次伤害是 TACKLE 接触伤害"，再由 `PR.changeState(PR.STATE)` 前缀拦掉紧接着的 `DAMAGE_LT` / `DAMAGE_LT_KIRIMOMI` 切换。**HP 伤害照常结算**，只是不进入摔倒动作 |
+| ② 免疫风力 | 风压等级 `PR.getWindApplyLevel`（`:2457`）决定受风强度，实际推力在 `PR.applyWindFoc`（`:2517`）的 `Phy.addFoc(FOCTYPE.KNOCKBACK,…)` | 两个入口都加前缀：等级直接返回 0、推力整体跳过（与小骑士模式的 `CombatGuard.PrWindFocPrefix` 同款） |
+| ③ 免疫黏滑地面（冰面） | `M2FootManager` 踩到 `foottype == "ice"` 时调 `M2Phys.addOnIce(false, 3f)`（`M2FootManager.cs:740`），把 `t_ice` 拉高；`t_ice > 0` 会把横向摩擦力按 0.015 倍衰减（`M2Phys.cs:591/641/791`），表现为打滑、难以急停 | `M2Phys.addOnIce(bool, float)` 前缀：若这个 `M2Phys` 属于本地诺艾尔（`M2Phys.Mv` 反查）则跳过 → `t_ice` 始终为 0，摩擦力与普通地面一致 |
+
+实现细节：
+
+- 三条都只在"**本地诺艾尔 + 装备稳定之体 + 非小骑士模式**"时生效（`IsStableBodyApplied`）；
+- `M2Mover.Phy` 是 `protected`，改用公开的 `M2Phys.Mv` 反查归属，避免反射；
+- 接触伤害的识别不看攻击者种类，只看 `Atk.PublishMagic.kind == MGKIND.TACKLE`：这是 AIC 里所有"撞上去才受伤"的接触攻击的统一形态，敌人自己的挥击/弹幕不落在这个 kind 上；
+- 拦截只在受伤的**同一帧**有效（`_stableBodyContactFrame == Time.frameCount`），不会影响其它来源的倒地（如坠落、重击 `DAMAGE_L`）。
+
+验证：`build=2026-09-22.47`，DLL SHA256 `9DBC554F711E6679…`（两份安装已同步；只覆盖 DLL）。

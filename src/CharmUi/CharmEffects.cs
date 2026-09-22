@@ -1261,6 +1261,128 @@ namespace KnightInCradle.CharmUi
             _noelSpellTwisterCostScope = SpellTwisterScopeOff;
         }
 
+        // ================= 护符15 稳定之体（诺艾尔侧：不摔倒 / 免疫风力 / 免疫黏滑地面） ===
+        /// <summary>
+        /// 护符15 稳定之体，三条效果各自的原生机制（0.30g 反编译实证）：
+        /// ① **不会因为触碰魔物而摔倒**：魔物的身体接触伤害是 `MGKIND.TACKLE` 的魔法
+        ///    （`NelEnemy.tackleInit`，`MGContainer.CircleCast` 里 `Atk.PublishMagic = Mg`），
+        ///    它在 `M2PrADmg.applyDamage` 里按击退量把诺艾尔推进 `PR.STATE.DAMAGE_LT`（摔倒姿势）。
+        ///    这里记下"本帧这次伤害是接触伤害"，再拦掉紧随其后的摔倒状态切换（HP 伤害照常结算）。
+        /// ② **免疫风力**：风压等级由 `PR.getWindApplyLevel` 给出、实际推力在 `PR.applyWindFoc`，
+        ///    两个入口都跳过（与小骑士模式的 `CombatGuard.PrWindFocPrefix` 同款做法）。
+        /// ③ **免疫黏滑地面（冰面）**：`M2FootManager` 踩到 `foottype == "ice"` 时调
+        ///    `M2Phys.addOnIce` 拉高 `t_ice`，而 `t_ice &gt; 0` 会把横向摩擦力压到 1.5%
+        ///    （`M2Phys.cs:641`）。这里拦掉给诺艾尔上的 `t_ice`，她的移动不再打滑。
+        /// </summary>
+        private static PR _stableBodyContactPr;
+        private static int _stableBodyContactFrame = -1;
+
+        /// <summary>该 PR 是否就是"佩戴了稳定之体的本地诺艾尔"。</summary>
+        private static bool IsStableBodyApplied(PR pr)
+        {
+            if (pr == null || IsKnightMode || !IsEquipped(CharmOwner.Noel, StableId))
+            {
+                return false;
+            }
+            PRNoel noel = KnightInCradleBehaviour.GetPrPublic();
+            return noel != null && ReferenceEquals(pr, noel);
+        }
+
+        /// <summary>风力②：风压等级直接为 0。</summary>
+        private static bool StableBodyWindLevelPrefix(PR __instance, ref float __result)
+        {
+            try
+            {
+                if (IsStableBodyApplied(__instance))
+                {
+                    __result = 0f;
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return true;
+        }
+
+        /// <summary>风力②：吹飞推力整体跳过。</summary>
+        private static bool StableBodyWindFocPrefix(PR __instance)
+        {
+            try
+            {
+                return !IsStableBodyApplied(__instance);
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>黏滑地面③：不给诺艾尔上冰面打滑计时（`t_ice`）。</summary>
+        private static bool StableBodyAddOnIcePrefix(M2Phys __instance)
+        {
+            try
+            {
+                PRNoel noel = KnightInCradleBehaviour.GetPrPublic();
+                // M2Mover.Phy 是 protected，但 M2Phys.Mv 是 public readonly，可直接反查归属。
+                if (noel != null && __instance != null && ReferenceEquals(__instance.Mv, noel) &&
+                    IsStableBodyApplied(noel))
+                {
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return true;
+        }
+
+        /// <summary>接触伤害①：记下"本帧这次伤害是魔物身体接触"。</summary>
+        private static void StableBodyContactDamagePrefix(M2PrADmg __instance, NelAttackInfo Atk)
+        {
+            try
+            {
+                if (__instance == null || Atk == null || !IsStableBodyApplied(__instance.Pr))
+                {
+                    return;
+                }
+                MagicItem mg = Atk.PublishMagic;
+                if (mg == null || mg.kind != MGKIND.TACKLE)
+                {
+                    return;
+                }
+                _stableBodyContactPr = __instance.Pr;
+                _stableBodyContactFrame = Time.frameCount;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>接触伤害①：紧接着的"摔倒"状态切换直接跳过（伤害已结算完）。</summary>
+        private static bool StableBodyChangeStatePrefix(PR __instance, PR.STATE _state)
+        {
+            try
+            {
+                if (_state != PR.STATE.DAMAGE_LT && _state != PR.STATE.DAMAGE_LT_KIRIMOMI)
+                {
+                    return true;
+                }
+                if (_stableBodyContactFrame != Time.frameCount ||
+                    !ReferenceEquals(__instance, _stableBodyContactPr) ||
+                    !IsStableBodyApplied(__instance))
+                {
+                    return true;
+                }
+                _stableBodyContactPr = null;
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
         // ================= 护符13 坚固力量（诺艾尔侧：骨钉系技能最终伤害 +25%） =================
         /// <summary>坚固力量：下列招式的最终伤害倍率（需求：+25%）。</summary>
         public const float PowerDamageMult = 1.25f;
@@ -2228,6 +2350,47 @@ namespace KnightInCradle.CharmUi
                         postfix: new HarmonyMethod(
                             typeof(CharmEffects).GetMethod(nameof(ShamanCircleCastPostfix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符15 稳定之体（诺艾尔侧）：风力（等级 + 推力两个入口）
+                MethodInfo windLevel = AccessTools.Method(typeof(PR), "getWindApplyLevel");
+                if (windLevel != null)
+                {
+                    harmony.Patch(windLevel, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(StableBodyWindLevelPrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                MethodInfo windFoc = AccessTools.Method(typeof(PR), "applyWindFoc");
+                if (windFoc != null)
+                {
+                    harmony.Patch(windFoc, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(StableBodyWindFocPrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符15 稳定之体（诺艾尔侧）：黏滑地面（冰面）不打滑
+                MethodInfo addOnIce = AccessTools.Method(typeof(M2Phys), "addOnIce",
+                    new[] { typeof(bool), typeof(float) });
+                if (addOnIce != null)
+                {
+                    harmony.Patch(addOnIce, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(StableBodyAddOnIcePrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符15 稳定之体（诺艾尔侧）：触碰魔物（TACKLE 接触伤害）不摔倒
+                MethodInfo prDmg = AccessTools.FirstMethod(typeof(M2PrADmg),
+                    m => m.Name == "applyDamage" && m.GetParameters().Length == 6);
+                if (prDmg != null)
+                {
+                    harmony.Patch(prDmg, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(StableBodyContactDamagePrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                MethodInfo prChangeState = AccessTools.Method(typeof(PR), "changeState",
+                    new[] { typeof(PR.STATE) });
+                if (prChangeState != null)
+                {
+                    harmony.Patch(prChangeState, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(StableBodyChangeStatePrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符12 坚固贪婪：击杀魔物掉落 5% 最大生命值的金币
                 MethodInfo enemyDie = AccessTools.Method(typeof(NelEnemy), "changeStateToDie");
