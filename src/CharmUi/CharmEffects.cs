@@ -1447,7 +1447,9 @@ namespace KnightInCradle.CharmUi
                 return false;
             }
             return n.Contains("swing") || n.Contains("slash") || n.Contains("arc") ||
-                   n.Contains("effect") || n.Contains("eff_") || n.Contains("cane");
+                   n.Contains("effect") || n.Contains("eff_") || n.Contains("cane") ||
+                   // AIC 里法杖（含挥击弧光）是单独一层，层名就叫 "rod"
+                   n.Contains("rod");
         }
 
         /// <summary>每帧（诺艾尔模式）：把她自己挥击姿势里的弧光层按倍率拉长 / 卸下时还原。</summary>
