@@ -717,9 +717,15 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
+                // 护符16 沉重之击：剑气也是"诺艾尔造成的伤害"，同样吃 20% 翻倍。
+                int dmg = ElegyDamage;
+                if (IsEquipped(CharmOwner.Noel, HeavyBlowId) && RollHeavyBlow())
+                {
+                    dmg = Mathf.FloorToInt(dmg * HeavyBlowDamageMult + 0.5f);
+                }
                 var atk = new NelAttackInfo();
-                atk.hpdmg_current = ElegyDamage;
-                atk.hpdmg0 = ElegyDamage;
+                atk.hpdmg_current = dmg;
+                atk.hpdmg0 = dmg;
                 atk.fix_damage = true;
                 atk.CenterXy(enemy.x, enemy.y, 0f);
                 atk.Caster = pr;
@@ -1459,11 +1465,24 @@ namespace KnightInCradle.CharmUi
             public int Hp0;
         }
 
+        // ================= 护符16 沉重之击（诺艾尔侧：20% 概率伤害翻倍） =================
+        /// <summary>沉重之击：触发概率（需求 20%）。</summary>
+        public const float HeavyBlowChance = 0.2f;
+        /// <summary>沉重之击：触发时的伤害倍率。</summary>
+        public const float HeavyBlowDamageMult = 2f;
+
+        /// <summary>20% 骰子（与模组其它概率实现一致，用 Unity 随机源）。</summary>
+        private static bool RollHeavyBlow()
+        {
+            return UnityEngine.Random.value < HeavyBlowChance;
+        }
+
         /// <summary>
-        /// 护符5 萨满之石（**诺艾尔侧**）：诺艾尔用法术（含魔法霰弹）命中敌人时最终伤害 +25%。
+        /// 诺艾尔侧"最终伤害乘区"的统一挂点（护符5 萨满之石 +25%、护符13 坚固力量 +25%、
+        /// 护符16 沉重之击 20% 概率 ×2）。
         ///
         /// 做法：在法术命中汇聚点 `MGContainer.CircleCast` 的**前缀**里把这次攻击的基准伤害
-        /// `Atk.hpdmg0` 临时 ×1.25（`CircleCast` 内部会对每个命中目标用 `hpdmg0` 重算
+        /// `Atk.hpdmg0` 临时乘上倍率（`CircleCast` 内部会对每个命中目标用 `hpdmg0` 重算
         /// `hpdmg_current`（`AttackInfo._hpdmg` = `hpdmg_current ?? hpdmg0`），所以从基准值入手
         /// 能让**每个目标**都吃到加成；没走 shuffle 的路径直接用 `hpdmg0` 也同样被抬高），postfix 里原样还原，
         /// 不会污染这一发法术复用/后续的伤害数据。只对诺艾尔模式 + 诺艾尔自己放的法术生效。
@@ -1474,7 +1493,8 @@ namespace KnightInCradle.CharmUi
             try
             {
                 if (IsKnightMode ||
-                    !(IsEquipped(CharmOwner.Noel, ShamanId) || IsEquipped(CharmOwner.Noel, PowerId)))
+                    !(IsEquipped(CharmOwner.Noel, ShamanId) || IsEquipped(CharmOwner.Noel, PowerId) ||
+                      IsEquipped(CharmOwner.Noel, HeavyBlowId)))
                 {
                     return;
                 }
@@ -1484,13 +1504,18 @@ namespace KnightInCradle.CharmUi
                 }
                 // 萨满之石（法术）与坚固力量（骨钉系技能）都抬高这一发的基准伤害，两者同时满足就连乘
                 float mult = 1f;
-                if (IsPlayerMagicKind(Mg.kind))
+                if (IsEquipped(CharmOwner.Noel, ShamanId) && IsPlayerMagicKind(Mg.kind))
                 {
                     mult *= ShamanDamageMult;
                 }
                 if (IsEquipped(CharmOwner.Noel, PowerId) && IsPowerBoostKind(Mg.kind))
                 {
                     mult *= PowerDamageMult;
+                }
+                // 护符16 沉重之击：**诺艾尔造成的任何伤害**都有 20% 概率翻倍（不限定招式）
+                if (IsEquipped(CharmOwner.Noel, HeavyBlowId) && RollHeavyBlow())
+                {
+                    mult *= HeavyBlowDamageMult;
                 }
                 if (mult <= 1f)
                 {
