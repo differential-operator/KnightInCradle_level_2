@@ -1274,8 +1274,12 @@ namespace KnightInCradle.CharmUi
         public const float FastSlashSpeedMult = 1.5f;
 
         // ================= 护符18 修长之钉（诺艾尔侧：近战攻击距离 +20%） =================
-        /// <summary>修长之钉：近战攻击距离倍率（需求：+20%）。</summary>
-        public const float LongNailReachMult = 1.2f;
+        /// <summary>
+        /// 修长之钉：近战"总触及距离"倍率。
+        /// （2026-09-22 试调：先按需求做了 +20% = 1.2f，实测绝对值只有 0.28 格 ≈ 8 像素、
+        ///  几乎看不出，按用户要求先试 +100% = 2f。）
+        /// </summary>
+        public const float LongNailReachMult = 2f;
 
         /// <summary>
         /// 护符18 修长之钉（**诺艾尔侧**）：近战攻击距离 +20%
