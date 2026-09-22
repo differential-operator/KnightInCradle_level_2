@@ -2994,8 +2994,19 @@ sz <  0 : 判定中心 = Cen + (sx, sy)，方向 (dx, dy)，粗细 |sz|
   而它只在 `need_fine == true && auto_replace_mesh` 时重建（`m2d/M2PxlAnimatorRT.cs:155-171`）；
   只调 `PxlFrame.Apply()`（重建的是 `PxlFrame.MeshGenerator`）**没有用**，必须置 `anm.need_fine = true`。
 
-**下次可考虑的方向**：①只对挥击那一两帧拉伸本体层（身体会一起变宽，等于挥击残影）；
-②模组自绘弧带（程序化白弧，长度=判定触及距离，不动本体）；③使用独立素材画弧光。
+### 30.3 新做法（当前）：判定照旧放大 + **自绘白色弧带**（build=2026-09-23.1）
+
+用户选定的方案：**不再试图改她的姿势图层**，改成模组自己画一段白色弧带：
+
+| 部分 | 做法 |
+|---|---|
+| 判定 | 仍用 `PrCaneEquip.reach_ratio` × 倍率 + `PrCaneEquip.initChantMagicAwaken` 前缀量基准 / 后缀把**总触及距离**（`\|(sx,sy)\| + \|sz\|`）精确改成 `基准 × 倍率`；只作用于 `PR_PUNCH`/`PR_SHOTGUN`/`PR_SMASH`（轻攻击/凌空横斩/魔法霰弹/会心重击） |
+| 表现 | 在 `M2PrSkill.executeSmallAttack` 后缀登记一道弧带（记录诺艾尔中心、朝向、**长度 = 该攻击包放大后的触及距离**），用 1×1 白纹理 + `MeshDrawer.Triangle` **程序化绘制**一段弯月带（张角 ±42°、14 段、中间粗两端细、随时间淡出，0.14 秒），画在 `PR1` 层（角色身前） |
+| 可调 | BepInEx 配置 `[Charm18] LongNailReachMultiplier`（默认 2 = +100%，填 1 关闭）；改这个值会同时改变判定距离与弧带长度，两者始终一致 |
+
+好处：不用任何外部素材、身体/法杖完全不动，且"看得到多远 = 打得到多远"。
+
+验证：`build=2026-09-23.1`，DLL SHA256 `F46F4F12435D5506…`（两份安装已同步；只覆盖 DLL）。
 
 ### 28.2 伤害 +40%
 

@@ -1270,6 +1270,325 @@ namespace KnightInCradle.CharmUi
             _noelSpellTwisterCostScope = SpellTwisterScopeOff;
         }
 
+        // ================= 护符18 修长之钉（诺艾尔侧：近战距离 ×倍率 + 自绘白色弧带） =========
+        /// <summary>
+        /// 护符18 修长之钉（诺艾尔侧）：近战"总触及距离"按配置倍率放大，并**自绘一道白色弧带**
+        /// 把加长的距离显示出来。
+        ///
+        /// 为什么自绘：AIC 诺艾尔挥击时的弧光是**烘焙在本体姿势图层里**的（实测她的挥击姿势只有
+        /// `Layer`/`Layer_2`（本体，弧光在其中）、`rod_4`（法杖）、`rodeff`（法杖旁粒子）、`hand`（手）
+        /// 这几个图层，没有独立的"弧光层"），所以既不能只拉弧光，也不能靠游戏自己的特效参数
+        /// （`pr_cane_swing` 的 `lax` 实测不影响画面）。这里用纯程序化的白色三角形画一段弧带，
+        /// 长度 = 这一招放大后的判定触及距离（`|(sx,sy)| + |sz|`），做到"看得到多远 = 打得到多远"。
+        /// </summary>
+        private const float LongNailArcLife = 0.14f;
+        private const float LongNailArcSpanDeg = 42f;   // 弧带张角（相对正前方，左右各一半）
+        private const int LongNailArcSegments = 14;
+
+        private sealed class NoelLongNailArc
+        {
+            public float X;
+            public float Y;
+            public float Dir;
+            public float Reach;
+            public float T;
+        }
+
+        private static readonly List<NoelLongNailArc> _noelLongNailArcs = new List<NoelLongNailArc>();
+        private static Texture2D _noelLongNailWhiteTex;
+        private static MeshDrawer _noelLongNailArcMesh;
+        private static Material _noelLongNailArcMat;
+        private static M2RenderTicket _noelLongNailArcTicket;
+        private static Map2d _noelLongNailArcMap;
+
+        /// <summary>修长之钉覆盖的招式（近战判定包 kind）：轻攻击/凌空横斩、魔法霰弹、会心重击。</summary>
+        private static bool IsLongNailKind(MGKIND kind)
+        {
+            return kind == MGKIND.PR_PUNCH || kind == MGKIND.PR_SHOTGUN || kind == MGKIND.PR_SMASH;
+        }
+
+        // ---- 判定侧：`PrCaneEquip.initChantMagicAwaken` 前缀记基准、后缀把总触及距离精确改倍率 ----
+        /// <summary>`PrCaneEquip.reach_ratio` 后缀：连游戏自己的 reach 倍率（判定线段 + 挥击特效）一起放大。</summary>
+        private static void LongNailReachRatioPostfix(ref float __result)
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, LongNailId))
+                {
+                    return;
+                }
+                __result *= KnightInCradlePlugin.LongNailReachMult;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static float _longNailBaseReach;
+        private static int _longNailBaseMgId = -1;
+        private static readonly HashSet<int> _longNailDoneIds = new HashSet<int>();
+        private static Map2d _longNailDoneMap;
+
+        private static void LongNailCaneAwakenPrefix(MagicItem Mg)
+        {
+            _longNailBaseReach = 0f;
+            _longNailBaseMgId = -1;
+            try
+            {
+                if (Mg == null || IsKnightMode || !IsEquipped(CharmOwner.Noel, LongNailId) ||
+                    KnightInCradlePlugin.LongNailReachMult <= 1f)
+                {
+                    return;
+                }
+                if (!(Mg.Caster is PRNoel) || !IsLongNailKind(Mg.kind))
+                {
+                    return;
+                }
+                if (!ReferenceEquals(Mg.Mp, _longNailDoneMap))
+                {
+                    _longNailDoneMap = Mg.Mp;
+                    _longNailDoneIds.Clear(); // 换图后 MagicItem.id 会从 0 重新开始
+                }
+                if (_longNailDoneIds.Contains(Mg.id))
+                {
+                    return;
+                }
+                float len = Mathf.Sqrt(Mg.sx * Mg.sx + Mg.sy * Mg.sy);
+                if (len <= 0.0001f)
+                {
+                    return;
+                }
+                _longNailBaseReach = len + Mathf.Abs(Mg.sz);
+                _longNailBaseMgId = Mg.id;
+            }
+            catch (Exception)
+            {
+                _longNailBaseReach = 0f;
+            }
+        }
+
+        /// <summary>
+        /// 把这一招最终的"触及距离"改成 `基准 × 倍率`。
+        /// 注意游戏自己的 reach 只乘在线段 `sx` 上、粗细 `sz` 不参与，所以只靠倍率会让总距离增幅打折
+        /// （实测 +20% 落到总距离只剩 +9% ≈ 3.5 像素），这里按"总触及距离 = 线段 + 粗细"精确补足。
+        /// </summary>
+        private static void LongNailCaneAwakenPostfix(MagicItem Mg)
+        {
+            try
+            {
+                if (_longNailBaseReach <= 0f || Mg == null || Mg.id != _longNailBaseMgId)
+                {
+                    _longNailBaseReach = 0f;
+                    return;
+                }
+                float rad = Mathf.Abs(Mg.sz);
+                float target = _longNailBaseReach * KnightInCradlePlugin.LongNailReachMult;
+                float need = target - rad;
+                float len = Mathf.Sqrt(Mg.sx * Mg.sx + Mg.sy * Mg.sy);
+                if (need > 0f && len > 0.0001f && need > len)
+                {
+                    float k = need / len;
+                    Mg.sx *= k;
+                    Mg.sy *= k;
+                }
+                _longNailDoneIds.Add(Mg.id);
+                _longNailBaseReach = 0f;
+            }
+            catch (Exception)
+            {
+                _longNailBaseReach = 0f;
+            }
+        }
+
+        // ---- 渲染侧：自绘白色弧带 ----
+        /// <summary>攻击包生成时登记一道弧带（长度 = 判定触及距离）。</summary>
+        private static void LongNailSmallAttackPostfix(MagicItem __result)
+        {
+            try
+            {
+                if (__result == null || IsKnightMode || !IsEquipped(CharmOwner.Noel, LongNailId) ||
+                    !(__result.Caster is PRNoel) || !IsLongNailKind(__result.kind))
+                {
+                    return;
+                }
+                float reach = Mathf.Sqrt(__result.sx * __result.sx + __result.sy * __result.sy) +
+                              Mathf.Abs(__result.sz);
+                if (reach <= 0.2f)
+                {
+                    return;
+                }
+                PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+                if (pr == null)
+                {
+                    return;
+                }
+                float dir = Mathf.Abs(__result.sx) > 0.0001f
+                    ? Mathf.Sign(__result.sx)
+                    : (pr.mpf_is_right >= 0f ? 1f : -1f);
+                _noelLongNailArcs.Add(new NoelLongNailArc
+                {
+                    X = pr.x,
+                    Y = pr.y,
+                    Dir = dir,
+                    Reach = reach,
+                    T = 0f,
+                });
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>每帧推进：弧带计时 / 过期清理 / 票据维护。</summary>
+        public static void TickNoelLongNailArc(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    return;
+                }
+                float dt = Time.deltaTime;
+                for (int i = _noelLongNailArcs.Count - 1; i >= 0; i--)
+                {
+                    NoelLongNailArc a = _noelLongNailArcs[i];
+                    a.T += dt;
+                    if (a.T >= LongNailArcLife)
+                    {
+                        _noelLongNailArcs.RemoveAt(i);
+                    }
+                }
+                EnsureLongNailArcTicket(pr, _noelLongNailArcs.Count > 0);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static void EnsureLongNailArcTicket(PRNoel pr, bool want)
+        {
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null)
+            {
+                return;
+            }
+            if (!want)
+            {
+                ReleaseLongNailArcTicket();
+                return;
+            }
+            if (_noelLongNailWhiteTex == null)
+            {
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                tex.SetPixels(new[] { Color.white, Color.white, Color.white, Color.white });
+                tex.Apply();
+                _noelLongNailWhiteTex = tex;
+            }
+            if (_noelLongNailArcMesh != null && _noelLongNailArcMap == mp && _noelLongNailArcTicket != null)
+            {
+                return;
+            }
+            ReleaseLongNailArcTicket();
+            _noelLongNailArcMap = mp;
+            _noelLongNailArcMesh = new MeshDrawer(null, 4 * 64, 6 * 64);
+            _noelLongNailArcMesh.draw_gl_only = true;
+            _noelLongNailArcMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _noelLongNailArcMat.EnableKeyword("NO_PIXELSNAP");
+            _noelLongNailArcMesh.activate("noel_longnail_arc", _noelLongNailArcMat, false, MTRX.ColWhite, null);
+            _noelLongNailArcTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR1, null, PrepareLongNailArcMesh, _noelLongNailArcMesh, null, null);
+        }
+
+        private static void ReleaseLongNailArcTicket()
+        {
+            try
+            {
+                if (_noelLongNailArcTicket != null && _noelLongNailArcMap != null &&
+                    _noelLongNailArcMap.MovRenderer != null)
+                {
+                    _noelLongNailArcMap.MovRenderer.deassignDrawable(_noelLongNailArcTicket, -1);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (_noelLongNailArcMat != null)
+                {
+                    IN.DestroyOne(_noelLongNailArcMat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _noelLongNailArcTicket = null;
+            _noelLongNailArcMesh = null;
+            _noelLongNailArcMat = null;
+            _noelLongNailArcMap = null;
+        }
+
+        /// <summary>弧带绘制：以诺艾尔中心为圆心，朝攻击方向画一条白色弯月带（张角 ±42°，半径 = 触及距离）。</summary>
+        private static bool PrepareLongNailArcMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelLongNailArcMap;
+            if (mp == null || _noelLongNailArcMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelLongNailArcMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || _noelLongNailWhiteTex == null || _noelLongNailArcs.Count == 0)
+            {
+                MdOut = _noelLongNailArcMesh;
+                return true;
+            }
+            float mx = mp.pixel2ux(pr.x * mp.CLEN);
+            float my = mp.pixel2uy(pr.y * mp.CLEN);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mx, my, 0f));
+            float clen = mp.CLEN;
+            _noelLongNailArcMesh.initForImgAndTexture(_noelLongNailWhiteTex);
+            for (int k = 0; k < _noelLongNailArcs.Count; k++)
+            {
+                NoelLongNailArc arc = _noelLongNailArcs[k];
+                float progress = Mathf.Clamp01(arc.T / LongNailArcLife);
+                float fade = 1f - progress;
+                float span = LongNailArcSpanDeg * Mathf.Deg2Rad;
+                // 弧带：外缘半径 = 触及距离；宽度中间粗、两端收细
+                for (int i = 0; i < LongNailArcSegments; i++)
+                {
+                    float t0 = (float)i / LongNailArcSegments;
+                    float t1 = (float)(i + 1) / LongNailArcSegments;
+                    float a0 = Mathf.Lerp(-span, span, t0);
+                    float a1 = Mathf.Lerp(-span, span, t1);
+                    float tm = (t0 + t1) * 0.5f;
+                    float taper = Mathf.Sin(Mathf.PI * tm);
+                    float rOut = arc.Reach * (0.86f + 0.14f * taper);
+                    float rIn = rOut - arc.Reach * (0.10f + 0.22f * taper);
+                    float px0 = arc.Dir * Mathf.Cos(a0) * rIn * clen;
+                    float py0 = -Mathf.Sin(a0) * rIn * clen;
+                    float px1 = arc.Dir * Mathf.Cos(a1) * rIn * clen;
+                    float py1 = -Mathf.Sin(a1) * rIn * clen;
+                    float px2 = arc.Dir * Mathf.Cos(a1) * rOut * clen;
+                    float py2 = -Mathf.Sin(a1) * rOut * clen;
+                    float px3 = arc.Dir * Mathf.Cos(a0) * rOut * clen;
+                    float py3 = -Mathf.Sin(a0) * rOut * clen;
+                    float alpha = (0.30f + 0.70f * taper) * fade;
+                    _noelLongNailArcMesh.Col = new Color(1f, 1f, 1f, alpha);
+                    _noelLongNailArcMesh.Triangle(px0, py0, px1, py1, px2, py2, false);
+                    _noelLongNailArcMesh.Triangle(px0, py0, px2, py2, px3, py3, false);
+                    // 反向再画一次，避免背面剔除
+                    _noelLongNailArcMesh.Triangle(px1, py1, px0, py0, px2, py2, false);
+                    _noelLongNailArcMesh.Triangle(px2, py2, px0, py0, px3, py3, false);
+                }
+            }
+            MdOut = _noelLongNailArcMesh;
+            return true;
+        }
+
         // ================= 护符17 快速劈砍（诺艾尔侧：挥杖速度 +50%） =================
         /// <summary>快速劈砍：诺艾尔挥杖速度倍率（需求：+50%）。</summary>
         public const float FastSlashSpeedMult = 1.5f;
@@ -2853,7 +3172,31 @@ namespace KnightInCradle.CharmUi
                         harmony.Patch(smallAttack, postfix: new HarmonyMethod(
                             typeof(CharmEffects).GetMethod(nameof(HeavyBlowSmallAttackPostfix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
+                        // 护符18 修长之钉（诺艾尔侧）：登记一道白色弧带（长度=判定触及距离）
+                        harmony.Patch(smallAttack, postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(LongNailSmallAttackPostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
                     }
+                // 护符18 修长之钉（诺艾尔侧）：判定侧——手杖 reach 倍率 + 总触及距离精确补足
+                MethodInfo reachRatio = AccessTools.Method(typeof(PrCaneEquip), "reach_ratio");
+                if (reachRatio != null)
+                {
+                    harmony.Patch(reachRatio, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(LongNailReachRatioPostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                MethodInfo caneAwaken = AccessTools.Method(typeof(PrCaneEquip), "initChantMagicAwaken",
+                    new[] { typeof(MagicItem), typeof(float) });
+                if (caneAwaken != null)
+                {
+                    harmony.Patch(caneAwaken,
+                        prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(LongNailCaneAwakenPrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)),
+                        postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(LongNailCaneAwakenPostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                }
                     // 护符14 法术扭曲者（诺艾尔侧）：施法起手消耗 -10
                     MethodInfo burstMp = AccessTools.Method(typeof(PR), "applyBurstMpDamage");
                     if (burstMp != null)
