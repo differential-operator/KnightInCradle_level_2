@@ -79,6 +79,23 @@ namespace KnightInCradle
             LongNailReachPercentConfig != null
                 ? 1f + Mathf.Clamp(LongNailReachPercentConfig.Value, 0, 200) / 100f
                 : 1.25f;
+        /// <summary>护符19 骄傲印记：近战距离加成百分比（默认 35 = +35%），可与修长之钉叠加（百分比相加）。</summary>
+        internal static ConfigEntry<int> PrideReachPercentConfig;
+        internal static ConfigEntry<float> PrideSlashLengthRatioConfig;
+        internal static ConfigEntry<float> PrideSlashScaleConfig;
+        internal static ConfigEntry<float> PrideSlashHeightConfig;
+        internal static ConfigEntry<float> PrideAlphaConfig;
+
+        internal static float PrideReachPercent =>
+            PrideReachPercentConfig != null ? Mathf.Clamp(PrideReachPercentConfig.Value, 0, 200) : 35f;
+        internal static float PrideSlashLengthRatio =>
+            PrideSlashLengthRatioConfig != null ? Mathf.Clamp(PrideSlashLengthRatioConfig.Value, 0.1f, 3f) : 1f;
+        internal static float PrideSlashScale =>
+            PrideSlashScaleConfig != null ? Mathf.Clamp(PrideSlashScaleConfig.Value, 0.1f, 4f) : 1f;
+        internal static float PrideSlashHeightRatio =>
+            PrideSlashHeightConfig != null ? Mathf.Clamp(PrideSlashHeightConfig.Value, 0.1f, 4f) : 1f;
+        internal static float PrideAlpha =>
+            PrideAlphaConfig != null ? Mathf.Clamp(PrideAlphaConfig.Value, 0.05f, 3f) : 1f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -236,6 +253,18 @@ namespace KnightInCradle
                 "与 LongNailSlashLengthRatio 相乘。");
             LongNailSlashHeightConfig = Config.Bind("Charm18", "LongNailSlashHeightRatio", 1f,
                 "修长之钉剑气渲染高度倍率（只改高度、不改长度，默认 1）。调大剑气更厚/更高，调小更扁。");
+            // 护符19 骄傲印记：与修长之钉同一套做法，配置独立
+            PrideReachPercentConfig = Config.Bind("Charm19", "PrideReachPercent", 35,
+                "骄傲印记：诺艾尔近战距离加成百分比（默认 35 = +35%）。" +
+                "与修长之钉同时佩戴时两个百分比相加（25+35=60%）。");
+            PrideSlashLengthRatioConfig = Config.Bind("Charm19", "PrideSlashLengthRatio", 1f,
+                "骄傲印记剑气长度 = 该招加成后触及距离 × 这个倍率（默认 1 = 与判定等长）。");
+            PrideSlashScaleConfig = Config.Bind("Charm19", "PrideSlashScale", 1f,
+                "骄傲印记剑气整体渲染大小倍率（宽高等比，默认 1）。");
+            PrideSlashHeightConfig = Config.Bind("Charm19", "PrideSlashHeightRatio", 1f,
+                "骄傲印记剑气渲染高度倍率（只改高度、不改长度，默认 1）。");
+            PrideAlphaConfig = Config.Bind("Charm19", "PrideAlpha", 1f,
+                "骄傲印记剑气亮度倍率（默认 1）。");
             LongNailArcAlphaConfig = Config.Bind("Charm18", "LongNailArcAlpha", 1f,
                 "修长之钉弧带的亮度倍率（默认 1）。小于 1 更淡，大于 1 更亮。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：

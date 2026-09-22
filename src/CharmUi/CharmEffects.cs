@@ -1312,17 +1312,41 @@ namespace KnightInCradle.CharmUi
             return kind == MGKIND.PR_PUNCH || kind == MGKIND.PR_SHOTGUN || kind == MGKIND.PR_SMASH;
         }
 
+        /// <summary>是否佩戴了"加长近战"类护符（18 修长之钉 / 19 骄傲印记）。</summary>
+        private static bool HasReachCharm()
+        {
+            return IsEquipped(CharmOwner.Noel, LongNailId) || IsEquipped(CharmOwner.Noel, PrideId);
+        }
+
+        /// <summary>
+        /// 近战距离总倍率：修长之钉（默认 +25%）与骄傲印记（默认 +35%）**百分比相加**，
+        /// 只算实际佩戴的那几个（同时佩戴 = +60%）。
+        /// </summary>
+        private static float NoelMeleeReachMult()
+        {
+            float bonus = 0f;
+            if (IsEquipped(CharmOwner.Noel, LongNailId))
+            {
+                bonus += KnightInCradlePlugin.LongNailReachMult - 1f;
+            }
+            if (IsEquipped(CharmOwner.Noel, PrideId))
+            {
+                bonus += KnightInCradlePlugin.PrideReachPercent / 100f;
+            }
+            return 1f + bonus;
+        }
+
         // ---- 判定侧：`PrCaneEquip.initChantMagicAwaken` 前缀记基准、后缀把总触及距离精确改倍率 ----
         /// <summary>`PrCaneEquip.reach_ratio` 后缀：连游戏自己的 reach 倍率（判定线段 + 挥击特效）一起放大。</summary>
         private static void LongNailReachRatioPostfix(ref float __result)
         {
             try
             {
-                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, LongNailId))
+                if (IsKnightMode || !HasReachCharm())
                 {
                     return;
                 }
-                __result *= KnightInCradlePlugin.LongNailReachMult;
+                __result *= NoelMeleeReachMult();
             }
             catch (Exception)
             {
@@ -1343,8 +1367,7 @@ namespace KnightInCradle.CharmUi
             _longNailBaseMgId = -1;
             try
             {
-                if (Mg == null || IsKnightMode || !IsEquipped(CharmOwner.Noel, LongNailId) ||
-                    KnightInCradlePlugin.LongNailReachMult <= 1f)
+                if (Mg == null || IsKnightMode || !HasReachCharm() || NoelMeleeReachMult() <= 1f)
                 {
                     return;
                 }
@@ -1391,7 +1414,7 @@ namespace KnightInCradle.CharmUi
                     return;
                 }
                 float rad = Mathf.Abs(Mg.sz);
-                float target = _longNailBaseReach * KnightInCradlePlugin.LongNailReachMult;
+                float target = _longNailBaseReach * NoelMeleeReachMult();
                 float need = target - rad;
                 float len = Mathf.Sqrt(Mg.sx * Mg.sx + Mg.sy * Mg.sy);
                 if (need > 0f && len > 0.0001f && need > len)
@@ -1420,7 +1443,7 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (__result == null || IsKnightMode || !IsEquipped(CharmOwner.Noel, LongNailId) ||
+                if (__result == null || IsKnightMode || !HasReachCharm() ||
                     !(__result.Caster is PRNoel) || !IsLongNailKind(__result.kind))
                 {
                     return;
@@ -1443,7 +1466,7 @@ namespace KnightInCradle.CharmUi
                 float baseReach;
                 if (!_longNailBaseReachById.TryGetValue(__result.id, out baseReach) || baseReach <= 0f)
                 {
-                    baseReach = reach / Mathf.Max(1.0001f, KnightInCradlePlugin.LongNailReachMult);
+                    baseReach = reach / Mathf.Max(1.0001f, NoelMeleeReachMult());
                 }
                 if (baseReach >= reach - 0.02f)
                 {
@@ -1479,7 +1502,7 @@ namespace KnightInCradle.CharmUi
                     _longNailArcLogCount++;
                     KnightInCradlePlugin.PluginLog?.LogInfo(
                         "[KIC][长钉弧带] kind=" + __result.kind + " 原版触及=" + baseReach +
-                        " 加成后=" + reach + "（倍率 " + KnightInCradlePlugin.LongNailReachMult + "）");
+                        " 加成后=" + reach + "（倍率 " + NoelMeleeReachMult() + "）");
                 }
             }
             catch (Exception)
@@ -1576,6 +1599,13 @@ namespace KnightInCradle.CharmUi
             float alphaK = KnightInCradlePlugin.LongNailArcAlpha;
             float lenRatio = KnightInCradlePlugin.LongNailSlashLengthRatio;
             float sizeK = KnightInCradlePlugin.LongNailSlashScale;
+            // 两个护符同时佩戴时，剑气的观感参数以"骄傲印记"那套为准（长度两者都算进触及距离了）
+            if (IsEquipped(CharmOwner.Noel, PrideId))
+            {
+                alphaK = KnightInCradlePlugin.PrideAlpha;
+                lenRatio = KnightInCradlePlugin.PrideSlashLengthRatio;
+                sizeK = KnightInCradlePlugin.PrideSlashScale;
+            }
             for (int i = 0; i < _noelLongNailArcs.Count; i++)
             {
                 NoelLongNailArc arc = _noelLongNailArcs[i];
@@ -1588,7 +1618,9 @@ namespace KnightInCradle.CharmUi
                 // 剑气长度：跟判定一致（加成后的触及距离 × 可调倍率）
                 float w = arc.ReachTo * lenRatio * mp.CLEN;
                 float h = w * ((float)tex.height / tex.width) * sizeK *
-                          KnightInCradlePlugin.LongNailSlashHeightRatio;
+                          (IsEquipped(CharmOwner.Noel, PrideId)
+                              ? KnightInCradlePlugin.PrideSlashHeightRatio
+                              : KnightInCradlePlugin.LongNailSlashHeightRatio);
                 w *= sizeK;
                 if (w <= 0f || h <= 0f)
                 {
