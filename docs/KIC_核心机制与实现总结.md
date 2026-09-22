@@ -2837,17 +2837,31 @@ PR.moveByHitCheck(AnotherPhy, …)      // 身体撞到别的 mover（魔物）�
 - 会心期间在诺艾尔**自身中心**渲染 `nail_charge_effect0005`～`0009`（与小骑士骨钉技艺蓄力同款）；
 - **攻击未命中** → 重新计数；若已进入会心，则**退出会心**。
 
-### 28.1 连击统计（命中 / 未命中 怎么判）
+### 28.1 连击统计：以"一次攻击动作"为单位
 
-挂点仍是诺艾尔攻击命中的汇聚点 `MGContainer.CircleCast`（新增一个 postfix，与护符 5/13 的
-前后缀互不干扰）：`__result` 含 `HITTYPE.HITTED_EN` 即"这一发打中了"。
+**一稿的做法（已废弃）**：只看 `MGContainer.CircleCast` 的命中结果，用 `MagicItem.id` 区分"每一发"，
+并靠 `MagicItem.killed` 判定未命中。实测两个问题：
 
-| 项目 | 说明 |
-|---|---|
-| 同一发只计一次 | 用 `MagicItem.id` 区分攻击实例（`MagicItem` 是**对象池复用**的，只比引用会串号），同一发的多目标命中只算 1 次 |
-| 未命中的判定时机 | **不能逐帧判**：攻击判定框通常要存活几帧才可能碰到敌人，逐帧"没打中"会把刚要命中的攻击误判成 miss。改为"这一发攻击**已经结束**（`MagicItem.killed`）且一次都没命中"才算 miss（`TickNoelHeavyBlowCharm` 每帧检查），另有"换到下一发时上一发没命中"的兜底 |
-| 计数与状态 | 命中：计数 +1，满 5 → 会心成立（进入后保持）；未命中：计数清零 + 退出会心 |
-| 统计范围 | `Mg.Caster is PRNoel` 且 kind ∈ `IsPlayerMagicKind ∪ IsPowerBoostKind`（法术 / 魔法霰弹 / 骨钉系招式），且必须是本地诺艾尔模式 + 装备沉重之击 |
+1. **要打明显多于 5 次才进入会心**；
+2. **进入会心后什么都不做也会自己消失**。
+
+**原因**（`nel/M2PrSkill.cs:2573`）：`executeSmallAttack(num++, Mg)` 是**循环调用**的——
+一次挥击可能创建**多个攻击判定物**（例如带长距离强化的拳，`id=0` 是主判定、`id=1` 是补判定的 0.45 倍伤害判定）。
+于是每次挥击会被算成"两发攻击"：主判定命中计 1 次，副判定若没碰到敌人，就会被当成"一发未命中"→ 计数清零/会心退出。
+两个症状都是这个原因。
+
+**三稿（现用）**：改成按**攻击动作**计数，命中与未命中都在"动作"这一层判定：
+
+| 环节 | 挂点 | 说明 |
+|---|---|---|
+| 出手（近战/骨钉技艺） | `M2PrSkill.executeSmallAttack` postfix（返回非 null 才算真出手） | `HeavyBlowMeleeWindow = 0.6s` 内打中算命中 |
+| 出手（魔法） | `M2PrSkill.explodeMagic` postfix（`__result == true` 才算真放出去） | `HeavyBlowMagicWindow = 3s`，留给弹道飞行 |
+| 命中 | `MGContainer.CircleCast` postfix：`__result` 含 `HITTYPE.HITTED_EN` 且 `Mg.Caster is PRNoel`、kind ∈ 法术∪骨钉系 | 一次动作**只结算一次**（打中即消费掉 pending，多目标/多判定物不重复计数） |
+| 未命中 | `TickNoelHeavyBlowCharm` 里"出手后超过窗口仍没命中" | 计数清零 + 退出会心；**没有出手就不会有任何清零**（挂机不会掉会心） |
+| 同一次挥击的多个判定物 | `HeavyBlowSameAttackGap = 0.12s` 内重复"出手"合并为同一发 | 解决上面"一次挥击被算成两发"的根因 |
+| 额外命中源 | 蜕变挽歌剑气打中敌人也调用同一个"命中登记" | 剑气属于诺艾尔的攻击 |
+
+计数与状态：命中 +1，满 5 → 会心成立（进入后保持）；未命中 → 计数清零 + 退出会心。
 
 ### 28.2 伤害 +40%
 
@@ -2873,4 +2887,4 @@ Atk.hpdmg0(临时) = hpdmg0 × [萨满 1.25（法术）] × [坚固力量 1.25�
 - 20fps 循环播放（与小骑士 `LoadArtGroup("Nail Art Glow", "nail_charge_effect", 10, 20f, 1)` 同帧率），只画 5～9 这 5 帧；
 - 退出会心即释放票据；素材缺失时只是不显示，连击与伤害照常。
 
-验证：`build=2026-09-22.50`，DLL SHA256 `0C41D4E9E66C7752…`（两份安装已同步；只覆盖 DLL）。
+验证：`build=2026-09-22.51`，DLL SHA256 `6BA544F2565A6E8B…`（两份安装已同步；只覆盖 DLL）。

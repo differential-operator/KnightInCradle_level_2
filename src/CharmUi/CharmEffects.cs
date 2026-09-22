@@ -729,6 +729,8 @@ namespace KnightInCradle.CharmUi
                 atk.fix_damage = true;
                 atk.CenterXy(enemy.x, enemy.y, 0f);
                 atk.Caster = pr;
+                // 护符16 沉重之击：剑气打中敌人也算"这一发攻击命中了"
+                ResolveHeavyFocusHit();
                 enemy.applyDamage(atk, false);
                 try
                 {
@@ -1481,15 +1483,27 @@ namespace KnightInCradle.CharmUi
         };
         /// <summary>光圈播放帧率（与小骑士骨钉技艺蓄力的 20fps 一致）。</summary>
         private const float HeavyBlowAuraFps = 20f;
+        /// <summary>
+        /// 同一次"攻击动作"里允许重复调用判定起点的间隔（秒）。
+        /// AIC 的一次挥击可能创建多个 `MagicItem`（`M2PrSkill.cs:2573` 用 `executeSmallAttack(num++, Mg)`
+        /// 循环创建，例如长距离拳的 id=0/1 两个判定物），这些都属于**同一次攻击**，不能各算一发。
+        /// </summary>
+        private const float HeavyBlowSameAttackGap = 0.12f;
+        /// <summary>近战（挥击/骨钉技艺）的命中判定窗口（秒）：判定物创建后多久内该打中。</summary>
+        private const float HeavyBlowMeleeWindow = 0.6f;
+        /// <summary>魔法的命中判定窗口（秒）：留给弹道飞行/咏唱后延迟。</summary>
+        private const float HeavyBlowMagicWindow = 3f;
 
         /// <summary>"会心"连击计数（0～5）。</summary>
         private static int _heavyFocusHits;
         /// <summary>是否已进入"会心"（进入后一直保持，直到有攻击未命中）。</summary>
         private static bool _heavyFocusActive;
-        /// <summary>最近一次诺艾尔攻击的 `MagicItem.id`（池化复用也能区分不同攻击）。</summary>
-        private static int _heavyFocusLastMgId = -1;
-        private static MagicItem _heavyFocusLastMg;
-        private static bool _heavyFocusLastMgHit;
+        /// <summary>当前是否有一发"已出手、还没结算"的攻击。</summary>
+        private static bool _heavyFocusPending;
+        /// <summary>这一发是否已经打中过（打中就结算掉，不再等窗口过期）。</summary>
+        private static bool _heavyFocusPendingHit;
+        private static float _heavyFocusPendingAt;
+        private static float _heavyFocusPendingUntil;
         private static float _heavyFocusAuraTime;
         private static Texture2D[] _heavyFocusAuraTex;
         private static MeshDrawer _heavyFocusAuraMesh;
@@ -1510,10 +1524,16 @@ namespace KnightInCradle.CharmUi
         {
             _heavyFocusHits = 0;
             _heavyFocusActive = false;
-            _heavyFocusLastMg = null;
-            _heavyFocusLastMgId = -1;
-            _heavyFocusLastMgHit = false;
+            ClearHeavyFocusPending();
             _heavyFocusAuraTime = 0f;
+        }
+
+        private static void ClearHeavyFocusPending()
+        {
+            _heavyFocusPending = false;
+            _heavyFocusPendingHit = false;
+            _heavyFocusPendingAt = 0f;
+            _heavyFocusPendingUntil = 0f;
         }
 
         /// <summary>命中一次：计数 +1；满 5 次进入"会心"（进入后保持，不再清零）。</summary>
@@ -1540,6 +1560,44 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        /// <summary>
+        /// 「一次攻击出手」：在挥击/施法真正发出的那一刻登记，`window` 秒内打中算命中、否则算未命中。
+        /// 同一次挥击里重复调用（多个判定物）按 `HeavyBlowSameAttackGap` 合并成同一发。
+        /// </summary>
+        private static void BeginHeavyFocusAttack(float window)
+        {
+            if (IsKnightMode || !IsEquipped(CharmOwner.Noel, HeavyBlowId))
+            {
+                return;
+            }
+            float now = Time.unscaledTime;
+            if (_heavyFocusPending && !_heavyFocusPendingHit)
+            {
+                if (now - _heavyFocusPendingAt <= HeavyBlowSameAttackGap)
+                {
+                    // 同一次攻击动作的第二个/第三个判定物
+                    _heavyFocusPendingUntil = Mathf.Max(_heavyFocusPendingUntil, now + window);
+                    return;
+                }
+                OnHeavyFocusMiss(); // 上一发确实没打中，先结算掉
+            }
+            _heavyFocusPending = true;
+            _heavyFocusPendingHit = false;
+            _heavyFocusPendingAt = now;
+            _heavyFocusPendingUntil = now + window;
+        }
+
+        /// <summary>当前这一发打中了：结算成一次"击中"（同一发只结算一次）。</summary>
+        private static void ResolveHeavyFocusHit()
+        {
+            if (!_heavyFocusPending || _heavyFocusPendingHit)
+            {
+                return;
+            }
+            ClearHeavyFocusPending();
+            OnHeavyFocusHit();
+        }
+
         /// <summary>诺艾尔"会造成伤害的攻击"判据（连击统计用）：法术/魔法霰弹 ∪ 骨钉系招式。</summary>
         private static bool IsNoelDamagingAttack(MGKIND kind)
         {
@@ -1547,13 +1605,8 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
-        /// 护符16 沉重之击（诺艾尔侧）：在诺艾尔攻击命中的汇聚点 `MGContainer.CircleCast` 上统计连击。
-        ///
-        /// - **命中**：`__result` 含 `HITTYPE.HITTED_EN` → 计数 +1；同一发攻击只计一次
-        ///   （用 `MagicItem.id` 区分，`MagicItem` 是对象池复用的，不能只比引用）；
-        /// - **未命中**：等到"这一发攻击已经结束"再判定（见 `TickNoelHeavyBlowCharm` 里的
-        ///   `killed` 检查，以及这里"换到下一发攻击时上一发没命中"的兜底），
-        ///   因为攻击判定框通常要存活几帧才可能碰到敌人，逐帧判"没打中"会把刚要命中的攻击误判成 miss。
+        /// 护符16 沉重之击（诺艾尔侧）：命中登记。挂在诺艾尔攻击命中的汇聚点
+        /// `MGContainer.CircleCast` 上：`__result` 含 `HITTYPE.HITTED_EN` 就是"这一发打中了"。
         /// </summary>
         private static void HeavyBlowCircleCastPostfix(MagicItem Mg, ref HITTYPE __result)
         {
@@ -1568,20 +1621,9 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                if (Mg.id != _heavyFocusLastMgId)
+                if ((__result & HITTYPE.HITTED_EN) != HITTYPE.NONE)
                 {
-                    if (_heavyFocusLastMg != null && !_heavyFocusLastMgHit)
-                    {
-                        OnHeavyFocusMiss(); // 上一发一次都没打中
-                    }
-                    _heavyFocusLastMg = Mg;
-                    _heavyFocusLastMgId = Mg.id;
-                    _heavyFocusLastMgHit = false;
-                }
-                if ((__result & HITTYPE.HITTED_EN) != HITTYPE.NONE && !_heavyFocusLastMgHit)
-                {
-                    _heavyFocusLastMgHit = true;
-                    OnHeavyFocusHit();
+                    ResolveHeavyFocusHit();
                 }
             }
             catch (Exception)
@@ -1589,7 +1631,46 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        /// <summary>每帧推进（诺艾尔模式调用）：未命中判定 + 光圈播放 + 票据维护。</summary>
+        /// <summary>
+        /// 护符16 沉重之击（诺艾尔侧）：近战出手登记。
+        /// `M2PrSkill.executeSmallAttack` 是所有挥击/骨钉技艺（`PR_PUNCH`/`PR_SHOTGUN`/`PR_WHEEL`/
+        /// `PR_COMET`/`PR_DASHPUNCH`/`PR_SMASH`…）创建攻击判定物的地方，返回非 null 才算真的出手了。
+        /// </summary>
+        private static void HeavyBlowSmallAttackPostfix(MagicItem __result)
+        {
+            try
+            {
+                if (__result == null || !IsNoelDamagingAttack(__result.kind))
+                {
+                    return;
+                }
+                BeginHeavyFocusAttack(HeavyBlowMeleeWindow);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 护符16 沉重之击（诺艾尔侧）：魔法出手登记。
+        /// `M2PrSkill.explodeMagic` 返回 true = 这一发法术真的放出去了（返回 false 的早退分支不算）。
+        /// </summary>
+        private static void HeavyBlowExplodeMagicPostfix(bool __result)
+        {
+            try
+            {
+                if (!__result)
+                {
+                    return;
+                }
+                BeginHeavyFocusAttack(HeavyBlowMagicWindow);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>每帧推进（诺艾尔模式调用）：判定窗口过期（=未命中）+ 光圈播放 + 票据维护。</summary>
         public static void TickNoelHeavyBlowCharm(PRNoel pr)
         {
             try
@@ -1604,12 +1685,11 @@ namespace KnightInCradle.CharmUi
                     EnsureHeavyFocusAuraTicket(pr, false);
                     return;
                 }
-                // 上一发攻击已经结束（`killed`）且一次都没命中 → 立刻判未命中，不用等下一发
-                if (_heavyFocusLastMg != null && !_heavyFocusLastMgHit &&
-                    _heavyFocusLastMg.id == _heavyFocusLastMgId && _heavyFocusLastMg.killed)
+                // 这一发过了判定窗口还没打中 → 未命中
+                if (_heavyFocusPending && !_heavyFocusPendingHit &&
+                    Time.unscaledTime > _heavyFocusPendingUntil)
                 {
-                    _heavyFocusLastMg = null;
-                    _heavyFocusLastMgId = -1;
+                    ClearHeavyFocusPending();
                     OnHeavyFocusMiss();
                 }
                 if (IsHeavyFocusActive)
@@ -2634,6 +2714,10 @@ namespace KnightInCradle.CharmUi
                         harmony.Patch(smallAttack, postfix: new HarmonyMethod(
                             typeof(CharmEffects).GetMethod(nameof(ElegyExecuteSmallAttackPostfix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
+                        // 护符16 沉重之击（诺艾尔侧）：挥击/骨钉技艺的"出手"登记
+                        harmony.Patch(smallAttack, postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(HeavyBlowSmallAttackPostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
                     }
                     // 护符14 法术扭曲者（诺艾尔侧）：施法起手消耗 -10
                     MethodInfo burstMp = AccessTools.Method(typeof(PR), "applyBurstMpDamage");
@@ -2666,6 +2750,10 @@ namespace KnightInCradle.CharmUi
                             postfix: new HarmonyMethod(
                                 typeof(CharmEffects).GetMethod(nameof(SpellTwisterCastScopePostfix),
                                     BindingFlags.Static | BindingFlags.NonPublic)));
+                        // 护符16 沉重之击（诺艾尔侧）：法术的"出手"登记
+                        harmony.Patch(explodeMg, postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(HeavyBlowExplodeMagicPostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
                     }
                     MethodInfo killHold = AccessTools.Method(typeof(M2PrSkill), "killHoldMagic",
                         new[] { typeof(MANA_HIT), typeof(bool), typeof(bool) });
