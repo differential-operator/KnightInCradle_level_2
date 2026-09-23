@@ -106,6 +106,8 @@ namespace KnightInCradle
         internal static ConfigEntry<float> MagicSlashHeightConfig;
         /// <summary>护符10 蜕变挽歌：蓄力释放时是否也发射剑气（默认开）。</summary>
         internal static ConfigEntry<bool> ElegyChargedAttackConfig;
+        /// <summary>护符10 蜕变挽歌：蓄力释放的剑气命中时是否结算一次"魔法霰弹击中"（默认开）。</summary>
+        internal static ConfigEntry<bool> ElegyShotgunOnHitConfig;
 
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
@@ -115,6 +117,8 @@ namespace KnightInCradle
             MagicSlashHeightConfig != null ? Mathf.Clamp(MagicSlashHeightConfig.Value, 0.1f, 4f) : 1f;
         internal static bool ElegyOnChargedAttack =>
             ElegyChargedAttackConfig == null || ElegyChargedAttackConfig.Value;
+        internal static bool ElegyShotgunOnHit =>
+            ElegyShotgunOnHitConfig == null || ElegyShotgunOnHitConfig.Value;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -297,6 +301,9 @@ namespace KnightInCradle
             ElegyChargedAttackConfig = Config.Bind("Charm10", "ElegyOnChargedAttack", true,
                 "蜕变挽歌：蓄力释放（魔法霰弹及其变种）时是否也发射剑气（默认开）。" +
                 "关掉则只有不蓄力的轻攻击会发射剑气。");
+            ElegyShotgunOnHitConfig = Config.Bind("Charm10", "ElegyShotgunOnHit", true,
+                "蜕变挽歌：蓄力释放的剑气命中敌人时，是否视为对其触发一次魔法霰弹" +
+                "（伤害 + 原版霰弹击中动画/音效）并清掉自己的蓄力（默认开）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

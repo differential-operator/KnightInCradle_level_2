@@ -610,6 +610,14 @@ namespace KnightInCradle.CharmUi
             public float Traveled;
             /// <summary>这一道剑气是不是"蓄力释放"（魔法霰弹及其变种）发出来的——贴图用 magic 版。</summary>
             public bool Magic;
+            /// <summary>
+            /// 蓄力释放时，把这一刀的**霰弹判定参数**整份抄下来（`NelAttackInfo` 复制构造）。
+            /// 剑气命中敌人时按这份数据结算一次"魔法霰弹击中"，然后清掉蓄力。
+            /// null = 不是蓄力释放的剑气。
+            /// </summary>
+            public NelAttackInfo ShotAtk;
+            /// <summary>这把刀（挥击）的 kind——用来算"萨满之石/坚固力量"的乘区。</summary>
+            public MGKIND ShotKind;
             public readonly HashSet<NelEnemy> Hits = new HashSet<NelEnemy>();
         }
 
@@ -657,6 +665,20 @@ namespace KnightInCradle.CharmUi
                     return;
                 }
                 float dir = pr.mpf_is_right;
+                NelAttackInfo shotAtk = null;
+                if (charged && __result.Atk0 != null)
+                {
+                    // 把"这一刀的霰弹判定"抄一份下来：剑气命中时用它当作魔法霰弹结算
+                    // （这一份是独立的 NelAttackInfo，不会随原攻击包回收而失效）
+                    try
+                    {
+                        shotAtk = new NelAttackInfo(__result.Atk0);
+                    }
+                    catch (Exception)
+                    {
+                        shotAtk = null;
+                    }
+                }
                 _noelElegyBlades.Add(new NoelElegyBlade
                 {
                     X = pr.x + dir * 0.5f,   // 从中心略前方发射
@@ -664,6 +686,8 @@ namespace KnightInCradle.CharmUi
                     Dir = dir,
                     Traveled = 0f,
                     Magic = charged,
+                    ShotAtk = shotAtk,
+                    ShotKind = __result.kind,
                 });
                 try
                 {
@@ -764,12 +788,12 @@ namespace KnightInCradle.CharmUi
                 {
                     continue; // 每只魔物只会被这一道剑气打中一次
                 }
-                ApplyNoelElegyDamage(pr, enemy);
+                ApplyNoelElegyDamage(pr, enemy, b);
             }
         }
 
         /// <summary>剑气伤害：固定 20 点真实伤害（`fix_damage`），走 AIC 完整受击管线。</summary>
-        private static void ApplyNoelElegyDamage(PRNoel pr, NelEnemy enemy)
+        private static void ApplyNoelElegyDamage(PRNoel pr, NelEnemy enemy, NoelElegyBlade b)
         {
             try
             {
@@ -795,6 +819,76 @@ namespace KnightInCradle.CharmUi
                 catch (Exception)
                 {
                 }
+            }
+            catch (Exception)
+            {
+            }
+            // 蓄力释放的剑气命中 → 对该敌人额外结算一次"魔法霰弹击中"，并清掉自己的蓄力
+            TriggerNoelElegyShotgun(pr, enemy, b);
+        }
+
+        /// <summary>
+        /// 护符10 蜕变挽歌 × 魔法蓄力（需求）：魔法蓄力之后发射的剑气命中敌人时，
+        /// **视为对该敌人触发了一次魔法霰弹**——按原版霰弹结算伤害，并播放原版霰弹的
+        /// 击中动画/音效（`MDAT.setFullChargeShotgunEffect`），最后清掉自己的蓄力。
+        ///
+        /// 只在"这一发剑气是蓄力释放的（`Magic`）**且**此刻蓄力还在"时触发；
+        /// 蓄力已经被别的方式消耗掉（例如这一刀的近身霰弹真的打中了）就不重复触发，
+        /// 这与原版 `M2PrSkill.publishShotgunHit` 的早退条件（`CurMg == null || mp_hold < 1`）一致。
+        /// </summary>
+        private static void TriggerNoelElegyShotgun(PRNoel pr, NelEnemy enemy, NoelElegyBlade b)
+        {
+            try
+            {
+                if (!b.Magic || b.ShotAtk == null || IsKnightMode || !KnightInCradlePlugin.ElegyShotgunOnHit)
+                {
+                    return;
+                }
+                M2PrSkill skill = pr != null ? pr.Skill : null;
+                if (skill == null)
+                {
+                    return;
+                }
+                MagicItem curMg = skill.getCurMagic();
+                if (curMg == null || !curMg.isPreparingCircle)
+                {
+                    return; // 蓄力已经不在了
+                }
+                int holdingMp = skill.getHoldingMp(true);
+                if (holdingMp < 1)
+                {
+                    return;
+                }
+                Map2d mp = pr.Mp;
+                if (mp == null || enemy == null)
+                {
+                    return;
+                }
+                // ① 伤害：抄下来的霰弹判定 × 萨满之石/坚固力量/会心（与 CircleCast 那条路同一口径）
+                float mult = NoelFinalDamageMult(b.ShotKind, true);
+                int dmg = b.ShotAtk.hpdmg0;
+                if (dmg > 0 && mult > 1f)
+                {
+                    dmg = Mathf.FloorToInt(dmg * mult + 0.5f);
+                }
+                var atk = new NelAttackInfo(b.ShotAtk);
+                atk.Caster = pr;
+                atk.hpdmg0 = dmg;
+                atk.hpdmg_current = dmg;
+                atk.CenterXy(enemy.x, enemy.y, 0f);
+                ResolveHeavyFocusHit();
+                enemy.applyDamage(atk, false);
+                // ② 击中动画/音效：原版霰弹那套（满蓄力时带瞬间减速的后仰效果）
+                float charge01 = Mathf.Clamp01(holdingMp / Mathf.Max(1f, curMg.reduce_mp));
+                var hitItem = new M2Ray.M2RayHittedItem();
+                hitItem.type = HITTYPE.EN;
+                hitItem.Hit = enemy;
+                hitItem.Mv = enemy;
+                hitItem.hit_ux = mp.map2globalux(enemy.x);
+                hitItem.hit_uy = mp.map2globaluy(enemy.y);
+                MDAT.setFullChargeShotgunEffect(pr, charge01, hitItem, false, true, 0.47123894f);
+                // ③ 清除自己的蓄力：与原版"霰弹把蓄力耗尽"时的收尾同一个调用（不复位、不返还魔力）
+                skill.killHoldMagic(false, false, false);
             }
             catch (Exception)
             {
@@ -2146,6 +2240,29 @@ namespace KnightInCradle.CharmUi
             public int Hp0;
         }
 
+        /// <summary>
+        /// 诺艾尔侧的"最终伤害乘区"（萨满之石 × 坚固力量 × 会心），`CircleCast` 前缀与
+        /// 蜕变挽歌剑气的"霰弹命中"结算共用，保证两条路给同一个倍率。
+        /// </summary>
+        private static float NoelFinalDamageMult(MGKIND kind, bool shotgunFlavored)
+        {
+            float mult = 1f;
+            if (IsEquipped(CharmOwner.Noel, ShamanId) &&
+                (IsPlayerMagicKind(kind) || shotgunFlavored))
+            {
+                mult *= ShamanDamageMult;
+            }
+            if (IsEquipped(CharmOwner.Noel, PowerId) && IsPowerBoostKind(kind))
+            {
+                mult *= PowerDamageMult;
+            }
+            if (IsHeavyFocusActive)
+            {
+                mult *= HeavyBlowFocusMult;
+            }
+            return mult;
+        }
+
         // ================= 护符16 沉重之击（诺艾尔侧：连击 5 次进入"会心"） =================
         /// <summary>沉重之击：连续命中多少次进入"会心"（需求：5 次）。</summary>
         public const int HeavyBlowHitsToFocus = 5;
@@ -2600,22 +2717,8 @@ namespace KnightInCradle.CharmUi
                 }
                 // 萨满之石（法术 + 魔法霰弹及其变种）与坚固力量（骨钉系技能）都抬高这一发的基准伤害，
                 // 两者同时满足就连乘 —— 于是"装了萨满之石的魔法霰弹及其变种" = ×1.25 ×1.25
-                float mult = 1f;
-                if (IsEquipped(CharmOwner.Noel, ShamanId) &&
-                    (IsPlayerMagicKind(Mg.kind) || IsNoelShotgunFlavored(Mg)))
-                {
-                    mult *= ShamanDamageMult;
-                }
-                if (IsEquipped(CharmOwner.Noel, PowerId) && IsPowerBoostKind(Mg.kind))
-                {
-                    mult *= PowerDamageMult;
-                }
-                // 护符16 沉重之击：进入"会心"后，诺艾尔造成的伤害 +40%（不限定招式），
-                // 与萨满之石/坚固力量连乘。
-                if (IsHeavyFocusActive)
-                {
-                    mult *= HeavyBlowFocusMult;
-                }
+                // 另含护符16 沉重之击：进入"会心"后诺艾尔造成的伤害 +40%（不限定招式），同样连乘。
+                float mult = NoelFinalDamageMult(Mg.kind, IsNoelShotgunFlavored(Mg));
                 if (mult <= 1f)
                 {
                     return;

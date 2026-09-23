@@ -3202,3 +3202,47 @@ Mg.is_normal_attack && Mg.reduce_mp > 0f
 
 验证：`build=2026-09-23.14`，DLL SHA256 `D61CF42F7C34FCB0…`，
 素材 SHA256 `98C2B059794A4AD6…`（两份安装已同步：DLL + 新素材）。
+
+---
+
+## 33. 蜕变挽歌 × 魔法蓄力：剑气命中 = 一次魔法霰弹击中（2026-09-23，build=2026-09-23.15）
+
+**需求**：魔法蓄力之后发射的下一发剑气，如果打到了敌人，则**视为对该敌人触发了一次魔法霰弹**
+（伤害 + 原版霰弹的击中音效/动画），并**清除自己的蓄力**。
+
+### 33.1 挂点与数据
+
+剑气的开火点是 `M2PrSkill.executeSmallAttack` 后缀（第 32 节已让它认"蓄力释放"），
+命中点是模组自己的 `CheckNoelElegyHit` → `ApplyNoelElegyDamage`。
+
+关键在于"剑气带着霰弹的判定飞出去"：
+
+1. **开火时**：`NoelElegyBlade` 增加 `ShotAtk`——把这一刀攻击包的 `NelAttackInfo`
+   用复制构造 `new NelAttackInfo(Atk0)` **整份抄下来**（伤害、属性、击退、burst、split_mpdmg…），
+   这样即使原攻击包被回收，剑气手里的这份仍然完好；同时记下 `ShotKind`（算乘区用）。
+2. **命中时** `TriggerNoelElegyShotgun(pr, enemy, b)`：
+   - 前置：`b.Magic && b.ShotAtk != null`，且此刻**蓄力还在**
+     （`skill.getCurMagic() != null && isPreparingCircle && getHoldingMp(true) >= 1`）
+     ——与原版 `M2PrSkill.publishShotgunHit` 的早退条件一致；
+   - ① 伤害 = `ShotAtk.hpdmg0 × NoelFinalDamageMult(ShotKind, 霰弹=true)`
+     （萨满之石 ×1.25、坚固力量 ×1.25、会心 ×1.4，与 `CircleCast` 那条路**同一函数**）；
+     用 `new NelAttackInfo(ShotAtk)` 再抄一份、把 `hpdmg0/hpdmg_current` 换成算好的值后
+     `enemy.applyDamage(atk, false)`（`hpdmg_current` 一旦写入就跳过随机化，伤害确定）；
+   - ② 击中动画/音效：`MDAT.setFullChargeShotgunEffect(pr, 蓄力比例, hitItem, not_use_full:false,
+     fullcharge_hitstop:true, 0.47123894f)` —— 与"原版霰弹命中"同一入口
+     （`shotgun_post`/`shotgun_post_small` 粒子 + 屏幕闪光 + 满蓄力时的瞬时减速），
+     `hitItem` 是模组自建的 `M2Ray.M2RayHittedItem`（填 `hit_ux/hit_uy` = 敌人位置）；
+   - ③ 清除蓄力：`skill.killHoldMagic(false, false, false)` —— 与原版"霰弹把蓄力耗尽"时
+     （`M2PrSkill.cs:2408`）**同一个调用**：不复位、不返还已消耗的魔力。
+
+剑气自带的 18 真实伤害**保留**（需求只说"额外触发霰弹"）；同一道剑气只对每只魔物结算一次，
+第一只命中后蓄力即被清掉，后面的目标不会再触发第二次。
+
+### 33.2 配置
+
+| 分组 | 键 | 默认 | 含义 |
+|---|---|---|---|
+| `Charm10` | `ElegyOnChargedAttack` | true | 蓄力释放时是否发射剑气（第 32 节） |
+| `Charm10` | `ElegyShotgunOnHit` | true | 蓄力释放的剑气命中时是否结算"魔法霰弹击中"并清蓄力 |
+
+验证：`build=2026-09-23.15`，DLL SHA256 `FA37E35CED4F0A84…`（两份安装已同步；只覆盖 DLL）。
