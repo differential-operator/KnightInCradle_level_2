@@ -1768,6 +1768,9 @@ namespace KnightInCradle.CharmUi
         private static float _noelDeepGatherHold;           // 已连续按住法术键的时长（秒）
         private static float _noelDeepGatherMpAcc;          // MP 消耗的小数累积（1 MP 一次结算）
         private static bool _noelDeepGatherHealing;         // 当前是否处于回血中
+        private static int _deepGatherDiagCount;            // 临时诊断计数器（验证完删除）
+        private static AccessTools.FieldRef<M2PrSkill, float> _deepGatherMagicT; // 临时诊断
+        private static AccessTools.FieldRef<PR, PR.STATE> _deepGatherPrState;    // 临时诊断
 
         /// <summary>每帧推进（诺艾尔模式调用）：长按计时、结束咏唱、MP→HP 转化。</summary>
         public static void TickNoelDeepGatherCharm(PRNoel pr)
@@ -1793,6 +1796,40 @@ namespace KnightInCradle.CharmUi
                 catch (Exception)
                 {
                     holding = false;
+                }
+                // ---- 临时诊断（验证完删除）：按住法术键时每 15 帧打一条状态 ----
+                try
+                {
+                    if (holding && _deepGatherDiagCount < 40 && Time.frameCount % 15 == 0)
+                    {
+                        _deepGatherDiagCount++;
+                        M2PrSkill sk = pr.Skill;
+                        MagicSelector sel = sk != null ? sk.MagicSel : null;
+                        string curKind = sel != null ? sel.GetCurent(false).ToString() : "?";
+                        if (_deepGatherMagicT == null)
+                        {
+                            _deepGatherMagicT = AccessTools.FieldRefAccess<M2PrSkill, float>("magic_t");
+                        }
+                        if (_deepGatherPrState == null)
+                        {
+                            _deepGatherPrState = AccessTools.FieldRefAccess<PR, PR.STATE>("state");
+                        }
+                        float mT = _deepGatherMagicT != null && sk != null
+                            ? _deepGatherMagicT(sk)
+                            : -999f;
+                        KnightInCradlePlugin.PluginLog?.LogInfo(
+                            "[KIC][深聚诊断] hold=" + _noelDeepGatherHold.ToString("F2") +
+                            " healing=" + _noelDeepGatherHealing +
+                            " curMg=" + (sk != null && sk.getCurMagic() != null
+                                ? sk.getCurMagic().kind.ToString() : "null") +
+                            " selActive=" + (sel != null && sel.isActive()) +
+                            " selCur=" + curKind +
+                            " magicT=" + mT.ToString("F1") +
+                            " state=" + _deepGatherPrState(pr));
+                    }
+                }
+                catch (Exception)
+                {
                 }
                 if (!holding)
                 {
@@ -1903,6 +1940,24 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>这个选择器是不是诺艾尔自己的法术选择器（且深度聚集正在生效）。</summary>
+        /// <summary>
+        /// 护符27 深度聚集的补丁挂载：成功/失败都记一条日志
+        /// （Harmony 的失败会在本方法的 try/catch 之外抛出，这里包起来便于排查"补丁没挂上"）。
+        /// </summary>
+        private static void PatchDeepGather(Harmony harmony, MethodInfo target, string patchName, string label)
+        {
+            try
+            {
+                harmony.Patch(target, prefix: new HarmonyMethod(
+                    typeof(CharmEffects).GetMethod(patchName, BindingFlags.Static | BindingFlags.NonPublic)));
+                KnightInCradlePlugin.PluginLog?.LogInfo("[KIC][深聚] 补丁已挂载：" + label);
+            }
+            catch (Exception ex)
+            {
+                KnightInCradlePlugin.PluginLog?.LogWarning("[KIC][深聚] 补丁挂载失败：" + label + " → " + ex.Message);
+            }
+        }
+
         private static bool IsDeepGatherMagicSelector(object selector)
         {
             try
@@ -6316,33 +6371,25 @@ namespace KnightInCradle.CharmUi
                 MethodInfo explodeMagic = AccessTools.Method(typeof(M2PrSkill), "explodeMagic");
                 if (explodeMagic != null)
                 {
-                    harmony.Patch(explodeMagic, prefix: new HarmonyMethod(
-                        typeof(CharmEffects).GetMethod(nameof(DeepGatherExplodeMagicPrefix),
-                            BindingFlags.Static | BindingFlags.NonPublic)));
+                    PatchDeepGather(harmony, explodeMagic, nameof(DeepGatherExplodeMagicPrefix), "explodeMagic(禁法术)");
                 }
                 // 护符27 深度聚集（诺艾尔侧）：② 不弹法术选择界面（只掐画面，逻辑照走，
                 // 否则原版拿不到"这次咏唱哪一发"，咏唱动画根本不会开始）
                 MethodInfo magDrawEd = AccessTools.Method(typeof(MagicSelector), "drawEd");
                 if (magDrawEd != null)
                 {
-                    harmony.Patch(magDrawEd, prefix: new HarmonyMethod(
-                        typeof(CharmEffects).GetMethod(nameof(DeepGatherDrawEdPrefix),
-                            BindingFlags.Static | BindingFlags.NonPublic)));
+                    PatchDeepGather(harmony, magDrawEd, nameof(DeepGatherDrawEdPrefix), "MagicSelector.drawEd(隐藏选择环)");
                 }
                 MethodInfo magPrepareTx = AccessTools.Method(typeof(MagicSelector), "prepareTx");
                 if (magPrepareTx != null)
                 {
-                    harmony.Patch(magPrepareTx, prefix: new HarmonyMethod(
-                        typeof(CharmEffects).GetMethod(nameof(DeepGatherPrepareTxPrefix),
-                            BindingFlags.Static | BindingFlags.NonPublic)));
+                    PatchDeepGather(harmony, magPrepareTx, nameof(DeepGatherPrepareTxPrefix), "MagicSelector.prepareTx(隐藏文字)");
                 }
                 // 护符27 深度聚集（诺艾尔侧）：③ 配套——回血期间不再重新开始咏唱（否则动画会反复闪）
                 MethodInfo reawakeMagic = AccessTools.Method(typeof(M2PrSkill), "reawakeMagic");
                 if (reawakeMagic != null)
                 {
-                    harmony.Patch(reawakeMagic, prefix: new HarmonyMethod(
-                        typeof(CharmEffects).GetMethod(nameof(DeepGatherReawakeMagicPrefix),
-                            BindingFlags.Static | BindingFlags.NonPublic)));
+                    PatchDeepGather(harmony, reawakeMagic, nameof(DeepGatherReawakeMagicPrefix), "reawakeMagic(回血期间不咏唱)");
                 }
                 // 护符23 吸虫之巢（诺艾尔侧）：纯白之箭 / 聚能火球改成喷吸虫。
                 // 挂 MagicItem.explode(bool) 的后缀：返回值就是"这一发原版子弹"，
