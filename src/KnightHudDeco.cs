@@ -51,6 +51,7 @@ namespace KnightInCradle
         private static readonly Color JoniHpBarColor = new Color(0f, 69f / 255f, 1f, 1f);
         private Texture2D _joniBarTex;
         private static int _joniBarDiagCount; // 临时诊断（验证完删除）
+        private static int _joniGuiDiagCount; // 临时诊断（验证完删除）
 
         /// <summary>
         /// 护符30 效果1：HP 条渲染成 MP 条那种颜色——直接**在 HUD 上自绘一条纯蓝矩形**盖住
@@ -363,7 +364,16 @@ namespace KnightInCradle
             if (!KnightInCradlePlugin.KnightModeActive)
             {
                 PRNoel prJoni = KnightInCradleBehaviour.GetPrPublic();
-                if (Event.current.type == EventType.Repaint && CharmEffects.JoniBlessingActive(prJoni))
+                bool joniOn = CharmEffects.JoniBlessingActive(prJoni);
+                if (_joniGuiDiagCount < 12 && Time.frameCount % 60 == 0)
+                {
+                    _joniGuiDiagCount++;
+                    KnightInCradlePlugin.PluginLog?.LogInfo(
+                        "[KIC][乔尼HUD] OnGUI(诺艾尔分支) evt=" + Event.current.type +
+                        " pr=" + (prJoni != null) + " 佩戴=" + joniOn +
+                        " 单参=" + CharmEffects.IsEquipped(CharmEffects.JohnnyId));
+                }
+                if (Event.current.type == EventType.Repaint && joniOn)
                 {
                     DrawJoniHpBar();
                 }

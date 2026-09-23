@@ -558,6 +558,7 @@ namespace KnightInCradle.CharmUi
 
         /// <summary>true = 这次 HP 伤害是"魔力池打空后的强制死亡"，不要改写成扣魔。</summary>
         private static bool _joniDying;
+        private static int _joniTickDiagCount; // 临时诊断（验证完删除）
 
         /// <summary>UIStatus.MdGageT（HUD 上的 HP/MP 数字网格），用于精确识别 HP 数字的绘制调用。</summary>
         private static FieldInfo _uiMdGageTField;
@@ -653,6 +654,15 @@ namespace KnightInCradle.CharmUi
                 bool blue1 = !IsKnightMode && IsEquipped(CharmOwner.Noel, BlueHeart1Id);
                 bool blue2 = !IsKnightMode && IsEquipped(CharmOwner.Noel, BlueHeart2Id);
                 bool joni = !IsKnightMode && IsEquipped(CharmOwner.Noel, JohnnyId); // 护符30 乔尼的祝福
+                // 临时诊断（验证完删除）：确认乔尼是否被识别为"已佩戴"
+                if (_joniTickDiagCount < 6 && Time.frameCount % 120 == 0)
+                {
+                    _joniTickDiagCount++;
+                    KnightInCradlePlugin.PluginLog?.LogInfo(
+                        "[KIC][乔尼HUD] tick 佩戴=" + joni +
+                        " 骑士模式=" + IsKnightMode +
+                        " 上限hp=" + PrMaxHpField.GetValue(pr) + " 上限mp=" + PrMaxMpField.GetValue(pr));
+                }
                 bool want = heart || blue1 || blue2 || joni;
                 if (want && !_noelHeartActive)
                 {
