@@ -1742,6 +1742,692 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
+        /// 护符25 发光子宫（诺艾尔侧）：
+        /// ① 每 **2 秒**消耗 **10 MP** 生成一只**小剑山**（最多同时 4 只；坐长椅休息时不生成），
+        ///    贴图 = `assets/hk/sheets/spike/spike_1~spike_8` 循环播放；
+        /// ② 小剑山自动索敌飞行（索敌 12 格），碰到敌人爆炸，对以命中点为中心 6×6 格内的敌人
+        ///    造成 **30** 伤害（每只敌人只结算一次）；
+        /// ③ 跟随/坐长椅/过图逻辑与小骑士的幼虫一致——**过图时全部清除并按数量返还魔力**
+        ///    （小骑士那边是每只返还 8 灵魂，这里每只返还 10 MP）。
+        /// 渲染走自绘票据（同小骑士：锚定诺艾尔原点，每只按相对偏移画）。
+        /// </summary>
+        private sealed class NoelSpikeFollower
+        {
+            public float X;
+            public float Y;
+            public float Vx;
+            public float Vy;
+            public int Phase;          // 0 出生 / 1 飞行 / 3 坐长椅休息
+            public float AnimTime;
+            public float HomeOx;
+            public float HomeOy;
+            public float BuzzTimer;
+            public NelEnemy Target;
+            public int SleepStage;
+            public float SleepX;
+            public float SleepGroundY;
+            public int Dir = 1;
+        }
+
+        private sealed class NoelSpikeBoom
+        {
+            public float X;
+            public float Y;
+            public float AnimTime;
+        }
+
+        private static readonly string[] NoelSpikeSprites =
+        {
+            "spike_1", "spike_2", "spike_3", "spike_4", "spike_5", "spike_6", "spike_7", "spike_8",
+        };
+
+        private static readonly List<NoelSpikeFollower> _noelSpikes = new List<NoelSpikeFollower>();
+        private static readonly List<NoelSpikeBoom> _noelSpikeBooms = new List<NoelSpikeBoom>();
+        private static float _noelSpikeSpawnTimer;
+        private static Map2d _noelSpikeMap;
+        private static Texture2D[] _noelSpikeFrames;
+        private static Texture2D[] _noelSpikeBoomFrames;
+        private static bool _noelSpikeLoadTried;
+        private static MeshDrawer _noelSpikeMesh;
+        private static Material _noelSpikeMat;
+        private static M2RenderTicket _noelSpikeTicket;
+
+        /// <summary>每帧推进（诺艾尔模式调用）：生成、跟随、索敌、碰撞爆炸、过图返还与票据维护。</summary>
+        public static void TickNoelUterusCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    return;
+                }
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, UterusId))
+                {
+                    _noelSpikes.Clear();
+                    _noelSpikeBooms.Clear();
+                    _noelSpikeSpawnTimer = 0f;
+                    _noelSpikeMap = pr.Mp;
+                    ReleaseNoelSpikeTicket();
+                    return;
+                }
+                Map2d mp = pr.Mp;
+                if (mp == null)
+                {
+                    return;
+                }
+                // 过图（同小骑士的幼虫）：清除全部小剑山并按数量返还魔力
+                if (!ReferenceEquals(mp, _noelSpikeMap))
+                {
+                    _noelSpikeMap = mp;
+                    if (_noelSpikes.Count > 0)
+                    {
+                        int refund = _noelSpikes.Count * KnightInCradlePlugin.UterusSpawnMp;
+                        _noelSpikes.Clear();
+                        if (refund > 0 && KnightInCradleBehaviour.GrantNoelMana(refund))
+                        {
+                            RefreshNoelHudMp();
+                        }
+                    }
+                    _noelSpikeBooms.Clear();
+                    ReleaseNoelSpikeTicket();
+                }
+                float dt = Time.deltaTime;
+                bool sitting = false;
+                try
+                {
+                    sitting = pr.isBenchState();
+                }
+                catch (Exception)
+                {
+                }
+                // ① 生成：每 SpawnInterval 秒消耗 SpawnMpCost MP（坐长椅休息时不消耗、不生成）
+                if (!sitting)
+                {
+                    _noelSpikeSpawnTimer -= dt;
+                    if (_noelSpikeSpawnTimer <= 0f)
+                    {
+                        _noelSpikeSpawnTimer = KnightInCradlePlugin.UterusSpawnInterval;
+                        int cost = KnightInCradlePlugin.UterusSpawnMp;
+                        if (_noelSpikes.Count < KnightInCradlePlugin.UterusMaxCount && pr.get_mp() >= cost)
+                        {
+                            try
+                            {
+                                pr.applyMpDamage(cost, true, null, false, false);
+                            }
+                            catch (Exception)
+                            {
+                            }
+                            SpawnNoelSpike(pr);
+                        }
+                    }
+                }
+                bool noelMoving = Mathf.Abs(pr.getPhysic() != null ? pr.getPhysic().walk_xspeed : 0f) > 0.05f ||
+                                  !pr.hasFoot();
+                // ② 跟随 / 索敌 / 坐椅子落地
+                for (int i = _noelSpikes.Count - 1; i >= 0; i--)
+                {
+                    NoelSpikeFollower s = _noelSpikes[i];
+                    s.AnimTime += dt;
+                    if (sitting && s.Phase == 1)
+                    {
+                        s.Phase = 3;
+                        s.AnimTime = 0f;
+                        s.Vx = 0f;
+                        s.Vy = 0f;
+                        s.SleepStage = 0;
+                        s.SleepX = s.X;
+                        s.SleepGroundY = NoelSpikeSleepGroundY(mp, s.X);
+                    }
+                    if (!sitting && s.Phase == 3)
+                    {
+                        s.Phase = 1;
+                        s.AnimTime = 0f;
+                        s.Vx = 0f;
+                        s.Vy = 0f;
+                    }
+                    if (s.Phase == 3)
+                    {
+                        if (s.SleepStage == 0)
+                        {
+                            float dx = s.SleepX - s.X;
+                            float dy = s.SleepGroundY - s.Y;
+                            float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                            if (dist > 0.02f)
+                            {
+                                float spd = Mathf.Min(4f, dist * 4f);
+                                s.X += dx / dist * spd * dt;
+                                s.Y += dy / dist * spd * dt;
+                            }
+                            else
+                            {
+                                s.X = s.SleepX;
+                                s.Y = s.SleepGroundY;
+                                s.SleepStage = 1;
+                                s.AnimTime = 0f;
+                            }
+                        }
+                        continue;
+                    }
+                    if (s.Phase == 0) // 出生：初速衰减
+                    {
+                        s.X += s.Vx * dt;
+                        s.Y += s.Vy * dt;
+                        s.Vx *= 0.85f;
+                        s.Vy *= 0.85f;
+                        if (s.AnimTime >= 0.5f)
+                        {
+                            s.Phase = 1;
+                            s.AnimTime = 0f;
+                        }
+                        continue;
+                    }
+                    // Phase 1：索敌冲刺 > 追诺艾尔 > 原地悬浮微动
+                    if (s.Target == null || !s.Target.is_alive ||
+                        s.Target.gameObject == null || s.Target.Mp != mp)
+                    {
+                        s.Target = FindNearestNoelSpikeTarget(mp, s.X, s.Y);
+                    }
+                    if (s.Target != null)
+                    {
+                        float dx = s.Target.x - s.X;
+                        float dy = s.Target.y - s.Y;
+                        float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                        if (dist > 0.01f)
+                        {
+                            dx /= dist;
+                            dy /= dist;
+                            s.Vx += dx * NoelSpikeAccel * dt;
+                            s.Vy += dy * NoelSpikeAccel * dt;
+                            float spd = Mathf.Sqrt(s.Vx * s.Vx + s.Vy * s.Vy);
+                            if (spd > NoelSpikeSpeedMax)
+                            {
+                                s.Vx *= NoelSpikeSpeedMax / spd;
+                                s.Vy *= NoelSpikeSpeedMax / spd;
+                            }
+                        }
+                    }
+                    else if (noelMoving)
+                    {
+                        float dx = pr.x + s.HomeOx - s.X;
+                        float dy = pr.y + s.HomeOy - s.Y;
+                        float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                        if (dist > 0.05f)
+                        {
+                            float spd = Mathf.Min(7f, dist * 4f);
+                            s.Vx = dx / dist * spd;
+                            s.Vy = dy / dist * spd;
+                        }
+                        else
+                        {
+                            s.Vx = 0f;
+                            s.Vy = 0f;
+                        }
+                    }
+                    else
+                    {
+                        s.BuzzTimer -= dt;
+                        if (s.BuzzTimer <= 0f)
+                        {
+                            s.BuzzTimer = UnityEngine.Random.Range(0.3f, 0.8f);
+                            float ang = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+                            float rad = UnityEngine.Random.Range(0.8f, 2f);
+                            s.HomeOx = Mathf.Cos(ang) * rad;
+                            s.HomeOy = Mathf.Sin(ang) * rad;
+                        }
+                        float dx = pr.x + s.HomeOx - s.X;
+                        float dy = pr.y + s.HomeOy - s.Y;
+                        float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                        if (dist > 0.05f)
+                        {
+                            float spd = Mathf.Min(1.6f, dist * 2.5f);
+                            s.Vx = dx / dist * spd;
+                            s.Vy = dy / dist * spd;
+                        }
+                        else
+                        {
+                            s.Vx = 0f;
+                            s.Vy = 0f;
+                        }
+                    }
+                    s.X += s.Vx * dt;
+                    s.Y += s.Vy * dt;
+                    if (Mathf.Abs(s.Vx) > 0.05f)
+                    {
+                        s.Dir = s.Vx > 0f ? 1 : -1;
+                    }
+                    if (NoelSpikeHitEnemy(pr, s))
+                    {
+                        _noelSpikes.RemoveAt(i); // 碰撞后立即消失（爆炸特效另存）
+                    }
+                }
+                // ③ 爆炸特效推进
+                for (int i = _noelSpikeBooms.Count - 1; i >= 0; i--)
+                {
+                    NoelSpikeBoom b = _noelSpikeBooms[i];
+                    b.AnimTime += dt;
+                    if (b.AnimTime >= NoelSpikeBoomDuration())
+                    {
+                        _noelSpikeBooms.RemoveAt(i);
+                    }
+                }
+                EnsureNoelSpikeTicket(pr, _noelSpikes.Count > 0 || _noelSpikeBooms.Count > 0);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private const float NoelSpikeSpeedMax = 10f;  // 飞行最大速度（格/秒，同小骑士）
+        private const float NoelSpikeAccel = 32f;     // 朝向目标加速度（同小骑士）
+        private const float NoelSpikeHitRadius = 0.55f;
+        private const float NoelSpikeSeekRange = 12f; // 索敌范围（格，同小骑士）
+        private const float NoelSpikeBoomFps = 20f;   // 爆炸动画帧率（同小骑士）
+
+        /// <summary>生成一只小剑山：向上前方随机初速（同小骑士的出生手感），并分配停靠偏移。</summary>
+        private static void SpawnNoelSpike(PRNoel pr)
+        {
+            float ang = UnityEngine.Random.Range(0.7f, 2.44f); // 40°~140°
+            var s = new NoelSpikeFollower
+            {
+                X = pr.x,
+                Y = pr.y,
+                Vx = Mathf.Cos(ang) * 3.6f,
+                Vy = -Mathf.Sin(ang) * 3.6f, // y 向下为正，向上为负
+                Phase = 0,
+                AnimTime = 0f,
+                BuzzTimer = UnityEngine.Random.Range(0.3f, 0.8f),
+            };
+            float homeAng = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+            float homeRad = UnityEngine.Random.Range(0.8f, 2f);
+            s.HomeOx = Mathf.Cos(homeAng) * homeRad;
+            s.HomeOy = Mathf.Sin(homeAng) * homeRad;
+            _noelSpikes.Add(s);
+        }
+
+        private static float NoelSpikeBoomDuration()
+        {
+            int n = _noelSpikeBoomFrames != null ? _noelSpikeBoomFrames.Length : 13;
+            return Mathf.Max(0.01f, n / NoelSpikeBoomFps);
+        }
+
+        /// <summary>坐长椅时小剑山的落点：脚下地面减去贴图半高（同小骑士的做法）。</summary>
+        private static float NoelSpikeSleepGroundY(Map2d mp, float x)
+        {
+            float groundY = float.NaN;
+            float probeY = 0f;
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr != null)
+            {
+                probeY = pr.mbottom;
+                groundY = pr.mbottom;
+            }
+            try
+            {
+                if (mp != null && mp.BCC != null)
+                {
+                    BCCLine line;
+                    float g = mp.BCC.isFallable(x, probeY + 0.1f, 0.15f, 4f, out line, true, true, -1f, null);
+                    if (g >= 0f)
+                    {
+                        groundY = g;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+            if (_noelSpikeFrames != null && _noelSpikeFrames.Length > 0 && _noelSpikeFrames[0] != null &&
+                mp != null && mp.CLEN > 0f)
+            {
+                groundY -= _noelSpikeFrames[0].height * KnightInCradlePlugin.UterusSpikeScale / (2f * mp.CLEN);
+            }
+            return groundY;
+        }
+
+        /// <summary>索敌：以自身为中心 NoelSpikeSeekRange 格内最近的敌人。</summary>
+        private static NelEnemy FindNearestNoelSpikeTarget(Map2d mp, float sx, float sy)
+        {
+            try
+            {
+                int mask = NoelEnemyOverlapMask();
+                if (mp == null || mask == 0)
+                {
+                    return null;
+                }
+                float mx = mp.pixel2ux(sx * mp.CLEN);
+                float my = mp.pixel2uy(sy * mp.CLEN);
+                Vector2 center = mp.gameObject.transform.TransformPoint(new Vector2(mx, my));
+                Collider2D[] hits = Physics2D.OverlapCircleAll(center, NoelSpikeSeekRange, mask);
+                NelEnemy best = null;
+                float bestD = float.MaxValue;
+                for (int i = 0; i < hits.Length; i++)
+                {
+                    Collider2D c = hits[i];
+                    if (c == null)
+                    {
+                        continue;
+                    }
+                    NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
+                    if (enemy == null || !enemy.is_alive || enemy.Mp != mp)
+                    {
+                        continue;
+                    }
+                    float d = (enemy.x - sx) * (enemy.x - sx) + (enemy.y - sy) * (enemy.y - sy);
+                    if (d < bestD)
+                    {
+                        bestD = d;
+                        best = enemy;
+                    }
+                }
+                return best;
+            }
+            catch (Exception)
+            {
+                return null; // 过图瞬间物理查询可能异常，静默跳过本帧
+            }
+        }
+
+        /// <summary>
+        /// 小剑山碰到敌人：生成爆炸特效与音效，并对以命中点为中心 6×6 格内的敌人造成 30 伤害
+        /// （每只敌人只结算一次）。
+        /// </summary>
+        private static bool NoelSpikeHitEnemy(PRNoel pr, NoelSpikeFollower s)
+        {
+            try
+            {
+                Map2d mp = pr.Mp;
+                int mask = NoelEnemyOverlapMask();
+                if (mp == null || mask == 0)
+                {
+                    return false;
+                }
+                float mx = mp.pixel2ux(s.X * mp.CLEN);
+                float my = mp.pixel2uy(s.Y * mp.CLEN);
+                Vector2 center = mp.gameObject.transform.TransformPoint(new Vector2(mx, my));
+                // 先小半径检测"真的碰到了敌人"（不能只看任意碰撞体，否则出生在身上会误炸）
+                Collider2D[] touch = Physics2D.OverlapCircleAll(center, NoelSpikeHitRadius, mask);
+                bool touched = false;
+                if (touch != null)
+                {
+                    for (int i = 0; i < touch.Length; i++)
+                    {
+                        Collider2D c = touch[i];
+                        if (c == null)
+                        {
+                            continue;
+                        }
+                        NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
+                        if (enemy != null && enemy.is_alive && enemy.Mp == mp)
+                        {
+                            touched = true;
+                            break;
+                        }
+                    }
+                }
+                if (!touched)
+                {
+                    return false;
+                }
+                _noelSpikeBooms.Add(new NoelSpikeBoom { X = s.X, Y = s.Y, AnimTime = 0f });
+                try
+                {
+                    DashAudio.PlayUterusExplosion();
+                }
+                catch (Exception)
+                {
+                }
+                float size = KnightInCradlePlugin.UterusExplosionSize;
+                Collider2D[] aoe = Physics2D.OverlapBoxAll(center, new Vector2(size, size), 0f, mask);
+                if (aoe != null)
+                {
+                    var applied = new HashSet<NelEnemy>();
+                    int dmg = KnightInCradlePlugin.UterusExplosionDamage;
+                    for (int i = 0; i < aoe.Length; i++)
+                    {
+                        Collider2D c = aoe[i];
+                        if (c == null)
+                        {
+                            continue;
+                        }
+                        NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
+                        if (enemy == null || !enemy.is_alive || enemy.Mp != mp || !applied.Add(enemy))
+                        {
+                            continue;
+                        }
+                        var atk = new NelAttackInfo();
+                        atk.hpdmg0 = dmg;
+                        atk.hpdmg_current = dmg;
+                        atk.fix_damage = true; // 真伤，与小骑士的幼体爆炸同为固定值
+                        atk.Caster = pr;
+                        atk.AttackFrom = pr;
+                        atk.CenterXy(enemy.x, enemy.y, 0f);
+                        enemy.applyDamage(atk, false);
+                    }
+                }
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>小剑山 / 爆炸特效票据（身前层 PR1）。</summary>
+        private static void EnsureNoelSpikeTicket(PRNoel pr, bool want)
+        {
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null)
+            {
+                return;
+            }
+            if (!want)
+            {
+                ReleaseNoelSpikeTicket();
+                return;
+            }
+            if (!EnsureNoelSpikeTextures())
+            {
+                return; // 素材缺失：只是不显示，爆炸伤害照常
+            }
+            if (_noelSpikeMesh != null && _noelSpikeMat != null && _noelSpikeTicket != null &&
+                ReferenceEquals(_noelSpikeMap, mp))
+            {
+                return;
+            }
+            ReleaseNoelSpikeTicket();
+            _noelSpikeMap = mp;
+            _noelSpikeMesh = new MeshDrawer(null, 4 * 64, 6 * 64);
+            _noelSpikeMesh.draw_gl_only = true;
+            _noelSpikeMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _noelSpikeMat.EnableKeyword("NO_PIXELSNAP");
+            _noelSpikeMesh.activate("noel_spike_follower", _noelSpikeMat, false, MTRX.ColWhite, null);
+            _noelSpikeTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR1, null, PrepareNoelSpikeMesh, _noelSpikeMesh, null, null);
+        }
+
+        private static void ReleaseNoelSpikeTicket()
+        {
+            try
+            {
+                if (_noelSpikeTicket != null && _noelSpikeMap != null && _noelSpikeMap.MovRenderer != null)
+                {
+                    _noelSpikeMap.MovRenderer.deassignDrawable(_noelSpikeTicket, -1);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (_noelSpikeMat != null)
+                {
+                    IN.DestroyOne(_noelSpikeMat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _noelSpikeTicket = null;
+            _noelSpikeMesh = null;
+            _noelSpikeMat = null;
+        }
+
+        /// <summary>
+        /// 小剑山绘制：矩阵锚定诺艾尔原点一次，每只按相对偏移画；
+        /// 贴图循环播 `spike_1~spike_8`，爆炸特效播 `explode_particle0000~0012`。
+        /// </summary>
+        private static bool PrepareNoelSpikeMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelSpikeMap;
+            if (mp == null || _noelSpikeMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelSpikeMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null)
+            {
+                MdOut = _noelSpikeMesh;
+                return true;
+            }
+            float mx = mp.pixel2ux(pr.x * mp.CLEN);
+            float my = mp.pixel2uy(pr.y * mp.CLEN);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mx, my, 0f));
+            float scale = KnightInCradlePlugin.UterusSpikeScale;
+            float fps = KnightInCradlePlugin.UterusSpikeFps;
+            for (int i = 0; i < _noelSpikes.Count; i++)
+            {
+                NoelSpikeFollower s = _noelSpikes[i];
+                if (_noelSpikeFrames == null || _noelSpikeFrames.Length == 0)
+                {
+                    break;
+                }
+                int idx = Mathf.Abs((int)(s.AnimTime * fps)) % _noelSpikeFrames.Length;
+                Texture2D tex = _noelSpikeFrames[idx];
+                if (tex == null)
+                {
+                    continue;
+                }
+                float dxm = (s.X - pr.x) * mp.CLEN;
+                float dym = -(s.Y - pr.y) * mp.CLEN;
+                float w = tex.width * scale;
+                float h = tex.height * scale;
+                _noelSpikeMesh.Col = MTRX.ColWhite;
+                _noelSpikeMesh.initForImgAndTexture(tex);
+                _noelSpikeMesh.uv_top = 0f;
+                _noelSpikeMesh.uv_height = 1f;
+                if (s.Dir < 0)
+                {
+                    _noelSpikeMesh.uv_left = 1f;
+                    _noelSpikeMesh.uv_width = -1f;
+                }
+                else
+                {
+                    _noelSpikeMesh.uv_left = 0f;
+                    _noelSpikeMesh.uv_width = 1f;
+                }
+                _noelSpikeMesh.Rect(dxm, dym, w, h, false);
+            }
+            // 爆炸特效：6 格宽（同小骑士的爆炸尺寸），锚定命中点
+            if (_noelSpikeBooms.Count > 0 && _noelSpikeBoomFrames != null && _noelSpikeBoomFrames.Length > 0)
+            {
+                float ew = KnightInCradlePlugin.UterusExplosionSize * mp.CLEN;
+                float eh = ew * 1.25f; // 帧比例 80:100
+                for (int i = 0; i < _noelSpikeBooms.Count; i++)
+                {
+                    NoelSpikeBoom b = _noelSpikeBooms[i];
+                    int idx = Mathf.Clamp((int)(b.AnimTime * NoelSpikeBoomFps), 0, _noelSpikeBoomFrames.Length - 1);
+                    Texture2D tex = _noelSpikeBoomFrames[idx];
+                    if (tex == null)
+                    {
+                        continue;
+                    }
+                    float dxm = (b.X - pr.x) * mp.CLEN;
+                    float dym = -(b.Y - pr.y) * mp.CLEN;
+                    _noelSpikeMesh.Col = MTRX.ColWhite;
+                    _noelSpikeMesh.initForImgAndTexture(tex);
+                    _noelSpikeMesh.uv_top = 0f;
+                    _noelSpikeMesh.uv_height = 1f;
+                    _noelSpikeMesh.uv_left = 0f;
+                    _noelSpikeMesh.uv_width = 1f;
+                    _noelSpikeMesh.Rect(dxm, dym, ew, eh, false);
+                }
+            }
+            MdOut = _noelSpikeMesh;
+            return true;
+        }
+
+        private static bool EnsureNoelSpikeTextures()
+        {
+            if (_noelSpikeFrames != null && _noelSpikeBoomFrames != null)
+            {
+                return true;
+            }
+            if (_noelSpikeLoadTried)
+            {
+                return _noelSpikeFrames != null && _noelSpikeBoomFrames != null;
+            }
+            _noelSpikeLoadTried = true;
+            try
+            {
+                string root = System.IO.Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "assets", "hk",
+                    "sheets");
+                _noelSpikeFrames = LoadNoelPngFrames(System.IO.Path.Combine(root, "spike"), NoelSpikeSprites);
+                var boom = new List<string>();
+                for (int i = 0; i < 13; i++)
+                {
+                    boom.Add("explode_particle" + i.ToString("D4"));
+                }
+                _noelSpikeBoomFrames = LoadNoelPngFrames(
+                    System.IO.Path.Combine(root, "explosion", "sprites"), boom.ToArray());
+                if (_noelSpikeFrames == null)
+                {
+                    KnightInCradlePlugin.PluginLog?.LogWarning(
+                        "[KIC][发光子宫] 没找到小剑山素材（assets/hk/sheets/spike/spike_1~8.png），小剑山不显示");
+                }
+                return _noelSpikeFrames != null;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>从指定目录按名字读一组 PNG 帧（缺帧就跳过）。</summary>
+        private static Texture2D[] LoadNoelPngFrames(string dir, string[] names)
+        {
+            try
+            {
+                var list = new List<Texture2D>();
+                for (int i = 0; i < names.Length; i++)
+                {
+                    string path = System.IO.Path.Combine(dir, names[i] + ".png");
+                    if (!System.IO.File.Exists(path))
+                    {
+                        continue;
+                    }
+                    var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                    if (!ImageConversion.LoadImage(tex, System.IO.File.ReadAllBytes(path)))
+                    {
+                        UnityEngine.Object.Destroy(tex);
+                        continue;
+                    }
+                    tex.filterMode = FilterMode.Point;
+                    tex.wrapMode = TextureWrapMode.Clamp;
+                    list.Add(tex);
+                }
+                return list.Count > 0 ? list.ToArray() : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// 护符23 吸虫之巢（诺艾尔侧）：
         /// 诺艾尔施放**纯白之箭**（`MGKIND.WHITEARROW`）/ **聚能火球**（`MGKIND.FIREBALL`）时，
         /// 不再产生原版子弹，而是沿发射方向喷出一群**黑色吸虫**（每只 7 点真实伤害；

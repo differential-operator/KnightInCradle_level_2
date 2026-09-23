@@ -147,6 +147,22 @@ namespace KnightInCradle
         /// <summary>吸虫命中后再造成一次伤害的概率（需求：50%）。</summary>
         internal static ConfigEntry<float> NestFlukeDoubleHitChanceConfig;
 
+        // ---- 护符25 发光子宫（诺艾尔侧）----
+        /// <summary>生成间隔（秒，需求：2）。</summary>
+        internal static ConfigEntry<float> UterusSpawnIntervalConfig;
+        /// <summary>每只小剑山消耗的 MP（需求：10）。</summary>
+        internal static ConfigEntry<int> UterusSpawnMpConfig;
+        /// <summary>同时存在的上限。</summary>
+        internal static ConfigEntry<int> UterusMaxCountConfig;
+        /// <summary>爆炸范围伤害（需求：30）。</summary>
+        internal static ConfigEntry<int> UterusExplosionDamageConfig;
+        /// <summary>爆炸判定框边长（格）。</summary>
+        internal static ConfigEntry<float> UterusExplosionSizeConfig;
+        /// <summary>小剑山渲染缩放。</summary>
+        internal static ConfigEntry<float> UterusSpikeScaleConfig;
+        /// <summary>小剑山循环动画帧率。</summary>
+        internal static ConfigEntry<float> UterusSpikeFpsConfig;
+
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
         internal static float MagicSlashScale =>
@@ -195,6 +211,20 @@ namespace KnightInCradle
             NestFlukeDoubleHitChanceConfig != null
                 ? Mathf.Clamp(NestFlukeDoubleHitChanceConfig.Value, 0f, 1f)
                 : 0.25f;
+        internal static float UterusSpawnInterval =>
+            UterusSpawnIntervalConfig != null ? Mathf.Clamp(UterusSpawnIntervalConfig.Value, 0.2f, 30f) : 2f;
+        internal static int UterusSpawnMp =>
+            UterusSpawnMpConfig != null ? Mathf.Clamp(UterusSpawnMpConfig.Value, 0, 999) : 10;
+        internal static int UterusMaxCount =>
+            UterusMaxCountConfig != null ? Mathf.Clamp(UterusMaxCountConfig.Value, 1, 24) : 4;
+        internal static int UterusExplosionDamage =>
+            UterusExplosionDamageConfig != null ? Mathf.Clamp(UterusExplosionDamageConfig.Value, 1, 999) : 30;
+        internal static float UterusExplosionSize =>
+            UterusExplosionSizeConfig != null ? Mathf.Clamp(UterusExplosionSizeConfig.Value, 0.5f, 20f) : 6f;
+        internal static float UterusSpikeScale =>
+            UterusSpikeScaleConfig != null ? Mathf.Clamp(UterusSpikeScaleConfig.Value, 0.02f, 2f) : 0.22f;
+        internal static float UterusSpikeFps =>
+            UterusSpikeFpsConfig != null ? Mathf.Clamp(UterusSpikeFpsConfig.Value, 1f, 60f) : 12f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -419,6 +449,21 @@ namespace KnightInCradle
                 "只影响发射瞬间的水平/垂直初速，落地弹跳速度不变。");
             NestFlukeDoubleHitChanceConfig = Config.Bind("Charm23", "FlukeDoubleHitChance", 0.25f,
                 "吸虫之巢：吸虫命中敌人后再造成一次同样伤害的概率（默认 0.25 = 25%）。");
+            // 护符25 发光子宫（诺艾尔侧）
+            UterusSpawnIntervalConfig = Config.Bind("Charm25", "SpawnInterval", 2f,
+                "发光子宫：每隔几秒生成一只小剑山（默认 2）。");
+            UterusSpawnMpConfig = Config.Bind("Charm25", "SpawnMpCost", 10,
+                "发光子宫：每生成一只小剑山消耗的 MP（默认 10）；MP 不足时不生成。");
+            UterusMaxCountConfig = Config.Bind("Charm25", "MaxCount", 4,
+                "发光子宫：同时存在的小剑山上限（默认 4）。");
+            UterusExplosionDamageConfig = Config.Bind("Charm25", "ExplosionDamage", 30,
+                "发光子宫：小剑山命中敌人时造成的范围伤害（默认 30，真伤）。");
+            UterusExplosionSizeConfig = Config.Bind("Charm25", "ExplosionSize", 6f,
+                "发光子宫：范围伤害的判定框边长（格，默认 6 = 以命中点为中心 6×6 格）。");
+            UterusSpikeScaleConfig = Config.Bind("Charm25", "SpikeScale", 0.22f,
+                "发光子宫：小剑山贴图的渲染缩放（默认 0.22，同小骑士的幼体缩放）。");
+            UterusSpikeFpsConfig = Config.Bind("Charm25", "SpikeFps", 12f,
+                "发光子宫：小剑山循环动画帧率（spike_1~spike_8 循环，默认 12）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();
