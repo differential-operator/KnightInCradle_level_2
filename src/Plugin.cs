@@ -163,6 +163,12 @@ namespace KnightInCradle
         /// <summary>小剑山循环动画帧率。</summary>
         internal static ConfigEntry<float> UterusSpikeFpsConfig;
 
+        // ---- 护符24 防御者纹章（诺艾尔侧）----
+        /// <summary>法阵实心圆半径（格，同小骑士 3）。</summary>
+        internal static ConfigEntry<float> ShelterCircleRadiusConfig;
+        /// <summary>法阵单次伤害（同小骑士 10）。</summary>
+        internal static ConfigEntry<int> ShelterCircleDamageConfig;
+
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
         internal static float MagicSlashScale =>
@@ -225,6 +231,10 @@ namespace KnightInCradle
             UterusSpikeScaleConfig != null ? Mathf.Clamp(UterusSpikeScaleConfig.Value, 0.02f, 2f) : 0.11f;
         internal static float UterusSpikeFps =>
             UterusSpikeFpsConfig != null ? Mathf.Clamp(UterusSpikeFpsConfig.Value, 1f, 60f) : 12f;
+        internal static float ShelterCircleRadius =>
+            ShelterCircleRadiusConfig != null ? Mathf.Clamp(ShelterCircleRadiusConfig.Value, 0.5f, 15f) : 3f;
+        internal static int ShelterCircleDamage =>
+            ShelterCircleDamageConfig != null ? Mathf.Clamp(ShelterCircleDamageConfig.Value, 1, 999) : 10;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -464,6 +474,11 @@ namespace KnightInCradle
                 "发光子宫：小剑山贴图的渲染缩放（默认 0.11 = 原 0.22 的一半）。");
             UterusSpikeFpsConfig = Config.Bind("Charm25", "SpikeFps", 12f,
                 "发光子宫：小剑山循环动画帧率（spike_1~spike_8 循环，默认 12）。");
+            // 护符24 防御者纹章（诺艾尔侧）
+            ShelterCircleRadiusConfig = Config.Bind("Charm24", "CircleRadius", 3f,
+                "防御者纹章：法阵实心圆半径（格，默认 3，同小骑士）。");
+            ShelterCircleDamageConfig = Config.Bind("Charm24", "CircleDamage", 10,
+                "防御者纹章：法阵单次伤害（默认 10；进入立刻一次，之后每 1 秒一次）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

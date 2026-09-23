@@ -1742,6 +1742,514 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
+        /// 护符24 防御者纹章（诺艾尔侧）：与**小骑士那套完全相同**——
+        /// ① 以诺艾尔为中心、半径 3 格的**深蓝法阵实心圆**（身后层 PR0）；
+        /// ② 圆内敌人**进入立刻受 10 点伤害**（可击晕），之后**每 1 秒**仍在圆内再受 10 点；
+        /// ③ 圆内**摧毁蜘蛛陷阱 / 蛛丝球**（`MGKIND.BASIC_SHOT` + `MgBsSpiderTrap.MEM`）；
+        /// ④ 动态层（PR2）：每 3 秒从中心发射一道 12 格/秒扩张的圆环，到边缘发光并依次出现
+        ///    星→方→叉图案（保持 0.3s 后淡出 0.3s）；
+        /// ⑤ 身前层（PR1）：5 颗深蓝球体以 1.75 格为半径、2.5 秒公转一周。
+        /// 贴图（法阵圆 / 球体）直接复用骑士侧的程序化生成方法（`KnightEntity.MakeShelter*Texture`）。
+        /// </summary>
+        private static readonly HashSet<NelEnemy> _noelShelterInside = new HashSet<NelEnemy>();
+        private static float _noelShelterDamageTimer = NoelShelterDamageTick;
+        private static float _noelShelterRingTimer = NoelShelterRingInterval;
+        private static float _noelShelterRingRadius = -1f;
+        private static float _noelShelterPatternTimer = -1f;
+        private static int _noelShelterPatternType;
+        private static float _noelShelterFlashTimer;
+        private static float _noelShelterSphereAngle;
+
+        private const float NoelShelterDamageTick = 1f;        // 圆内伤害间隔（秒，同小骑士）
+        private const float NoelShelterRingInterval = 3f;      // 圆环发射间隔（同小骑士）
+        private const float NoelShelterRingSpeed = 12f;        // 圆环扩张速度（格/秒）
+        private const float NoelShelterPatternHoldTime = 0.3f; // 图案保持满亮度时长
+        private const float NoelShelterPatternFadeTime = 0.3f; // 图案/圆环淡出时长
+        private const float NoelShelterFlashTime = 0.25f;      // 边缘发光时长
+        private const float NoelShelterSphereRadius = 0.5f;    // 球体半径（格）
+        private const float NoelShelterSphereOrbit = 1.75f;    // 球心距（格）
+        private const float NoelShelterSpherePeriod = 2.5f;    // 公转周期（秒）
+        private const int NoelShelterSphereCount = 5;          // 球体数量
+
+        private static Texture2D _noelShelterCircleTex;
+        private static Texture2D _noelShelterSphereTex;
+        private static MeshDrawer _noelShelterCircleMesh;
+        private static MeshDrawer _noelShelterFxMesh;
+        private static MeshDrawer _noelShelterSphereMesh;
+        private static Material _noelShelterCircleMat;
+        private static Material _noelShelterFxMat;
+        private static Material _noelShelterSphereMat;
+        private static M2RenderTicket _noelShelterCircleTicket;
+        private static M2RenderTicket _noelShelterFxTicket;
+        private static M2RenderTicket _noelShelterSphereTicket;
+        private static Map2d _noelShelterMap;
+        private static readonly HashSet<object> _noelShelterTrapDone = new HashSet<object>();
+        private static FieldInfo _noelShelterMgItemsField;
+        private static FieldInfo _noelShelterMgLenField;
+
+        /// <summary>每帧推进（诺艾尔模式调用）：法阵计时、伤害结算、陷阱清除与票据维护。</summary>
+        public static void TickNoelShelterCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    return;
+                }
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, ShelterId))
+                {
+                    _noelShelterInside.Clear();
+                    _noelShelterTrapDone.Clear();
+                    _noelShelterDamageTimer = NoelShelterDamageTick;
+                    _noelShelterRingTimer = NoelShelterRingInterval;
+                    _noelShelterRingRadius = -1f;
+                    _noelShelterPatternTimer = -1f;
+                    _noelShelterFlashTimer = 0f;
+                    ReleaseNoelShelterTickets();
+                    return;
+                }
+                float dt = Time.deltaTime;
+                _noelShelterSphereAngle += (6.2831853f / NoelShelterSpherePeriod) * dt;
+                // 圆内持续伤害：每 1 秒对仍在圆内的敌人再打一次
+                _noelShelterDamageTimer -= dt;
+                if (_noelShelterDamageTimer <= 0f)
+                {
+                    _noelShelterDamageTimer = NoelShelterDamageTick;
+                    int dmg = KnightInCradlePlugin.ShelterCircleDamage;
+                    foreach (NelEnemy enemy in _noelShelterInside)
+                    {
+                        if (enemy != null && enemy.is_alive)
+                        {
+                            ApplyNoelShelterDamage(pr, enemy, dmg);
+                        }
+                    }
+                }
+                // 每帧检测新进入圆内的敌人：立刻打一次（离开再进会再次触发）
+                NoelShelterEntryCheck(pr);
+                // 圆内清除蜘蛛陷阱 / 蛛丝球
+                NoelShelterDestroySpiderThings(pr);
+                // 圆环发射与扩张
+                _noelShelterRingTimer -= dt;
+                if (_noelShelterRingTimer <= 0f)
+                {
+                    _noelShelterRingTimer = NoelShelterRingInterval;
+                    _noelShelterRingRadius = 0f;
+                }
+                float radius = KnightInCradlePlugin.ShelterCircleRadius;
+                if (_noelShelterRingRadius >= 0f)
+                {
+                    if (_noelShelterRingRadius < radius)
+                    {
+                        _noelShelterRingRadius += NoelShelterRingSpeed * dt;
+                        if (_noelShelterRingRadius >= radius)
+                        {
+                            _noelShelterRingRadius = radius;
+                            _noelShelterFlashTimer = NoelShelterFlashTime;
+                            _noelShelterPatternType = (_noelShelterPatternType + 1) % 3; // 星→方→叉
+                            _noelShelterPatternTimer = 0f;
+                        }
+                    }
+                    else
+                    {
+                        _noelShelterPatternTimer += dt;
+                        if (_noelShelterPatternTimer >= NoelShelterPatternHoldTime + NoelShelterPatternFadeTime)
+                        {
+                            _noelShelterRingRadius = -1f;
+                            _noelShelterPatternTimer = -1f;
+                        }
+                    }
+                }
+                if (_noelShelterFlashTimer > 0f)
+                {
+                    _noelShelterFlashTimer -= dt;
+                }
+                EnsureNoelShelterTickets(pr);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>每帧：圆内敌人集合刷新；新进入的立刻受一次伤害。</summary>
+        private static void NoelShelterEntryCheck(PRNoel pr)
+        {
+            try
+            {
+                Map2d mp = pr.Mp;
+                if (mp == null || mp.gameObject == null)
+                {
+                    return;
+                }
+                int mask = NoelEnemyOverlapMask();
+                if (mask == 0)
+                {
+                    return;
+                }
+                float radius = KnightInCradlePlugin.ShelterCircleRadius;
+                float mx = mp.pixel2ux(pr.x * mp.CLEN);
+                float my = mp.pixel2uy(pr.y * mp.CLEN);
+                Vector2 center = mp.gameObject.transform.TransformPoint(new Vector2(mx, my));
+                Collider2D[] hits = Physics2D.OverlapCircleAll(center, radius, mask);
+                var insideNow = new HashSet<NelEnemy>();
+                if (hits != null)
+                {
+                    int dmg = KnightInCradlePlugin.ShelterCircleDamage;
+                    for (int i = 0; i < hits.Length; i++)
+                    {
+                        Collider2D c = hits[i];
+                        if (c == null)
+                        {
+                            continue;
+                        }
+                        NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
+                        if (enemy == null || !enemy.is_alive || enemy.Mp != mp || !insideNow.Add(enemy))
+                        {
+                            continue;
+                        }
+                        if (!_noelShelterInside.Contains(enemy))
+                        {
+                            ApplyNoelShelterDamage(pr, enemy, dmg); // 刚进入：立刻一次
+                        }
+                    }
+                }
+                _noelShelterInside.Clear();
+                _noelShelterInside.UnionWith(insideNow);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>法阵伤害：完整受击管线（可击晕），`huttobi_ratio = -100` 压制击飞（同小骑士）。</summary>
+        private static void ApplyNoelShelterDamage(PRNoel pr, NelEnemy enemy, int dmg)
+        {
+            try
+            {
+                var atk = new NelAttackInfo();
+                atk.hpdmg0 = dmg;
+                atk.hpdmg_current = dmg;
+                atk.fix_damage = true;
+                atk.huttobi_ratio = -100f;
+                atk.Caster = pr;
+                atk.AttackFrom = pr;
+                atk.CenterXy(enemy.x, enemy.y, 0f);
+                enemy.applyDamage(atk, false);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>圆内摧毁蜘蛛陷阱与蛛丝球（同小骑士：扫 `MGContainer` 里的 BASIC_SHOT + `MgBsSpiderTrap.MEM`）。</summary>
+        private static void NoelShelterDestroySpiderThings(PRNoel pr)
+        {
+            try
+            {
+                Map2d mp = pr.Mp;
+                if (mp == null)
+                {
+                    return;
+                }
+                if (_noelShelterMgItemsField == null)
+                {
+                    _noelShelterMgItemsField = typeof(RBase<MagicItem>).GetField("AItems",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                    _noelShelterMgLenField = typeof(RBase<MagicItem>).GetField("LEN",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                }
+                if (_noelShelterMgItemsField == null || !(mp.M2D is NelM2DBase nm2d))
+                {
+                    return;
+                }
+                MagicItem[] items = _noelShelterMgItemsField.GetValue(nm2d.MGC) as MagicItem[];
+                if (items == null)
+                {
+                    return;
+                }
+                int len = _noelShelterMgLenField != null
+                    ? (int)_noelShelterMgLenField.GetValue(nm2d.MGC)
+                    : items.Length;
+                float radius = KnightInCradlePlugin.ShelterCircleRadius;
+                for (int i = 0; i < len && i < items.Length; i++)
+                {
+                    MagicItem mg = items[i];
+                    if (mg == null || mg.kind != MGKIND.BASIC_SHOT || !(mg.Other is MgBsSpiderTrap.MEM))
+                    {
+                        continue;
+                    }
+                    float dx = mg.sx - pr.x;
+                    float dy = mg.sy - pr.y;
+                    if (dx * dx + dy * dy > radius * radius)
+                    {
+                        continue;
+                    }
+                    if (_noelShelterTrapDone.Add(mg))
+                    {
+                        try
+                        {
+                            mg.kill(0f);
+                        }
+                        catch (Exception)
+                        {
+                        }
+                    }
+                }
+                if (_noelShelterTrapDone.Count > 64)
+                {
+                    _noelShelterTrapDone.Clear(); // 魔法实例会被池复用，容量过大时重置去重
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>法阵的三层票据：实心圆（身后 PR0）、动态层（PR2）、公转球体（身前 PR1）。</summary>
+        private static void EnsureNoelShelterTickets(PRNoel pr)
+        {
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null || mp.MovRenderer == null)
+            {
+                return;
+            }
+            if (_noelShelterCircleTex == null)
+            {
+                _noelShelterCircleTex = KnightEntity.MakeShelterCircleTexture(128);
+            }
+            if (_noelShelterSphereTex == null)
+            {
+                _noelShelterSphereTex = KnightEntity.MakeShelterSphereTexture(64);
+            }
+            if (_noelShelterCircleTicket != null && _noelShelterFxTicket != null &&
+                _noelShelterSphereTicket != null && ReferenceEquals(_noelShelterMap, mp))
+            {
+                return;
+            }
+            ReleaseNoelShelterTickets();
+            _noelShelterMap = mp;
+            _noelShelterCircleMesh = new MeshDrawer(null, 4 * 16, 6 * 16);
+            _noelShelterCircleMesh.draw_gl_only = true;
+            _noelShelterCircleMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _noelShelterCircleMat.EnableKeyword("NO_PIXELSNAP");
+            _noelShelterCircleMesh.activate("noel_shelter_circle", _noelShelterCircleMat, false, MTRX.ColWhite, null);
+            _noelShelterCircleTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR0, null, PrepareNoelShelterCircleMesh, _noelShelterCircleMesh, null, null);
+            _noelShelterFxMesh = new MeshDrawer(null, 4 * 512, 6 * 512);
+            _noelShelterFxMesh.draw_gl_only = true;
+            _noelShelterFxMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _noelShelterFxMat.EnableKeyword("NO_PIXELSNAP");
+            _noelShelterFxMesh.activate("noel_shelter_fx", _noelShelterFxMat, false, MTRX.ColWhite, null);
+            _noelShelterFxTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR2, null, PrepareNoelShelterFxMesh, _noelShelterFxMesh, null, null);
+            _noelShelterSphereMesh = new MeshDrawer(null, 4 * 16, 6 * 16);
+            _noelShelterSphereMesh.draw_gl_only = true;
+            _noelShelterSphereMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _noelShelterSphereMat.EnableKeyword("NO_PIXELSNAP");
+            _noelShelterSphereMesh.activate("noel_shelter_sphere", _noelShelterSphereMat, false, MTRX.ColWhite, null);
+            _noelShelterSphereTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR1, null, PrepareNoelShelterSphereMesh, _noelShelterSphereMesh, null, null);
+        }
+
+        private static void ReleaseNoelShelterTickets()
+        {
+            ReleaseNoelTicket(ref _noelShelterCircleTicket, ref _noelShelterCircleMesh, ref _noelShelterCircleMat);
+            ReleaseNoelTicket(ref _noelShelterFxTicket, ref _noelShelterFxMesh, ref _noelShelterFxMat);
+            ReleaseNoelTicket(ref _noelShelterSphereTicket, ref _noelShelterSphereMesh, ref _noelShelterSphereMat);
+            _noelShelterMap = null;
+        }
+
+        private static void ReleaseNoelTicket(ref M2RenderTicket ticket, ref MeshDrawer mesh, ref Material mat)
+        {
+            try
+            {
+                if (ticket != null && _noelShelterMap != null && _noelShelterMap.MovRenderer != null)
+                {
+                    _noelShelterMap.MovRenderer.deassignDrawable(ticket, -1);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (mat != null)
+                {
+                    IN.DestroyOne(mat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            ticket = null;
+            mesh = null;
+            mat = null;
+        }
+
+        /// <summary>法阵实心圆（身后层）：半径 3 格的深蓝圆（浓度由贴图 alpha 控制）。</summary>
+        private static bool PrepareNoelShelterCircleMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelShelterMap;
+            if (mp == null || _noelShelterCircleMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelShelterCircleMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || _noelShelterCircleTex == null)
+            {
+                MdOut = _noelShelterCircleMesh;
+                return true;
+            }
+            float mx = mp.pixel2ux(pr.x * mp.CLEN);
+            float my = mp.pixel2uy(pr.y * mp.CLEN);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mx, my, 0f));
+            float size = KnightInCradlePlugin.ShelterCircleRadius * 2f * mp.CLEN;
+            _noelShelterCircleMesh.Col = new Color(0.1f, 0.18f, 0.75f, 1f);
+            _noelShelterCircleMesh.initForImgAndTexture(_noelShelterCircleTex);
+            _noelShelterCircleMesh.uv_top = 0f;
+            _noelShelterCircleMesh.uv_height = 1f;
+            _noelShelterCircleMesh.uv_left = 0f;
+            _noelShelterCircleMesh.uv_width = 1f;
+            _noelShelterCircleMesh.Rect(0f, 0f, size, size, false);
+            MdOut = _noelShelterCircleMesh;
+            return true;
+        }
+
+        /// <summary>法阵动态层（PR2）：扩张圆环 + 边缘发光 + 星/方/叉图案。</summary>
+        private static bool PrepareNoelShelterFxMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelShelterMap;
+            if (mp == null || _noelShelterFxMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelShelterFxMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null)
+            {
+                MdOut = _noelShelterFxMesh;
+                return true;
+            }
+            float mx = mp.pixel2ux(pr.x * mp.CLEN);
+            float my = mp.pixel2uy(pr.y * mp.CLEN);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mx, my, 0f));
+            float c = mp.CLEN;
+            float radius = KnightInCradlePlugin.ShelterCircleRadius;
+            if (_noelShelterRingRadius >= 0f)
+            {
+                float t = Mathf.Clamp01(_noelShelterRingRadius / radius);
+                float alpha = 1f;
+                if (_noelShelterRingRadius >= radius && _noelShelterPatternTimer >= 0f)
+                {
+                    alpha = _noelShelterPatternTimer < NoelShelterPatternHoldTime
+                        ? 1f
+                        : 1f - (_noelShelterPatternTimer - NoelShelterPatternHoldTime) / NoelShelterPatternFadeTime;
+                }
+                Color ringCol = Color.Lerp(Color.white, new Color(0.35f, 0.62f, 1f, 1f), t);
+                ringCol.a = Mathf.Clamp01(alpha);
+                _noelShelterFxMesh.Col = ringCol;
+                _noelShelterFxMesh.Circle(0f, 0f, _noelShelterRingRadius * c, 3.5f, false);
+            }
+            if (_noelShelterFlashTimer > 0f)
+            {
+                float fa = Mathf.Clamp01(_noelShelterFlashTimer / NoelShelterFlashTime);
+                _noelShelterFxMesh.Col = new Color(1f, 1f, 1f, fa * 0.95f);
+                _noelShelterFxMesh.Circle(0f, 0f, radius * c, 5f, false);
+            }
+            if (_noelShelterPatternTimer >= 0f)
+            {
+                float pa = _noelShelterPatternTimer < NoelShelterPatternHoldTime
+                    ? 1f
+                    : 1f - (_noelShelterPatternTimer - NoelShelterPatternHoldTime) / NoelShelterPatternFadeTime;
+                _noelShelterFxMesh.Col = new Color(1f, 1f, 1f, Mathf.Clamp01(pa));
+                DrawNoelShelterPattern(_noelShelterFxMesh, _noelShelterPatternType, radius * c);
+            }
+            MdOut = _noelShelterFxMesh;
+            return true;
+        }
+
+        /// <summary>法阵公转球体（PR1）：5 颗深蓝球，球心距 1.75 格、72° 均布、2.5 秒一周。</summary>
+        private static bool PrepareNoelShelterSphereMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelShelterMap;
+            if (mp == null || _noelShelterSphereMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelShelterSphereMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || _noelShelterSphereTex == null)
+            {
+                MdOut = _noelShelterSphereMesh;
+                return true;
+            }
+            float mx = mp.pixel2ux(pr.x * mp.CLEN);
+            float my = mp.pixel2uy(pr.y * mp.CLEN);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mx, my, 0f));
+            float c = mp.CLEN;
+            float size = NoelShelterSphereRadius * 2f * c;
+            _noelShelterSphereMesh.Col = MTRX.ColWhite; // 渐变已做进贴图
+            _noelShelterSphereMesh.initForImgAndTexture(_noelShelterSphereTex);
+            _noelShelterSphereMesh.uv_top = 0f;
+            _noelShelterSphereMesh.uv_height = 1f;
+            _noelShelterSphereMesh.uv_left = 0f;
+            _noelShelterSphereMesh.uv_width = 1f;
+            for (int i = 0; i < NoelShelterSphereCount; i++)
+            {
+                float ang = _noelShelterSphereAngle + i * (6.2831853f / NoelShelterSphereCount);
+                float sx = Mathf.Cos(ang) * NoelShelterSphereOrbit * c;
+                float sy = -Mathf.Sin(ang) * NoelShelterSphereOrbit * c; // 网格 y 向上为正
+                _noelShelterSphereMesh.Rect(sx, sy, size, size, false);
+            }
+            MdOut = _noelShelterSphereMesh;
+            return true;
+        }
+
+        /// <summary>绘制法阵图案（星/方/叉），同小骑士的 `DrawShelterPattern`。</summary>
+        private static void DrawNoelShelterPattern(MeshDrawer md, int type, float rPx)
+        {
+            const float thick = 3.5f;
+            if (type == 0) // 五角星
+            {
+                float inner = rPx * 0.382f;
+                for (int k = 0; k < 10; k++)
+                {
+                    float a0 = 1.5707964f + k * 0.62831854f;
+                    float a1 = a0 + 0.62831854f;
+                    float r0 = (k % 2 == 0) ? rPx : inner;
+                    float r1 = ((k + 1) % 2 == 0) ? rPx : inner;
+                    md.Line(Mathf.Cos(a0) * r0, Mathf.Sin(a0) * r0,
+                            Mathf.Cos(a1) * r1, Mathf.Sin(a1) * r1, thick);
+                }
+            }
+            else if (type == 1) // 正方形（四角贴圆）
+            {
+                for (int k = 0; k < 4; k++)
+                {
+                    float a0 = k * 1.5707964f;
+                    float a1 = a0 + 1.5707964f;
+                    md.Line(Mathf.Cos(a0) * rPx, Mathf.Sin(a0) * rPx,
+                            Mathf.Cos(a1) * rPx, Mathf.Sin(a1) * rPx, thick);
+                }
+            }
+            else // 叉号
+            {
+                float d = rPx * 0.70710678f;
+                md.Line(-d, -d, d, d, thick);
+                md.Line(-d, d, d, -d, thick);
+            }
+        }
+
+        /// <summary>
         /// 护符25 发光子宫（诺艾尔侧）：
         /// ① 每 **2 秒**消耗 **10 MP** 生成一只**小剑山**（最多同时 4 只；坐长椅休息时不生成），
         ///    贴图 = `assets/hk/sheets/spike/spike_1~spike_8` 循环播放；
