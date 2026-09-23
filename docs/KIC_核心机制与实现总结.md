@@ -3458,3 +3458,64 @@ __result = 0; return false;                  // 整次伤害都不结算：不�
 | `Charm22` | `ShellBehindNoel` | true | true = 画在诺艾尔图层之后（身后）；false = 回到身前（小骑士那种） |
 
 验证：`build=2026-09-23.23`，DLL SHA256 `BDAFEC626CBF3673…`（两份安装已同步；只覆盖 DLL）。
+
+---
+
+## 36. 护符 23 吸虫之巢（诺艾尔侧，2026-09-23，build=2026-09-23.24）
+
+**需求**：佩戴后，诺艾尔的以下法术改成**向前喷出吸虫**——
+**纯白之箭**（`MGKIND.WHITEARROW`）放 **8** 只、**聚能火球**（`MGKIND.FIREBALL`）放 **14** 只，
+每只 **7 点真实伤害**；**同时佩戴萨满之石**时每只 **9 点**。
+吸虫的手感（初速度、位置微小偏移、重力、落地弹跳、动画贴图）**同小骑士**。
+
+### 36.1 挂点：替换"这一发法术"
+
+法术释放链是 `M2PrSkill.explodeMagic`（`nel/M2PrSkill.cs:3611`）→ `this.CurMg.explode(true)`
+（`MagicItem.cs:805`）——**全游戏只有这一处**用 `explode(true)` 放法术，子弹自己被打掉时走的是
+`explode(false)`（`MagicItem.kill`）。所以把补丁挂在这里最精确：
+
+```csharp
+MagicItem.explode(bool do_not_run1)   // 后缀；__result 就是"这一发原版子弹"
+条件：do_not_run1 == true && 诺艾尔模式 && 佩戴吸虫之巢
+      && __instance.Caster is PRNoel && kind ∈ { WHITEARROW, FIREBALL }
+```
+
+判 `do_not_run1` 是必须的：不判的话，子弹每次消失（`explode(false)`）都会再喷一群吸虫。
+
+### 36.2 处理顺序（为什么这么写）
+
+1. **先 `pr.Skill.killHoldMagic(false,false,false)` 清蓄力**（不返还魔力；魔力已在
+   `explodeMagic` 的 `applyMpDamage` 扣过 `:3657-3660`）。
+   这样上级 `explodeMagic` 拿到的 `_Expl == null` 分支里，`fineHoldMagicTime` 走的是
+   "`mp_hold ≤ 0` → 清 `CurMg`"的正常收尾——否则 `reduce_mp` 已被 `explode` 清零，
+   会算出 `casttime * mp_hold / 0` 的 NaN。
+2. **收掉原版子弹并把返回值置 `null`**：上级于是走它自己既有的"这一发没成型"分支
+   （`M2PrSkill.cs:3662-3666`，与"CurMg 已失效"同一条路），状态机照常切到 `MAG_EXPLODED`。
+3. **同一帧喷出吸虫**（`DashAudio.PlayFlukeCast()`）。
+
+### 36.3 吸虫（同小骑士）
+
+| 参数 | 值（与小骑士一致） |
+|---|---|
+| 每只伤害 | 7 真伤（`fix_damage`）；带萨满之石 9 |
+| 初速度 | 水平 `dir × 12~16` 格/秒；垂直 `-8~1`（y 向下为正） |
+| 初始位置 | 身前 `0.3~1.3` 格、上下 `-0.3~0.7` 格随机 |
+| 寿命 | 4~5 秒 |
+| 重力 / 落地弹跳 | 28 格/秒²；脚部触地时横向 `-4~4`、向上 `6~12` 弹起（HK SpellFluke 风格） |
+| 命中判定 | 半径 0.675 格圆，命中敌人即消失 |
+| 贴图 | `assets/hk/sheets/nest/sprites`：空中 6 帧循环、落地 12 帧扑腾，12fps，按方向镜像，缩放 0.24 |
+
+方向取"这一发的发射方向"：`CAim._XD(pr.getAimForCaster(), 1)`，为 0 时退回朝向。
+渲染票据挂 `PR1`（身前层，同小骑士的吸虫）；切到骑士模式时立即清空。
+
+### 36.4 配置
+
+| 分组 | 键 | 默认 | 含义 |
+|---|---|---|---|
+| `Charm23` | `ArrowFlukeCount` | 8 | 纯白之箭放出几只吸虫 |
+| `Charm23` | `FireballFlukeCount` | 14 | 聚能火球放出几只吸虫 |
+| `Charm23` | `FlukeDamage` | 7 | 每只吸虫伤害（真伤） |
+| `Charm23` | `FlukeDamageWithShaman` | 9 | 同时佩戴萨满之石时每只的伤害 |
+
+验证：`build=2026-09-23.24`，DLL SHA256 `9391DFB136BE2002…`（两份安装已同步；只覆盖 DLL）。
+启动日志应为 `74 成功 / 0 失败`（上一版 73 + 本次新增的 `MagicItem.explode` 后缀）。

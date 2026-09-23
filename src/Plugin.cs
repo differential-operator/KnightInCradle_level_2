@@ -133,6 +133,16 @@ namespace KnightInCradle
         /// <summary>壳是否画在诺艾尔图层之后（true = 身后；false = 身前，同小骑士的壳）。</summary>
         internal static ConfigEntry<bool> BaldurShellBehindNoelConfig;
 
+        // ---- 护符23 吸虫之巢（诺艾尔侧）----
+        /// <summary>纯白之箭改放几只吸虫（需求：8）。</summary>
+        internal static ConfigEntry<int> NestArrowFlukeCountConfig;
+        /// <summary>聚能火球改放几只吸虫（需求：14）。</summary>
+        internal static ConfigEntry<int> NestFireballFlukeCountConfig;
+        /// <summary>每只吸虫的伤害（需求：7 真伤）。</summary>
+        internal static ConfigEntry<int> NestFlukeDamageConfig;
+        /// <summary>同时佩戴萨满之石时每只吸虫的伤害（需求：9）。</summary>
+        internal static ConfigEntry<int> NestFlukeDamageShamanConfig;
+
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
         internal static float MagicSlashScale =>
@@ -167,6 +177,14 @@ namespace KnightInCradle
                 : 10f;
         internal static bool BaldurShellBehindNoel =>
             BaldurShellBehindNoelConfig == null || BaldurShellBehindNoelConfig.Value;
+        internal static int NestArrowFlukeCount =>
+            NestArrowFlukeCountConfig != null ? Mathf.Clamp(NestArrowFlukeCountConfig.Value, 1, 48) : 8;
+        internal static int NestFireballFlukeCount =>
+            NestFireballFlukeCountConfig != null ? Mathf.Clamp(NestFireballFlukeCountConfig.Value, 1, 48) : 14;
+        internal static int NestFlukeDamage =>
+            NestFlukeDamageConfig != null ? Mathf.Clamp(NestFlukeDamageConfig.Value, 1, 999) : 7;
+        internal static int NestFlukeDamageWithShaman =>
+            NestFlukeDamageShamanConfig != null ? Mathf.Clamp(NestFlukeDamageShamanConfig.Value, 1, 999) : 9;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -377,6 +395,15 @@ namespace KnightInCradle
             BaldurShellBehindNoelConfig = Config.Bind("Charm22", "ShellBehindNoel", true,
                 "巴尔德之壳：壳是否画在**诺艾尔图层之后**（默认 true = 在诺艾尔身后）。" +
                 "改成 false 就回到小骑士那种『画在人前』的效果。");
+            // 护符23 吸虫之巢（诺艾尔侧）
+            NestArrowFlukeCountConfig = Config.Bind("Charm23", "ArrowFlukeCount", 8,
+                "吸虫之巢：纯白之箭改放几只吸虫（默认 8）。");
+            NestFireballFlukeCountConfig = Config.Bind("Charm23", "FireballFlukeCount", 14,
+                "吸虫之巢：聚能火球改放几只吸虫（默认 14）。");
+            NestFlukeDamageConfig = Config.Bind("Charm23", "FlukeDamage", 7,
+                "吸虫之巢：每只吸虫的伤害（真伤，默认 7）。");
+            NestFlukeDamageShamanConfig = Config.Bind("Charm23", "FlukeDamageWithShaman", 9,
+                "吸虫之巢：同时佩戴萨满之石时每只吸虫的伤害（默认 9）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

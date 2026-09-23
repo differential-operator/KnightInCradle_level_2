@@ -1742,6 +1742,531 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
+        /// 护符23 吸虫之巢（诺艾尔侧）：
+        /// 诺艾尔施放**纯白之箭**（`MGKIND.WHITEARROW`）/ **聚能火球**（`MGKIND.FIREBALL`）时，
+        /// 不再产生原版子弹，而是沿发射方向喷出一群**黑色吸虫**（每只 7 点真实伤害；
+        /// 同时佩戴萨满之石则每只 9 点）。吸虫的初速度、位置偏移、重力、落地弹跳、
+        /// 命中判定与贴图全部沿用小骑士那一套（HK SpellFluke 风格）。
+        ///
+        /// **挂点**：`M2PrSkill.explodeMagic(MagicItem, out MagicItem)` 的后缀
+        /// （`nel/M2PrSkill.cs:3611`，法术"起飞"的那一步）。用后缀而不是前缀，是为了让原版结算完整走完
+        /// （耗魔、清蓄力 `mp_hold = 0`、`CurMg = null`、状态机切 `MAG_EXPLODED` 都不受影响），
+        /// 拿到产出的子弹后再把它收掉，并在同一帧生成吸虫。
+        /// </summary>
+        private const float NestFlukeGravity = 28f;     // 重力（格/秒²），同小骑士
+        private const float NestFlukeLifeMin = 4f;      // 寿命 4~5 秒，同小骑士
+        private const float NestFlukeLifeMax = 5f;
+        private const float NestFlukeHitRadius = 0.675f;
+        private const float NestFlukeScale = 0.24f;     // 贴图渲染缩放，同小骑士
+        private const float NestFlukeFps = 12f;         // 空中/扑腾动画帧率，同小骑士
+
+        private sealed class NoelFluke
+        {
+            public float X;
+            public float Y;
+            public float Vx;
+            public float Vy;
+            public float Life;
+            public float AnimTime;
+            public float Dir;
+            public bool Flopping;
+        }
+
+        private static readonly List<NoelFluke> _noelFlukes = new List<NoelFluke>();
+
+        private static readonly string[] NoelFlukeAirSprites =
+        {
+            "black_fluke_air0000", "black_fluke_air0001", "black_fluke_air0002",
+            "black_fluke_air0003", "black_fluke_air0004", "black_fluke_air0005",
+        };
+
+        private static readonly string[] NoelFlukeFlopSprites =
+        {
+            "fluke_charm_black_flukes0000", "fluke_charm_black_flukes0001", "fluke_charm_black_flukes0002",
+            "fluke_charm_black_flukes0003", "fluke_charm_black_flukes0004", "fluke_charm_black_flukes0005",
+            "fluke_charm_black_flukes0006", "fluke_charm_black_flukes0007", "fluke_charm_black_flukes0008",
+            "fluke_charm_black_flukes0009", "fluke_charm_black_flukes0010", "fluke_charm_black_flukes0011",
+        };
+
+        private static Texture2D[] _noelFlukeAirTex;
+        private static Texture2D[] _noelFlukeFlopTex;
+        private static bool _noelFlukeLoadTried;
+        private static MeshDrawer _noelFlukeMesh;
+        private static Material _noelFlukeMat;
+        private static M2RenderTicket _noelFlukeTicket;
+        private static Map2d _noelFlukeMap;
+
+        /// <summary>当前每只吸虫的伤害：带萨满之石 9，否则 7。</summary>
+        private static int NoelFlukeDamageNow()
+        {
+            return IsEquipped(CharmOwner.Noel, ShamanId)
+                ? KnightInCradlePlugin.NestFlukeDamageWithShaman
+                : KnightInCradlePlugin.NestFlukeDamage;
+        }
+
+        /// <summary>
+        /// 放出吸虫（同小骑士）：初速度 12~16 格/秒向前、Y 方向 -8~1 的随机上抛，
+        /// 位置在身前 0.3~1.3 格、上下 -0.3~0.7 格范围内随机散开。
+        /// </summary>
+        private static void SpawnNoelFlukes(PRNoel pr, int count)
+        {
+            try
+            {
+                if (pr == null || count <= 0)
+                {
+                    return;
+                }
+                float dir;
+                try
+                {
+                    int aimX = CAim._XD(pr.getAimForCaster(), 1);
+                    dir = aimX != 0 ? aimX : (pr.mpf_is_right >= 0f ? 1f : -1f);
+                }
+                catch (Exception)
+                {
+                    dir = pr.mpf_is_right >= 0f ? 1f : -1f;
+                }
+                for (int i = 0; i < count; i++)
+                {
+                    var fl = new NoelFluke
+                    {
+                        Dir = dir,
+                        X = pr.x + dir * UnityEngine.Random.Range(0.3f, 1.3f),
+                        Y = pr.y + UnityEngine.Random.Range(-0.3f, 0.7f),
+                        Vx = dir * UnityEngine.Random.Range(12f, 16f),
+                        Vy = UnityEngine.Random.Range(-8f, 1f),
+                        Life = UnityEngine.Random.Range(NestFlukeLifeMin, NestFlukeLifeMax),
+                        AnimTime = UnityEngine.Random.Range(0f, 1f), // 错开动画相位
+                    };
+                    _noelFlukes.Add(fl);
+                }
+                try
+                {
+                    DashAudio.PlayFlukeCast();
+                }
+                catch (Exception)
+                {
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>每帧推进吸虫：重力、落地弹跳、命中判定、寿命与票据维护。</summary>
+        public static void TickNoelNestCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    return;
+                }
+                if (IsKnightMode)
+                {
+                    if (_noelFlukes.Count > 0)
+                    {
+                        _noelFlukes.Clear();
+                    }
+                    ReleaseNoelFlukeTicket();
+                    return;
+                }
+                float dt = Time.deltaTime;
+                for (int i = _noelFlukes.Count - 1; i >= 0; i--)
+                {
+                    NoelFluke fl = _noelFlukes[i];
+                    fl.Life -= dt;
+                    if (fl.Life <= 0f)
+                    {
+                        _noelFlukes.RemoveAt(i);
+                        continue;
+                    }
+                    fl.AnimTime += dt;
+                    fl.Vy += NestFlukeGravity * dt;
+                    fl.X += fl.Vx * dt;
+                    fl.Y += fl.Vy * dt;
+                    // 落地弹跳：脚部贴地时随机横向速度 + 向上弹起（同小骑士 / HK SpellFluke）
+                    float gy;
+                    if (fl.Vy > 0f && NoelFlukeGroundY(pr.Mp, fl.Y + 0.35f, fl.X, out gy))
+                    {
+                        float feet = fl.Y + 0.35f;
+                        if (feet >= gy - 0.35f && feet <= gy + 0.55f)
+                        {
+                            fl.Y = gy - 0.35f;
+                            fl.Vx = UnityEngine.Random.Range(-4f, 4f);
+                            fl.Vy = -UnityEngine.Random.Range(6f, 12f);
+                            fl.Flopping = true;
+                            fl.AnimTime = 0f;
+                            try
+                            {
+                                DashAudio.PlayFlukeBounce();
+                            }
+                            catch (Exception)
+                            {
+                            }
+                        }
+                    }
+                    else if (fl.Flopping && fl.AnimTime >= NoelFlukeFlopDuration())
+                    {
+                        fl.Flopping = false;
+                    }
+                    if (HitEnemyByNoelFluke(pr, fl))
+                    {
+                        _noelFlukes.RemoveAt(i); // 碰到敌人即消失
+                    }
+                }
+                EnsureNoelFlukeTicket(pr, _noelFlukes.Count > 0);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static float NoelFlukeFlopDuration()
+        {
+            return Mathf.Max(0.01f, NoelFlukeFlopSprites.Length / NestFlukeFps);
+        }
+
+        /// <summary>吸虫脚部是否踩到地面（复用地图 BCC 地板检测，同小骑士）。</summary>
+        private static bool NoelFlukeGroundY(Map2d mp, float feetY, float x, out float groundTop)
+        {
+            groundTop = float.NaN;
+            if (mp == null || mp.BCC == null)
+            {
+                return false;
+            }
+            try
+            {
+                BCCLine line;
+                float g = mp.BCC.isFallable(x, feetY - 0.30f, 0.15f, 0.35f, out line, true, true, -1f, null);
+                if (g >= 0f)
+                {
+                    groundTop = g;
+                    return true;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return false;
+        }
+
+        /// <summary>吸虫碰到敌人：固定真实伤害（7 / 带萨满之石 9）后消失。</summary>
+        private static bool HitEnemyByNoelFluke(PRNoel pr, NoelFluke fl)
+        {
+            try
+            {
+                Map2d mp = pr.Mp;
+                if (mp == null)
+                {
+                    return false;
+                }
+                int mask = NoelEnemyOverlapMask();
+                if (mask == 0)
+                {
+                    return false;
+                }
+                float mx = mp.pixel2ux(fl.X * mp.CLEN);
+                float my = mp.pixel2uy(fl.Y * mp.CLEN);
+                Vector2 center = mp.gameObject.transform.TransformPoint(new Vector2(mx, my));
+                Collider2D[] hits = Physics2D.OverlapCircleAll(center, NestFlukeHitRadius, mask);
+                for (int i = 0; i < hits.Length; i++)
+                {
+                    Collider2D c = hits[i];
+                    if (c == null)
+                    {
+                        continue;
+                    }
+                    NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
+                    if (enemy == null || !enemy.is_alive)
+                    {
+                        continue;
+                    }
+                    int dmg = NoelFlukeDamageNow();
+                    var atk = new NelAttackInfo();
+                    atk.hpdmg0 = dmg;
+                    atk.hpdmg_current = dmg;
+                    atk.fix_damage = true; // 真伤：不吃敌人减伤/浮动
+                    atk.Caster = pr;
+                    atk.AttackFrom = pr;
+                    atk.CenterXy(enemy.x, enemy.y, 0f);
+                    enemy.applyDamage(atk, false);
+                    return true;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return false;
+        }
+
+        /// <summary>吸虫票据（身前层 PR1，同小骑士的吸虫）。</summary>
+        private static void EnsureNoelFlukeTicket(PRNoel pr, bool want)
+        {
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null)
+            {
+                return;
+            }
+            if (!want)
+            {
+                ReleaseNoelFlukeTicket();
+                return;
+            }
+            if (!EnsureNoelFlukeTextures())
+            {
+                return; // 素材缺失：只是不显示，伤害照常
+            }
+            if (_noelFlukeMesh != null && _noelFlukeMap == mp && _noelFlukeTicket != null)
+            {
+                return;
+            }
+            ReleaseNoelFlukeTicket();
+            _noelFlukeMap = mp;
+            _noelFlukeMesh = new MeshDrawer(null, 4 * 64, 6 * 64);
+            _noelFlukeMesh.draw_gl_only = true;
+            _noelFlukeMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _noelFlukeMat.EnableKeyword("NO_PIXELSNAP");
+            _noelFlukeMesh.activate("noel_fluke", _noelFlukeMat, false, MTRX.ColWhite, null);
+            _noelFlukeTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR1, null, PrepareNoelFlukeMesh, _noelFlukeMesh, null, null);
+        }
+
+        private static void ReleaseNoelFlukeTicket()
+        {
+            try
+            {
+                if (_noelFlukeTicket != null && _noelFlukeMap != null && _noelFlukeMap.MovRenderer != null)
+                {
+                    _noelFlukeMap.MovRenderer.deassignDrawable(_noelFlukeTicket, -1);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (_noelFlukeMat != null)
+                {
+                    IN.DestroyOne(_noelFlukeMat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _noelFlukeTicket = null;
+            _noelFlukeMesh = null;
+            _noelFlukeMat = null;
+            _noelFlukeMap = null;
+        }
+
+        /// <summary>
+        /// 吸虫绘制（同小骑士）：矩阵锚定诺艾尔原点一次，每只吸虫按相对偏移绘制；
+        /// 空中播 6 帧循环、落地瞬间播 12 帧扑腾，按发射方向镜像。
+        /// </summary>
+        private static bool PrepareNoelFlukeMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelFlukeMap;
+            if (mp == null || _noelFlukeMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelFlukeMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || _noelFlukes.Count == 0)
+            {
+                MdOut = _noelFlukeMesh;
+                return true;
+            }
+            float mx = mp.pixel2ux(pr.x * mp.CLEN);
+            float my = mp.pixel2uy(pr.y * mp.CLEN);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mx, my, 0f));
+            for (int i = 0; i < _noelFlukes.Count; i++)
+            {
+                NoelFluke fl = _noelFlukes[i];
+                Texture2D tex;
+                if (fl.Flopping && _noelFlukeFlopTex != null && _noelFlukeFlopTex.Length > 0)
+                {
+                    int idx = Mathf.Clamp((int)(fl.AnimTime * NestFlukeFps), 0, _noelFlukeFlopTex.Length - 1);
+                    tex = _noelFlukeFlopTex[idx];
+                }
+                else if (_noelFlukeAirTex != null && _noelFlukeAirTex.Length > 0)
+                {
+                    int idx = Mathf.Abs((int)(fl.AnimTime * NestFlukeFps)) % _noelFlukeAirTex.Length;
+                    tex = _noelFlukeAirTex[idx];
+                }
+                else
+                {
+                    continue;
+                }
+                if (tex == null)
+                {
+                    continue;
+                }
+                float dxm = (fl.X - pr.x) * mp.CLEN;
+                float dym = -(fl.Y - pr.y) * mp.CLEN;
+                float w = tex.width * NestFlukeScale;
+                float h = tex.height * NestFlukeScale;
+                _noelFlukeMesh.Col = MTRX.ColWhite;
+                _noelFlukeMesh.initForImgAndTexture(tex);
+                _noelFlukeMesh.uv_top = 0f;
+                _noelFlukeMesh.uv_height = 1f;
+                if (fl.Dir > 0f)
+                {
+                    _noelFlukeMesh.uv_left = 1f;
+                    _noelFlukeMesh.uv_width = -1f;
+                }
+                else
+                {
+                    _noelFlukeMesh.uv_left = 0f;
+                    _noelFlukeMesh.uv_width = 1f;
+                }
+                _noelFlukeMesh.Rect(dxm, dym, w, h, false);
+            }
+            MdOut = _noelFlukeMesh;
+            return true;
+        }
+
+        /// <summary>吸虫贴图：`assets/hk/sheets/nest/sprites/`（与小骑士同一批帧）。</summary>
+        private static bool EnsureNoelFlukeTextures()
+        {
+            if (_noelFlukeAirTex != null && _noelFlukeFlopTex != null)
+            {
+                return true;
+            }
+            if (_noelFlukeLoadTried)
+            {
+                return _noelFlukeAirTex != null && _noelFlukeFlopTex != null;
+            }
+            _noelFlukeLoadTried = true;
+            try
+            {
+                string dir = System.IO.Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "assets", "hk",
+                    "sheets", "nest", "sprites");
+                _noelFlukeAirTex = LoadNoelFlukeFrames(dir, NoelFlukeAirSprites);
+                _noelFlukeFlopTex = LoadNoelFlukeFrames(dir, NoelFlukeFlopSprites);
+                if (_noelFlukeAirTex == null && _noelFlukeFlopTex == null)
+                {
+                    KnightInCradlePlugin.PluginLog?.LogWarning(
+                        "[KIC][吸虫之巢] 没找到吸虫素材（assets/hk/sheets/nest/sprites），吸虫不显示");
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static Texture2D[] LoadNoelFlukeFrames(string dir, string[] names)
+        {
+            try
+            {
+                var list = new List<Texture2D>();
+                for (int i = 0; i < names.Length; i++)
+                {
+                    string path = System.IO.Path.Combine(dir, names[i] + ".png");
+                    if (!System.IO.File.Exists(path))
+                    {
+                        continue;
+                    }
+                    var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                    if (!ImageConversion.LoadImage(tex, System.IO.File.ReadAllBytes(path)))
+                    {
+                        UnityEngine.Object.Destroy(tex);
+                        continue;
+                    }
+                    tex.filterMode = FilterMode.Point;
+                    tex.wrapMode = TextureWrapMode.Clamp;
+                    list.Add(tex);
+                }
+                return list.Count > 0 ? list.ToArray() : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 护符23：诺艾尔放出纯白之箭 / 聚能火球时，收掉原版子弹、改为喷出吸虫。
+        ///
+        /// 挂点：`MagicItem.explode(bool do_not_run1)` 的**后缀**（`MagicItem.cs:805`）。
+        /// 为什么用这个而不是 `M2PrSkill.explodeMagic`：后者把产物放在 `out` 参数里，
+        /// 而这里的返回值 `__result` 就是"这一发原版子弹"，语义一样但更好挂。
+        /// 为什么必须判 `do_not_run1`：全游戏只有 `M2PrSkill.explodeMagic`（放法术）会传 `true`
+        /// （`M2PrSkill.cs:3661`），子弹自己被打掉时走的是 `explode(false)`（`MagicItem.kill`）——
+        /// 不判这个，子弹每次消失都会再喷一群吸虫。
+        ///
+        /// 处理顺序（保证原版结算不炸）：
+        /// ① 先 `killHoldMagic(false,false,false)` 清掉蓄力 —— 这样上级拿到的 `_Expl == null`
+        ///    分支里 `fineHoldMagicTime` 走到的是"mp_hold ≤ 0 → 清 CurMg"的正常收尾
+        ///    （否则 `reduce_mp` 已被 explode 清零，会算 `casttime * mp_hold / 0` 出 NaN）；
+        /// ② 收掉原版子弹并把返回值置 null（上级会走它自己"这一发没成型"的既有分支：
+        ///    `M2PrSkill.cs:3662-3666`，与"CurMg 已失效"同一条路）；
+        /// ③ 同一帧喷出吸虫。
+        /// 魔力已在 `explodeMagic` 里扣过（`:3657-3660`），这里不再重复扣。
+        /// </summary>
+        private static void NoelNestMagicExplodePostfix(MagicItem __instance, bool do_not_run1,
+            ref MagicItem __result)
+        {
+            try
+            {
+                if (!do_not_run1 || IsKnightMode || !IsEquipped(CharmOwner.Noel, NestId))
+                {
+                    return;
+                }
+                if (__instance == null || !(__instance.Caster is PRNoel pr))
+                {
+                    return;
+                }
+                int count;
+                if (__instance.kind == MGKIND.WHITEARROW)
+                {
+                    count = KnightInCradlePlugin.NestArrowFlukeCount;
+                }
+                else if (__instance.kind == MGKIND.FIREBALL)
+                {
+                    count = KnightInCradlePlugin.NestFireballFlukeCount;
+                }
+                else
+                {
+                    return;
+                }
+                try
+                {
+                    if (pr.Skill != null)
+                    {
+                        pr.Skill.killHoldMagic(false, false, false); // 清蓄力（不返还）
+                    }
+                }
+                catch (Exception)
+                {
+                }
+                MagicItem proj = __result;
+                __result = null; // 让上级知道"这一发没有子弹"
+                if (proj != null)
+                {
+                    try
+                    {
+                        proj.kill(-1f); // 收掉原版子弹（不飞、不判定）
+                    }
+                    catch (Exception)
+                    {
+                    }
+                }
+                SpawnNoelFlukes(pr, count);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
         /// 护符21 苦痛荆棘（诺艾尔侧）效果①：诺艾尔不会受到**场景中荆棘/尖刺**的伤害。
         ///
         /// AIC 的棘刺伤害是"地图危险区"：地图 chip 带 `mapdmg` meta 时由 `BCCLine` 建成
@@ -4178,6 +4703,17 @@ namespace KnightInCradle.CharmUi
                 {
                     harmony.Patch(prDmgShell, prefix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(NoelShellDamagePrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符23 吸虫之巢（诺艾尔侧）：纯白之箭 / 聚能火球改成喷吸虫。
+                // 挂 MagicItem.explode(bool) 的后缀：返回值就是"这一发原版子弹"，
+                // 且只有法术释放会传 do_not_run1 = true（子弹自己被打掉时是 false）。
+                MethodInfo magicExplode = AccessTools.Method(typeof(MagicItem), "explode",
+                    new[] { typeof(bool) });
+                if (magicExplode != null)
+                {
+                    harmony.Patch(magicExplode, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(NoelNestMagicExplodePostfix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符4 灵魂捕手（诺艾尔侧）：法术命中敌人 → 回 6 MP。
