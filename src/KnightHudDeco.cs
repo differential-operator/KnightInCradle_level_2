@@ -363,19 +363,39 @@ namespace KnightInCradle
             // 护符30 乔尼的祝福（诺艾尔模式）：自绘蓝色 HP 条（与骑士模式的 deco 互不影响）
             if (!KnightInCradlePlugin.KnightModeActive)
             {
-                PRNoel prJoni = KnightInCradleBehaviour.GetPrPublic();
-                bool joniOn = CharmEffects.JoniBlessingActive(prJoni);
-                if (_joniGuiDiagCount < 12 && Time.frameCount % 60 == 0)
+                // 全部包在 try/catch 里并逐步打点：IMGUI 里的异常不会进 BepInEx 日志，会静默中断绘制
+                try
                 {
-                    _joniGuiDiagCount++;
-                    KnightInCradlePlugin.PluginLog?.LogInfo(
-                        "[KIC][乔尼HUD] OnGUI(诺艾尔分支) evt=" + Event.current.type +
-                        " pr=" + (prJoni != null) + " 佩戴=" + joniOn +
-                        " 单参=" + CharmEffects.IsEquipped(CharmEffects.JohnnyId));
+                    if (_joniGuiDiagCount < 12 && Time.frameCount % 60 == 0)
+                    {
+                        _joniGuiDiagCount++;
+                        KnightInCradlePlugin.PluginLog?.LogInfo(
+                            "[KIC][乔尼HUD] 进入OnGUI诺艾尔分支 evt=" + Event.current.type);
+                    }
+                    bool joniOn = false;
+                    try
+                    {
+                        PRNoel prJoni = KnightInCradleBehaviour.GetPrPublic();
+                        joniOn = CharmEffects.JoniBlessingActive(prJoni);
+                    }
+                    catch (Exception ex)
+                    {
+                        if (_joniGuiDiagCount <= 12)
+                        {
+                            KnightInCradlePlugin.PluginLog?.LogWarning("[KIC][乔尼HUD] 条件判断异常: " + ex.Message);
+                        }
+                    }
+                    if (Event.current.type == EventType.Repaint && joniOn)
+                    {
+                        DrawJoniHpBar();
+                    }
                 }
-                if (Event.current.type == EventType.Repaint && joniOn)
+                catch (Exception ex)
                 {
-                    DrawJoniHpBar();
+                    if (_joniGuiDiagCount <= 12)
+                    {
+                        KnightInCradlePlugin.PluginLog?.LogWarning("[KIC][乔尼HUD] OnGUI 分支异常: " + ex.Message);
+                    }
                 }
                 return;
             }
