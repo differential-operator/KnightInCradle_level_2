@@ -1978,46 +1978,28 @@ namespace KnightInCradle.CharmUi
         ///
         /// 关键：选择器的**逻辑**不能掐（原版靠它决定"这次咏唱哪一发"，
         /// `M2PrSkill.runMagicCheck` 里 `MagicSel.GetCurent(false)` 为 NONE 就不会开始咏唱），
-        /// 所以这里只掐**画面**：
-        /// ① `MagicSelector.drawEd` —— 选择环/法术图标（本方法返回 false 即不画）；
-        /// ② `MagicSelector.prepareTx` —— 选择界面的文字标签。
-        /// 效果是"只有咏唱动画、看不到选择界面"，与需求一致。
+        /// 所以这里只掐**画面**——而 AIC 自己就有"不弹选择界面"的路径：
+        /// `MagicSelector.slowInit`（`MagicSelector.cs:1062`）
+        ///
+        /// ```csharp
+        /// float num = event_quorter_ui_selection ? 4 : ((exist_count <= 1) ? 0 : CFG.magsel_slow);
+        /// ```
+        ///
+        /// ——**只掌握一发法术时**（`exist_count <= 1`）原版就不注册选择界面、不进选择慢动作/变暗，
+        /// 直接读条咏唱。所以这里在 `slowInit` 前缀里把 `exist_count` 临时压成 1：
+        /// 既不弹界面、也不变暗不慢放，咏唱流程完全走原版那条（拿得到 `GetCurent` → 咏唱动画照常）。
+        /// （之前拦 `drawEd` 的写法会让选择界面的淡出逻辑不执行 → 屏幕一直变暗，已废弃。）
         /// </summary>
-        private static bool DeepGatherDrawEdPrefix(object __instance, ref bool __result)
+        private static bool DeepGatherSlowInitPrefix(MagicSelector __instance)
         {
             try
             {
-                if (_deepGatherDiag2Count < 10)
-                {
-                    _deepGatherDiag2Count++;
-                    PRNoel prD = KnightInCradleBehaviour.GetPrPublic();
-                    KnightInCradlePlugin.PluginLog?.LogInfo(
-                        "[KIC][深聚诊断2] drawEd inst=" + (__instance != null ? __instance.GetType().Name : "null") +
-                        " 是诺艾尔选择器=" + IsDeepGatherMagicSelector(__instance) +
-                        " 模式骑士=" + IsKnightMode +
-                        " 佩戴=" + IsEquipped(CharmOwner.Noel, DeepGatherId) +
-                        " 是同一实例=" +
-                        (prD != null && prD.Skill != null && ReferenceEquals(__instance, prD.Skill.MagicSel)));
-                }
-                if (!IsDeepGatherMagicSelector(__instance))
+                if (!IsDeepGatherMagicSelector(__instance) || __instance.exist_count <= 1)
                 {
                     return true;
                 }
-                __result = false;
-                return false;
-            }
-            catch (Exception)
-            {
+                __instance.exist_count = 1; // 让原版以为"只有一发法术"→ 不弹界面
                 return true;
-            }
-        }
-
-        /// <summary>护符27 深度聚集：选择界面的文字标签也不生成（配套 drawEd 的隐藏）。</summary>
-        private static bool DeepGatherPrepareTxPrefix(object __instance)
-        {
-            try
-            {
-                return !IsDeepGatherMagicSelector(__instance);
             }
             catch (Exception)
             {
@@ -6393,15 +6375,11 @@ namespace KnightInCradle.CharmUi
                 }
                 // 护符27 深度聚集（诺艾尔侧）：② 不弹法术选择界面（只掐画面，逻辑照走，
                 // 否则原版拿不到"这次咏唱哪一发"，咏唱动画根本不会开始）
-                MethodInfo magDrawEd = AccessTools.Method(typeof(MagicSelector), "drawEd");
-                if (magDrawEd != null)
+                MethodInfo magSlowInit = AccessTools.Method(typeof(MagicSelector), "slowInit");
+                if (magSlowInit != null)
                 {
-                    PatchDeepGather(harmony, magDrawEd, nameof(DeepGatherDrawEdPrefix), "MagicSelector.drawEd(隐藏选择环)");
-                }
-                MethodInfo magPrepareTx = AccessTools.Method(typeof(MagicSelector), "prepareTx");
-                if (magPrepareTx != null)
-                {
-                    PatchDeepGather(harmony, magPrepareTx, nameof(DeepGatherPrepareTxPrefix), "MagicSelector.prepareTx(隐藏文字)");
+                    PatchDeepGather(harmony, magSlowInit, nameof(DeepGatherSlowInitPrefix),
+                        "MagicSelector.slowInit(只当'只掌握一发法术'→不弹界面/不变暗)");
                 }
                 // 护符27 深度聚集（诺艾尔侧）：③ 配套——回血期间不再重新开始咏唱（否则动画会反复闪）
                 MethodInfo reawakeMagic = AccessTools.Method(typeof(M2PrSkill), "reawakeMagic");

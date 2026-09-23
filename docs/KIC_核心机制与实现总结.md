@@ -3879,3 +3879,39 @@ if (skill == null || !ReferenceEquals(skill.getCurMagic(), Mg)) return;   // 只
 让回血期间保持干净的正常站姿。
 
 验证：`build=2026-09-23.36`，DLL SHA256 `200F0092D3E6AFFF…`（两份安装已同步；只覆盖 DLL）。
+
+### 42.5 【2026-09-23 第三稿（现用）】改走原版"只掌握一发法术"路径
+
+**用户实测（.36）**：选择界面仍会一闪、咏唱动画仍不播；
+**（.39）**：屏幕还会一直变暗，直到松开法术键才恢复。
+
+**两个新结论**：
+
+1. 拦 `MagicSelector.drawEd` 会让"选择界面淡出"的逻辑不执行（`FD_drawEd` 在 `drawEd` 返回 false 时
+   直接注销 binder），于是 `selectInit` 里那个把屏幕压暗的后处理（`POSTM.MAGICSELECT`）**永远等不到淡出**
+   → 屏幕一直暗 ✗。这条路废弃。
+2. 拦 `selectInit` / 掐逻辑都不行——它们都是原版"决定这次咏唱哪一发"的一环。
+
+**现用做法**：借原版自己的"不弹界面"分支。`MagicSelector.slowInit()` 里有：
+
+```csharp
+float num = event_quorter_ui_selection ? 4 : ((this.exist_count <= 1) ? 0 : CFG.magsel_slow);
+int num2 = (num <= 0f) ? 0 : X.IntR(this.Skill.MAGIC_CHANT_DELAY * num);
+if (num2 > 0) { base.selectInit(...); ... }   // ← 只有 num2 > 0 才注册选择界面/慢动作/变暗
+```
+
+也就是**只掌握一发法术时，原版本来就不弹选择界面**，直接读条咏唱。
+所以补丁改成：`MagicSelector.slowInit` 前缀里，把诺艾尔选择器的 `exist_count`（public 字段）
+临时压成 1（`exist_count > 1` 时才改）。
+
+效果：
+
+| 现象 | 结果 |
+|---|---|
+| 选择界面（选择环/文字/屏幕变暗/慢动作） | 原版自己就不注册 → **完全不出现、也不会再变暗** |
+| 咏唱动画 | 走原版"单法术"路径：`GetCurent` 拿得到法术 → `reawakeMagic` → **咏唱动画照常播放** |
+| 0.5 秒后 | 本模组 tick 清蓄力（结束咏唱动画）+ 开始 20MP/秒、1:1 回血 |
+
+（另：42.4 节的 `drawEd`/`prepareTx` 两个补丁已删除，`reawakeMagic` 只保留"回血期间不重新咏唱"。）
+
+验证：`build=2026-09-23.40`，DLL SHA256 `49866635CE1F3062…`（两份安装已同步；只覆盖 DLL）。
