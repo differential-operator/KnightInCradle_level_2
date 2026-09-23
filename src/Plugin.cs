@@ -194,7 +194,7 @@ namespace KnightInCradle
         internal static float NestFlukeDoubleHitChance =>
             NestFlukeDoubleHitChanceConfig != null
                 ? Mathf.Clamp(NestFlukeDoubleHitChanceConfig.Value, 0f, 1f)
-                : 0.5f;
+                : 0.25f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -417,8 +417,8 @@ namespace KnightInCradle
             NestFlukeSpeedMultConfig = Config.Bind("Charm23", "FlukeSpeedMult", 1.25f,
                 "吸虫之巢：吸虫**发射初速度**的倍率（默认 1.25 = 小骑士原速的 1.25 倍）。" +
                 "只影响发射瞬间的水平/垂直初速，落地弹跳速度不变。");
-            NestFlukeDoubleHitChanceConfig = Config.Bind("Charm23", "FlukeDoubleHitChance", 0.5f,
-                "吸虫之巢：吸虫命中敌人后再造成一次同样伤害的概率（默认 0.5 = 50%）。");
+            NestFlukeDoubleHitChanceConfig = Config.Bind("Charm23", "FlukeDoubleHitChance", 0.25f,
+                "吸虫之巢：吸虫命中敌人后再造成一次同样伤害的概率（默认 0.25 = 25%）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

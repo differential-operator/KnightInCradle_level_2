@@ -3556,3 +3556,18 @@ Vy = rand(-8, 1)      × FlukeSpeedMult
 | `Charm23` | `FlukeDoubleHitChance` | 0.5 | 命中后再造成一次伤害的概率（50%） |
 
 验证：`build=2026-09-23.26`，DLL SHA256 `49148332B6F15092…`（两份安装已同步；只覆盖 DLL）。
+
+### 36.7 【2026-09-23】二次伤害概率调回 25%
+
+需求：把 36.6 里设成 50% 的"命中后再造成一次伤害"概率调回 **25%**（= 小骑士的原始值）。
+
+- 代码默认值：`FlukeDoubleHitChance` 0.5 → **0.25**；
+- ⚠ **踩到的坑**：BepInEx 的 `.cfg` 一旦生成，就**不会**再被代码里的默认值覆盖。
+  单机安装的 `BepInEx/config/dev.KnightInCradle.cfg` 里已经写下了
+  `ArrowFlukeCount = 8` / `FireballFlukeCount = 14`（那是它们当时的默认值），
+  所以 36.6 改默认值后必须**同时手改这份 cfg**，否则用户侧仍然是 8 / 14。
+  本次已把该 cfg 改成 `ArrowFlukeCount = 10` / `FireballFlukeCount = 16`
+  （`FlukeSpeedMult`、`FlukeDoubleHitChance` 这两个键当时还没写进 cfg，重启后会按新默认值生成）。
+  **结论：以后凡是改"已有配置键"的默认数值，都要连带检查两份安装的 cfg。**
+
+验证：`build=2026-09-23.27`，DLL SHA256 `A154B0AB18201ECE…`（两份安装已同步；只覆盖 DLL，cfg 已同步单机那份）。
