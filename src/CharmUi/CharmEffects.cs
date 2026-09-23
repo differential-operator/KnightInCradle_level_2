@@ -1063,6 +1063,13 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
+                // 蹲伏/爬行时**不要**强制跑步：AIC 的姿势选择里 `isRunning()` 为真会无条件摆跑步姿势
+                // （AnimationShufflerNoel.cs:669-671），而蹲下左右移动应当走 `crawl`
+                // （同文件 :677 的 `isRunning() ? "run" : (flag2 ? "crawl" : "walk")`）。
+                if (pr.view_crouching || pr.forceCrouch(false, false))
+                {
+                    return;
+                }
                 // 只在**确实在移动**时强制跑步：AIC 的姿势选择里 `isRunning()` 为真会**无条件**摆跑步姿势
                 // （`AnimationShufflerNoel.cs:669-671`：`else if (isRunning()) dep_pose = "run";`），
                 // 静止时也跟着变跑步就错了。判据沿用游戏自己的"在移动"（`:677`）：

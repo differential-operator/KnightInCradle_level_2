@@ -2717,6 +2717,33 @@ public const float DashmasterRunSpeedMult = 0.8f;   // 0.17 → 0.136，仍快�
 
 验证：`build=2026-09-22.31`，DLL SHA256 `347614A5DD6A3126…`（两份安装已同步；只覆盖 DLL）。
 
+### 25.2 冲刺大师后续修正：蹲伏移动不再强制跑步（2026-09-23，build=2026-09-23.12）
+
+**症状**：佩戴冲刺大师后按蹲伏键左右移动，仍播放跑步动画（应为 `crawl`）。
+
+**原因**：`setDefaultPose` 的判断顺序是"先看跑步、后看蹲伏"——
+
+```csharp
+else if (this.Pr.isRunning())          // AnimationShufflerNoel.cs:669-671 —— 无条件 "run"
+    dep_pose = "run";
+bool flag2 = this.Pr.view_crouching || this.Pr.forceCrouch(false, false);
+... (this.Pr.isRunning() ? "run" : (flag2 ? "crawl" : "walk"))   // :677
+```
+
+`:669` 在 `flag2` 之前，所以只要 `isRunning()` 为真，蹲伏也会被摆成跑步姿势。
+
+**修正**：`DashmasterIsRunningPostfix` 在强制 `__result = true` 之前先判蹲伏，蹲伏时直接放行原值：
+
+```csharp
+if (pr.view_crouching || pr.forceCrouch(false, false)) return;   // 蹲伏/爬行：不强制跑步
+```
+
+放行后由游戏自己的逻辑给出 `crawl`：原版进入爬行时已经 `running = 0` 并清掉 `TO_*_RUN`
+（`unsafeAssem/m2d/M2MoverPr.cs:424-426`）。速度也不受影响——`calcWalkSpeed` 的蹲伏分支
+（`:1471-1473`，`walkSpeed × 0.75`）本来就优先于 `isRunning()` 的跑步分支（`:1477`）。
+
+验证：`build=2026-09-23.12`，DLL SHA256 `4D7934BFDA7AB490…`（两份安装已同步；只覆盖 DLL）。
+
 ---
 
 ## 26. 诺艾尔的护符第二部分（8）：10～14 号护符（2026-09-22，build=2026-09-22.43）
