@@ -2728,9 +2728,9 @@ namespace KnightInCradle.CharmUi
                         continue;
                     }
                     NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
-                    if (enemy == null || !enemy.is_alive || enemy.Mp != mp)
+                    if (enemy == null || !enemy.is_alive || enemy.Mp != mp || IsUniEnemy(enemy))
                     {
-                        continue;
+                        continue; // 不索敌"剑山及其污染体"（发光子宫追加效果）
                     }
                     float d = (enemy.x - sx) * (enemy.x - sx) + (enemy.y - sy) * (enemy.y - sy);
                     if (d < bestD)
@@ -2777,9 +2777,10 @@ namespace KnightInCradle.CharmUi
                             continue;
                         }
                         NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
-                        if (enemy != null && enemy.is_alive && enemy.Mp == mp && !IsEnemySummoning(enemy))
+                        if (enemy != null && enemy.is_alive && enemy.Mp == mp && !IsEnemySummoning(enemy) &&
+                            !IsUniEnemy(enemy))
                         {
-                            touched = true;
+                            touched = true; // 剑山不触发爆炸，小剑山继续飞
                             break;
                         }
                     }
@@ -2811,9 +2812,9 @@ namespace KnightInCradle.CharmUi
                         }
                         NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
                         if (enemy == null || !enemy.is_alive || enemy.Mp != mp || IsEnemySummoning(enemy) ||
-                            !applied.Add(enemy))
+                            IsUniEnemy(enemy) || !applied.Add(enemy))
                         {
-                            continue;
+                            continue; // 生成中的魔物与剑山都不吃爆炸伤害
                         }
                         var atk = new NelAttackInfo();
                         atk.hpdmg0 = dmg;
