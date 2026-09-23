@@ -639,10 +639,11 @@ namespace KnightInCradle.CharmUi
         private static int _noelElegyMask = -1;
 
         /// <summary>
-        /// 护符10 蜕变挽歌（诺艾尔侧）：诺艾尔**轻攻击**时向前发射一道剑气。
-        /// 轻攻击 = `M2PrSkill.executeSmallAttack` 产出的 `MGKIND.PR_PUNCH`
+        /// 护符10 蜕变挽歌（诺艾尔侧）：诺艾尔**轻攻击**（含蓄力后的魔法霰弹，见 2026-09-23 的需求）
+        /// 时向前发射一道剑气。挂点 `M2PrSkill.executeSmallAttack`，
+        /// 未蓄力时 kind = `MGKIND.PR_PUNCH`，蓄力释放时 kind 变成 `PR_SHOTGUN` / 各技艺 kind
         /// （`nel/M2PrSkill.cs:2705`：`mgkind = (CurMg == null) ? PR_PUNCH : PR_SHOTGUN`），
-        /// 因此魔法霰弹（PR_SHOTGUN）与各种技艺不会误触发。
+        /// 后者由 `IsNoelShotgunFlavored` 认出来；剑气会带上那一刀的攻击包结算伤害（见 `ApplyNoelElegyDamage`）。
         /// **不需要满血**（与小骑士的挽歌不同，这里没有血量条件）。
         /// </summary>
         private static void ElegyExecuteSmallAttackPostfix(MagicItem __result)
