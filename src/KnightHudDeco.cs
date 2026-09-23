@@ -46,6 +46,71 @@ namespace KnightInCradle
         private static readonly FieldInfo FMdH = AccessTools.Field(typeof(UIStatus), "MdH");
         private static readonly FieldInfo FMdM = AccessTools.Field(typeof(UIStatus), "MdM");
 
+        // ---- 护符30 乔尼的祝福：自绘 HP 条（纯蓝色 #0045FF）----
+        /// <summary>乔尼的祝福：自绘 HP 条颜色（需求指定 #0045FF，单一颜色）。</summary>
+        private static readonly Color JoniHpBarColor = new Color(0f, 69f / 255f, 1f, 1f);
+        private Texture2D _joniBarTex;
+
+        /// <summary>
+        /// 护符30 效果1：HP 条渲染成 MP 条那种颜色——直接**在 HUD 上自绘一条纯蓝矩形**盖住
+        /// HP 条的填充段（游戏本身的条是屏幕 shader `Nel/UiBg` 画的、颜色改不了）。
+        /// 矩形直接从 `MdH` 填充网格的前 4 个顶点取，所以位置/宽度与原条完全一致，
+        /// 数值不变（效果5：HP 条不随血量变化）。
+        /// </summary>
+        private void DrawJoniHpBar()
+        {
+            try
+            {
+                if (!TryGetHudAnchor(out float ax, out float ay, out float hpCx, out float mpCx, out float cy))
+                {
+                    return;
+                }
+                UIStatus ui = UIStatus.Instance;
+                if (ui == null || FMdH == null)
+                {
+                    return;
+                }
+                MeshDrawer mh = FMdH.GetValue(ui) as MeshDrawer;
+                if (mh == null)
+                {
+                    return;
+                }
+                Vector3[] v = mh.getVertexArray();
+                if (v == null || v.Length < 4)
+                {
+                    return;
+                }
+                float minX = Mathf.Min(v[0].x, v[1].x, v[2].x, v[3].x);
+                float maxX = Mathf.Max(v[0].x, v[1].x, v[2].x, v[3].x);
+                float minY = Mathf.Min(v[0].y, v[1].y, v[2].y, v[3].y);
+                float maxY = Mathf.Max(v[0].y, v[1].y, v[2].y, v[3].y);
+                float x0 = Px(minX, ax);
+                float x1 = Px(maxX, ax);
+                float y0 = Px(minY, ay);
+                float y1 = Px(maxY, ay);
+                float w = Mathf.Abs(x1 - x0);
+                float h = Mathf.Abs(y1 - y0);
+                if (w <= 0.5f || h <= 0.5f)
+                {
+                    return;
+                }
+                if (_joniBarTex == null)
+                {
+                    _joniBarTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+                    _joniBarTex.SetPixel(0, 0, Color.white);
+                    _joniBarTex.Apply();
+                    _joniBarTex.hideFlags = HideFlags.HideAndDontSave;
+                }
+                Color prev = GUI.color;
+                GUI.color = JoniHpBarColor;
+                GUI.DrawTexture(new Rect(Mathf.Min(x0, x1), Mathf.Min(y0, y1), w, h), _joniBarTex);
+                GUI.color = prev;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         // 梦语文本框（梦钉命中后显示，自动淡出）
         private static string _dreamText;
         private static float _dreamTextTimer;
@@ -269,6 +334,16 @@ namespace KnightInCradle
             // 护符界面打开时隐藏 HUD 装饰，避免叠在护符 UI 之上
             if (CharmUiController.Instance != null && CharmUiController.Instance.IsOpen)
             {
+                return;
+            }
+            // 护符30 乔尼的祝福（诺艾尔模式）：自绘蓝色 HP 条（与骑士模式的 deco 互不影响）
+            if (!KnightInCradlePlugin.KnightModeActive)
+            {
+                PRNoel prJoni = KnightInCradleBehaviour.GetPrPublic();
+                if (Event.current.type == EventType.Repaint && CharmEffects.JoniBlessingActive(prJoni))
+                {
+                    DrawJoniHpBar();
+                }
                 return;
             }
             // 骑士模式始终显示；切回诺艾尔时隐藏并重置淡入

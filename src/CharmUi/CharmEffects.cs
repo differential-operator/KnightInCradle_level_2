@@ -534,6 +534,67 @@ namespace KnightInCradle.CharmUi
             {
             }
             RefreshNoelHudMp();
+            // 魔力池打空 = 死亡（AIC 的死亡读 hp，所以这里绕过"扣血改扣魔"直接走原版强制死亡）
+            try
+            {
+                if (noel.get_mp() <= 0f)
+                {
+                    _joniDying = true;
+                    try
+                    {
+                        noel.applyHpDamage(9999, true, null);
+                    }
+                    finally
+                    {
+                        _joniDying = false;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                _joniDying = false;
+            }
+        }
+
+        /// <summary>true = 这次 HP 伤害是"魔力池打空后的强制死亡"，不要改写成扣魔。</summary>
+        private static bool _joniDying;
+
+        /// <summary>UIStatus.MdGageT（HUD 上的 HP/MP 数字网格），用于精确识别 HP 数字的绘制调用。</summary>
+        private static FieldInfo _uiMdGageTField;
+
+        /// <summary>
+        /// 护符30 效果3：**不显示 HP 条下方的数字**。
+        ///
+        /// HP 数字是 `UIStatus.redrawBarNumber` 用位图字体画的（`UIStatus.cs:2168`），与 MP 数字共用
+        /// 同一个网格 `MdGageT`；两者唯一的区别是 **HP 那次传了 `bounds_w = bounds_hp_w`（>0）**，
+        /// MP 那次传 0（`:2194`）。所以这里拦 `BMListChars.DrawScaleStringTo`：
+        /// 当"网格是 MdGageT 且 bounds_w > 0"（= 正在画 HP 数字）且佩戴乔尼时，直接不画。
+        /// </summary>
+        private static bool JoniHideHpNumberPrefix(MeshDrawer Md, float bounds_w)
+        {
+            try
+            {
+                if (bounds_w <= 0f || Md == null || IsKnightMode ||
+                    !IsEquipped(CharmOwner.Noel, JohnnyId))
+                {
+                    return true;
+                }
+                if (_uiMdGageTField == null)
+                {
+                    _uiMdGageTField = AccessTools.Field(typeof(UIStatus), "MdGageT");
+                }
+                UIStatus ui = UIStatus.Instance;
+                if (_uiMdGageTField == null || ui == null ||
+                    !ReferenceEquals(Md, _uiMdGageTField.GetValue(ui)))
+                {
+                    return true;
+                }
+                return false; // 不画 HP 数字
+            }
+            catch (Exception)
+            {
+                return true;
+            }
         }
 
         // ================= 生命上限修正：护符11 坚固心脏 / 28 生命血之心 / 29 生命血核心 =================
@@ -5589,6 +5650,10 @@ namespace KnightInCradle.CharmUi
             // 护符30 乔尼的祝福：扣血改由魔力池承担（HP 条不动）——放在被动之后，受击被动照常触发
             if (JoniBlessingActive(noel))
             {
+                if (_joniDying)
+                {
+                    return true; // 魔力池打空后的强制死亡：走原版 HP 结算
+                }
                 JoniRedirectDamageToMp(noel, val);
                 return false; // 不再走原本的 HP 结算
             }
@@ -6281,6 +6346,14 @@ namespace KnightInCradle.CharmUi
                 {
                     harmony.Patch(cureHp, prefix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(JoniCureHpPrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符30 乔尼的祝福（诺艾尔侧）：不显示 HP 条下方的数字
+                MethodInfo drawString = AccessTools.Method(typeof(BMListChars), "DrawScaleStringTo");
+                if (drawString != null)
+                {
+                    harmony.Patch(drawString, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(JoniHideHpNumberPrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符21 苦痛荆棘（诺艾尔侧）：场景中的荆棘/尖刺（MAPDMG.SPIKE）对诺艾尔无效。
