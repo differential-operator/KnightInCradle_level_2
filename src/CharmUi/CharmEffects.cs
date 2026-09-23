@@ -823,6 +823,10 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
+                if (IsEnemySummoning(enemy))
+                {
+                    return; // 生成中的魔物不能打（否则它渲染会永久消失）
+                }
                 NelAttackInfo src = b.CarriedAtk;
                 if (src != null)
                 {
@@ -1239,9 +1243,9 @@ namespace KnightInCradle.CharmUi
                         continue;
                     }
                     NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
-                    if (enemy == null || !enemy.is_alive || !done.Add(enemy))
+                    if (enemy == null || !enemy.is_alive || IsEnemySummoning(enemy) || !done.Add(enemy))
                     {
-                        continue;
+                        continue; // 生成中的魔物不吃苦痛荆棘反击
                     }
                     float dx = enemy.x - noel.x;
                     float dy = enemy.y - noel.y;
@@ -1742,6 +1746,27 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
+        /// 魔物是否处于**召唤/生成阶段**（`NelEnemy.STATE.SUMMONED`）。
+        /// 这个阶段**不能打**：AIC 的生成流程（`NelEnemy.runSummoned`，`NelEnemy.cs:1199-1236`）靠
+        /// 60 帧后自己调 `quitSummonAndAppear` 把 `disappearing` 复位；中途挨打会被踢出 SUMMONED 状态，
+        /// `disappearing` 无人复位 → **生成结束后魔物渲染永久消失**。
+        /// 小骑士侧在 `ApplyKnightAreaDamage`（`KnightEntity.cs:5022-5028`）里同样跳过。
+        /// 诺艾尔侧所有"模组自己直接调 `enemy.applyDamage`"的护符伤害都要先过这一关——
+        /// 原版攻击走的是命中检测，生成中的魔物本来就不会被选中，所以我们绕过了那一层。
+        /// </summary>
+        private static bool IsEnemySummoning(NelEnemy enemy)
+        {
+            try
+            {
+                return enemy != null && enemy.getState() == NelEnemy.STATE.SUMMONED;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 护符24 防御者纹章（诺艾尔侧）：与**小骑士那套完全相同**——
         /// ① 以诺艾尔为中心、半径 3 格的**深蓝法阵实心圆**（身后层 PR0）；
         /// ② 圆内敌人**进入立刻受 10 点伤害**（可击晕），之后**每 1 秒**仍在圆内再受 10 点；
@@ -1902,9 +1927,10 @@ namespace KnightInCradle.CharmUi
                             continue;
                         }
                         NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
-                        if (enemy == null || !enemy.is_alive || enemy.Mp != mp || !insideNow.Add(enemy))
+                        if (enemy == null || !enemy.is_alive || enemy.Mp != mp || IsEnemySummoning(enemy) ||
+                            !insideNow.Add(enemy))
                         {
-                            continue;
+                            continue; // 生成中的魔物不进法阵判定
                         }
                         if (!_noelShelterInside.Contains(enemy))
                         {
@@ -1925,6 +1951,10 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
+                if (IsEnemySummoning(enemy))
+                {
+                    return; // 生成中的魔物不能打（否则它渲染会永久消失）
+                }
                 var atk = new NelAttackInfo();
                 atk.hpdmg0 = dmg;
                 atk.hpdmg_current = dmg;
@@ -2665,7 +2695,7 @@ namespace KnightInCradle.CharmUi
                             continue;
                         }
                         NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
-                        if (enemy != null && enemy.is_alive && enemy.Mp == mp)
+                        if (enemy != null && enemy.is_alive && enemy.Mp == mp && !IsEnemySummoning(enemy))
                         {
                             touched = true;
                             break;
@@ -2698,7 +2728,8 @@ namespace KnightInCradle.CharmUi
                             continue;
                         }
                         NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
-                        if (enemy == null || !enemy.is_alive || enemy.Mp != mp || !applied.Add(enemy))
+                        if (enemy == null || !enemy.is_alive || enemy.Mp != mp || IsEnemySummoning(enemy) ||
+                            !applied.Add(enemy))
                         {
                             continue;
                         }
@@ -3174,9 +3205,9 @@ namespace KnightInCradle.CharmUi
                         continue;
                     }
                     NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
-                    if (enemy == null || !enemy.is_alive)
+                    if (enemy == null || !enemy.is_alive || IsEnemySummoning(enemy))
                     {
-                        continue;
+                        continue; // 生成中的魔物不挡吸虫（吸虫继续飞）
                     }
                     int dmg = NoelFlukeDamageNow();
                     var atk = new NelAttackInfo();

@@ -3697,3 +3697,39 @@ if (!sitting) { 每 SpawnInterval 秒：若 count < MaxCount 且 MP ≥ SpawnMpC
 
 验证：`build=2026-09-23.30`，DLL SHA256 `CAC245B46F56E5AA…`（两份安装已同步；只覆盖 DLL）。
 本护符同样不新增 Harmony 补丁。
+
+---
+
+## 39. 【Bug 修复】生成中的魔物被诺艾尔护符伤害打到会"渲染消失"（build=2026-09-23.31）
+
+**现象（用户实测）**：魔物**刚生成的阶段**就被攻击，会导致它的渲染永久消失（任何攻击都可能）。
+
+**根因**：AIC 的生成流程是 `NelEnemy.STATE.SUMMONED`
+（`NelEnemy.runSummoned`，`nel/NelEnemy.cs:1199-1236`）：生成的前 60 帧里
+`disappearing = true`（不可见），**到第 60 帧由它自己调 `quitSummonAndAppear` 把
+`disappearing` 复位**。中途挨打会被踢出 SUMMONED 状态，于是那句复位永远不执行 →
+生成结束后**渲染永久消失**（血条/判定还在）。
+
+原版攻击不会触发：命中判定走 `MGContainer.CircleCast`，生成中的魔物本来就选不中
+（小骑士侧注释写作"与原版 APPEARING 锁一致"）。但**模组自己直接调
+`enemy.applyDamage(...)` 的护符伤害绕过了这一层**，于是踩中：
+
+- 蜕变挽歌剑气（`ApplyNoelElegyDamage`，含兜底分支）
+- 苦痛荆棘反击（`TryThornsOfAgony`）
+- 吸虫之巢吸虫（`HitEnemyByNoelFluke`，含二次伤害）
+- 发光子宫小剑山爆炸（`NoelSpikeHitEnemy` 的触碰判定与 AoE）
+- 防御者纹章法阵（`ApplyNoelShelterDamage` / 圆内集合刷新）
+
+**修法**：在 CharmEffects 里加了与小骑士侧同名的判定
+
+```csharp
+private static bool IsEnemySummoning(NelEnemy enemy)
+    => enemy != null && enemy.getState() == NelEnemy.STATE.SUMMONED;
+```
+
+并在**上面每一条直接伤害路径**上加前置跳过（投影类攻击只是"不命中它"、不会被消耗，
+避免生成体白白吃掉一发剑气/吸虫）。
+小骑士侧本来就是这么做的（`ApplyKnightAreaDamage` `KnightEntity.cs:5022-5028`、
+`ResolveDamageTarget` `:24600-24605`），这次只是把诺艾尔侧补齐。
+
+验证：`build=2026-09-23.31`，DLL SHA256 `E2C049F68F541AB2…`（两份安装已同步；只覆盖 DLL）。
