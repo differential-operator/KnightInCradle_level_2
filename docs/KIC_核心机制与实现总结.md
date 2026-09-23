@@ -3945,3 +3945,23 @@ if (num2 > 0) { base.selectInit(...); ... }   // ← 只有 num2 > 0 才注册�
    到 0.5 秒 tick 清蓄力，动画随即结束并开始回血。
 
 验证：`build=2026-09-23.41`，DLL SHA256 `00C6669D24D0B3D7…`（两份安装已同步；只覆盖 DLL）。
+
+### 42.7 【2026-09-23 撤销】深度聚集（诺艾尔侧）现有实现整体移除
+
+**用户决定**：四稿都没能达到"长按法术键 → 看得见咏唱动画 → 0.5 秒后回血"的效果，
+先**把现有逻辑整体移除**，换一套新思路再做。
+
+已删除（`CharmEffects.cs` 里约 333 行 + 相关配置/tick 调用）：
+
+- 每帧 tick（长按计时 + 20MP/秒、1:1 回血 + 0.5 秒清蓄力）
+- `explodeMagic` 前缀（禁法术）
+- `MagicSelector.slowInit` 前缀（把 `exist_count` 压成 1、不弹选择界面）
+- `M2PrSkill.runMagExplodePrepare` 后缀（冻住准备阶段）
+- `M2PrSkill.reawakeMagic` 前缀（回血期间不重新咏唱）
+- 全部临时诊断日志（`[KIC][深聚诊断]`、`[KIC][深聚]`）
+- `[Charm27] HealDelay / MpPerSecond / ChantBoost` 三个配置键
+
+保留：`PR.getCastingTimeScale` 上只有**护符26 快速聚集**自己的 ×1.25（已还原），
+骑士侧的深度聚集实现不受影响。护符 27 目前在诺艾尔侧**没有效果**，等新逻辑。
+
+验证：`build=2026-09-23.42`，DLL SHA256 `C88A518EC0044CB3…`（两份安装已同步；只覆盖 DLL）。
