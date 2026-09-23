@@ -173,6 +173,12 @@ namespace KnightInCradle
         /// <summary>咏唱速度倍率（需求：+25%）。</summary>
         internal static ConfigEntry<float> FastGatherChantSpeedConfig;
 
+        // ---- 护符27 深度聚集（诺艾尔侧：咏唱时间 +50%、MP 转 HP、下一次伤害 +25%）----
+        /// <summary>咏唱时间倍率（需求：1.5 = 咏唱时间 +50%）。</summary>
+        internal static ConfigEntry<float> DeepGatherChantTimeConfig;
+        /// <summary>蓄力完成后"下一次伤害"的倍率（需求：1.25 = +25%）。</summary>
+        internal static ConfigEntry<float> DeepGatherNextDamageConfig;
+
 
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
@@ -242,6 +248,10 @@ namespace KnightInCradle
             ShelterCircleDamageConfig != null ? Mathf.Clamp(ShelterCircleDamageConfig.Value, 1, 999) : 10;
         internal static float FastGatherChantSpeedMult =>
             FastGatherChantSpeedConfig != null ? Mathf.Clamp(FastGatherChantSpeedConfig.Value, 0.1f, 5f) : 1.25f;
+        internal static float DeepGatherChantTimeMult =>
+            DeepGatherChantTimeConfig != null ? Mathf.Clamp(DeepGatherChantTimeConfig.Value, 0.5f, 5f) : 1.5f;
+        internal static float DeepGatherNextDamageMult =>
+            DeepGatherNextDamageConfig != null ? Mathf.Clamp(DeepGatherNextDamageConfig.Value, 1f, 5f) : 1.25f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -490,6 +500,13 @@ namespace KnightInCradle
             FastGatherChantSpeedConfig = Config.Bind("Charm26", "ChantSpeedMult", 1.25f,
                 "快速聚集：诺艾尔**魔法咏唱速度**倍率（默认 1.25 = +25%）。" +
                 "只加快咏唱/蓄力的推进速度，不改变魔法威力与耗魔总量。");
+            // 护符27 深度聚集（诺艾尔侧）
+            DeepGatherChantTimeConfig = Config.Bind("Charm27", "ChantTimeMult", 1.5f,
+                "深度聚集：诺艾尔**魔法咏唱时间**倍率（默认 1.5 = 咏唱时间 +50%）。" +
+                "只改读条时长，不改魔法威力与耗魔（耗魔仍按蓄力量结算）。");
+            DeepGatherNextDamageConfig = Config.Bind("Charm27", "NextDamageMult", 1.25f,
+                "深度聚集：**蓄力完成后**，下一次造成伤害的倍率（默认 1.25 = +25%）。" +
+                "作用于法术、魔法霰弹及其变种；命中一次后即消耗。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

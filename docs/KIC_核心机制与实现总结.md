@@ -3965,3 +3965,49 @@ if (num2 > 0) { base.selectInit(...); ... }   // ← 只有 num2 > 0 才注册�
 骑士侧的深度聚集实现不受影响。护符 27 目前在诺艾尔侧**没有效果**，等新逻辑。
 
 验证：`build=2026-09-23.42`，DLL SHA256 `C88A518EC0044CB3…`（两份安装已同步；只覆盖 DLL）。
+
+### 42.8 【2026-09-24 新逻辑（现用）】咏唱 +50% / 咏唱消耗的 MP 转 HP / 蓄力完成后下一击 +25%
+
+**用户新需求**（不再需要"选择界面/咏唱动画"那套折腾）：
+① 诺艾尔**魔法咏唱时间 +50%**；② **咏唱期间消耗的 MP 等量回 HP**；
+③ **蓄力完成后，下一次造成的伤害 +25%**（法术、魔法霰弹及其变种）。
+
+#### ① 咏唱时间 +50%
+
+沿用护符 26 的挂点 `PR.getCastingTimeScale`（`nel/PR.cs:5126`）后缀：
+
+```csharp
+__result /= DeepGatherChantTimeMult;   // 默认 1.5 → 咏唱时间 ×1.5
+```
+
+只对**正在咏唱的那一发**生效（`Skill.getCurMagic() == Mg`），威力/耗魔不变。
+与护符 26（×1.25 推进速度）同时佩戴时两者相乘，互不覆盖。
+
+#### ② 咏唱消耗的 MP 等量回 HP
+
+AIC 的施法扣魔发生在**释放那一下**：`M2PrSkill.explodeMagic`（`:3611`）
+→ `Pr.applyMpDamage(num2, true, null, false, false)`（`:3657-3660`）。所以：
+
+- `M2PrSkill.explodeMagic` **前缀**：给这一发打上"诺艾尔施法开销"的标记（只对本地诺艾尔）；
+- `PR.applyMpDamage`（5 参重载）**后缀**：若标记在，就按**实际扣掉的魔力**（`__result`）回等量 HP
+  （1 MP = 1 HP，用 `hp/maxhp` 字段直写 + `RefreshNoelHudHp()`，与坚硬外壳同一套读写方式）。
+
+用后缀是为了拿"真实消耗"：护符 14 法术扭曲者会先把这次扣魔减 10，回血按减后的值结算。
+HP 已满时不再转化（不浪费魔力）。
+
+#### ③ 蓄力完成后，下一次伤害 +25%
+
+- 每帧 tick：佩戴深度聚集且 `CurMg != null && isPreparingCircle && chant_finished` → 置位"下一击加成"；
+- 伤害侧：`NoelFinalDamageMult(kind, shotgunFlavored)`（**与萨满之石 / 坚固力量 / 会心同一个乘区**，
+  `CircleCast` 前缀与挽歌剑气共用）里追加 `ApplyDeepGatherNextDamage`：
+  只对**法术 / 魔法霰弹 / 霰弹变种**（即 `IsPlayerMagicKind(kind) || shotgunFlavored`）生效，
+  命中一次即消耗；打在近战等其它伤害上不消耗。
+
+配置：
+
+| 分组 | 键 | 默认 | 含义 |
+|---|---|---|---|
+| `Charm27` | `ChantTimeMult` | 1.5 | 咏唱时间倍率（+50%） |
+| `Charm27` | `NextDamageMult` | 1.25 | 蓄力完成后下一次伤害倍率（+25%） |
+
+验证：`build=2026-09-24.1`，DLL SHA256 `C56316EFC344EBE2…`（两份安装已同步；只覆盖 DLL）。

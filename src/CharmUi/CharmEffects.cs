@@ -1752,6 +1752,134 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
+        /// 护符27 深度聚集（诺艾尔侧，2026-09-24 新逻辑）：
+        /// ① **咏唱时间 +50%**：`PR.getCastingTimeScale` 后缀除以 `ChantTimeMult`（默认 1.5），
+        ///    只改读条时长，威力/耗魔照旧；
+        /// ② **咏唱消耗的 MP 等量回血**：法师扣魔的三个入口里，正常施放走
+        ///    `M2PrSkill.explodeMagic`（`M2PrSkill.cs:3611`）→ `Pr.applyMpDamage(num2,…)`；
+        ///    这里在 `explodeMagic` 前缀里打一个"这一发是诺艾尔施法开销"的标记，
+        ///    在 `PR.applyMpDamage` 后缀里用**实际扣掉的数值**回等量 HP（1 MP = 1 HP）。
+        /// ③ **蓄力完成后，下一次伤害 +25%**：每帧 tick 里发现 `CurMg.chant_finished` 就置位，
+        ///    由 `NoelFinalDamageMult`（与萨满之石/坚固力量/会心同一个乘区）在**法术、
+        ///    魔法霰弹及其变种**命中时乘上并消耗掉。
+        /// </summary>
+        private static bool _noelDeepGatherReady;      // 蓄力完成 → 下一次伤害 +25%
+        private static bool _noelDeepGatherCastCost;   // 这次 applyMpDamage 是诺艾尔施法开销
+        private static readonly FieldInfo DeepGatherPrHp = PrHpField;
+        private static readonly FieldInfo DeepGatherPrMaxHp = PrMaxHpField;
+
+        /// <summary>每帧推进（诺艾尔模式调用）：蓄力完成 → 置"下一次伤害 +25%"。</summary>
+        public static void TickNoelDeepGatherCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    return;
+                }
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, DeepGatherId))
+                {
+                    _noelDeepGatherReady = false;
+                    _noelDeepGatherCastCost = false;
+                    return;
+                }
+                M2PrSkill skill = pr.Skill;
+                MagicItem curMg = skill != null ? skill.getCurMagic() : null;
+                if (curMg != null && curMg.isPreparingCircle && curMg.chant_finished)
+                {
+                    _noelDeepGatherReady = true; // 蓄力完成
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>深度聚集的"下一次伤害 +25%"：只对法术/魔法霰弹/霰弹变种生效，命中一次即消耗。</summary>
+        private static float ApplyDeepGatherNextDamage(MGKIND kind, bool shotgunFlavored, float mult)
+        {
+            try
+            {
+                if (!_noelDeepGatherReady || IsKnightMode || !IsEquipped(CharmOwner.Noel, DeepGatherId))
+                {
+                    return mult;
+                }
+                if (!IsPlayerMagicKind(kind) && !shotgunFlavored)
+                {
+                    return mult; // 近战等其它伤害不消耗这个加成
+                }
+                _noelDeepGatherReady = false;
+                return mult * KnightInCradlePlugin.DeepGatherNextDamageMult;
+            }
+            catch (Exception)
+            {
+                return mult;
+            }
+        }
+
+        /// <summary>
+        /// 深度聚集②：`M2PrSkill.explodeMagic` 前缀——标记"这一发是诺艾尔施法开销"，
+        /// 让紧随其后的 `PR.applyMpDamage`（`M2PrSkill.cs:3657-3660`）被记下来。
+        /// </summary>
+        private static bool DeepGatherCostScopePrefix(M2PrSkill __instance)
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, DeepGatherId))
+                {
+                    return true;
+                }
+                PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+                if (pr != null && ReferenceEquals(__instance, pr.Skill))
+                {
+                    _noelDeepGatherCastCost = true;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 深度聚集②：`PR.applyMpDamage` 后缀——如果这次是施法开销，按**实际扣掉的魔力**回等量 HP。
+        /// 用后缀是为了拿到最终值（法术扭曲者可能先减过 10，回血要按真实消耗算）。
+        /// </summary>
+        private static void DeepGatherMpCostPostfix(PR __instance, ref int __result)
+        {
+            try
+            {
+                if (!_noelDeepGatherCastCost)
+                {
+                    return;
+                }
+                _noelDeepGatherCastCost = false;
+                if (__result <= 0 || IsKnightMode || !IsEquipped(CharmOwner.Noel, DeepGatherId))
+                {
+                    return;
+                }
+                PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+                if (pr == null || !ReferenceEquals(__instance, pr) || DeepGatherPrHp == null ||
+                    DeepGatherPrMaxHp == null)
+                {
+                    return;
+                }
+                int hp = (int)DeepGatherPrHp.GetValue(pr);
+                int maxHp = (int)DeepGatherPrMaxHp.GetValue(pr);
+                int heal = Mathf.Min(__result, maxHp - hp);
+                if (heal <= 0)
+                {
+                    return; // HP 已满：不浪费
+                }
+                DeepGatherPrHp.SetValue(pr, hp + heal);
+                RefreshNoelHudHp();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
         /// 护符26 快速聚集（诺艾尔侧）：诺艾尔**魔法咏唱速度 +25%**。
         ///
         /// 挂点：`PR.getCastingTimeScale(MagicItem Mg)`（`nel/PR.cs:5126`）的**后缀**——
@@ -1768,8 +1896,13 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (Mg == null || __instance == null || IsKnightMode ||
-                    !IsEquipped(CharmOwner.Noel, FastGatherId))
+                if (Mg == null || __instance == null || IsKnightMode)
+                {
+                    return;
+                }
+                bool fastGather = IsEquipped(CharmOwner.Noel, FastGatherId);
+                bool deepGather = IsEquipped(CharmOwner.Noel, DeepGatherId);
+                if (!fastGather && !deepGather)
                 {
                     return;
                 }
@@ -1783,7 +1916,15 @@ namespace KnightInCradle.CharmUi
                 {
                     return; // 只加快"正在咏唱的那一发"
                 }
-                __result *= KnightInCradlePlugin.FastGatherChantSpeedMult;
+                if (fastGather)
+                {
+                    __result *= KnightInCradlePlugin.FastGatherChantSpeedMult;
+                }
+                if (deepGather)
+                {
+                    // 深度聚集：咏唱时间 ×1.5 → 推进速度 ÷1.5
+                    __result /= Mathf.Max(0.01f, KnightInCradlePlugin.DeepGatherChantTimeMult);
+                }
             }
             catch (Exception)
             {
@@ -4776,6 +4917,8 @@ namespace KnightInCradle.CharmUi
             {
                 mult *= HeavyBlowFocusMult;
             }
+            // 护符27 深度聚集：蓄力完成后的"下一次伤害 +25%"（法术 / 魔法霰弹 / 霰弹变种）
+            mult = ApplyDeepGatherNextDamage(kind, shotgunFlavored, mult);
             return mult;
         }
 
@@ -6070,6 +6213,24 @@ namespace KnightInCradle.CharmUi
                 {
                     harmony.Patch(castScale, postfix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(FastGatherCastScalePostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符27 深度聚集（诺艾尔侧）：咏唱消耗的 MP 等量回 HP
+                // ① explodeMagic 前缀打标记（这一发是诺艾尔施法开销）
+                // ② PR.applyMpDamage 后缀按实际扣掉的魔力回等量 HP
+                MethodInfo deepExplode = AccessTools.Method(typeof(M2PrSkill), "explodeMagic");
+                if (deepExplode != null)
+                {
+                    harmony.Patch(deepExplode, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(DeepGatherCostScopePrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                MethodInfo mpDamage = AccessTools.Method(typeof(PR), "applyMpDamage",
+                    new[] { typeof(int), typeof(bool), typeof(AttackInfo), typeof(bool), typeof(bool) });
+                if (mpDamage != null)
+                {
+                    harmony.Patch(mpDamage, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(DeepGatherMpCostPostfix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符23 吸虫之巢（诺艾尔侧）：纯白之箭 / 聚能火球改成喷吸虫。
