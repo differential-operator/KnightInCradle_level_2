@@ -4237,3 +4237,47 @@ if (IsEquipped(CharmOwner.Noel, SturdyId)) {
 （幼虫之歌 / 苦痛荆棘仍用**原始伤害**结算，与本次组合规则无关。）
 
 验证：`build=2026-09-24.14`，DLL SHA256 `0C776954A089C24E…`（两份安装已同步；只覆盖 DLL）。
+
+### 44.8 【2026-09-24】组合的"2 秒无敌"为什么无效 → 改成**2 秒锁魔力池**
+
+**现象**（用户实测）：44.7 的 `GrantNoelInvincible`（AIC 原生 `NoDamage.Add(120)`）
+在乔尼 + 硬壳组合下**没有**给出 2 秒无敌。
+
+**原因（读了反编译源码）**：AIC 的无敌判定就在 `M2Attackable.applyHpDamage` 的**本体第一句**：
+
+```csharp
+// unsafeAssem/m2d/M2Attackable.cs:263-303
+public virtual int applyHpDamage(int val, bool force = false, AttackInfo Atk = null) {
+    if (!force && this.applyHpDamageRatio(Atk) == 0f) { // ← 无敌判定
+        return 0;                                        //    内部 = NoDamage.isActive()
+    }
+    ...
+}
+```
+
+乔尼这条路是"**拦下原本的 HP 结算**"（前缀 `return false` → 跳过整个本体），
+于是**连原版的无敌判定一起跳过了**：`NoDamage` 里写着 2 秒也没人读它，
+伤害照旧走 `applyMpDamage` 落到魔力池上。
+（硬壳单挂时之所以"2 秒内血量不动"，正是因为那条路 `return true`，本体照跑，
+原版的这一句帮我们挡下了伤害。）
+
+**改法**（用户指定）：改成**模组自己计时的"锁魔力池"**——
+
+```csharp
+if (IsEquipped(CharmOwner.Noel, SturdyId)) {
+    if (Time.time < _joniSturdyMpLockUntil) return false;   // 锁蓝中：伤害作废
+    if (val > SturdyJoniDamageCap) val = SturdyJoniDamageCap; // 50
+    JoniRedirectDamageToMp(noel, val);
+    _joniSturdyMpLockUntil = Time.time + SturdyJoniMpLockSeconds; // 2 秒
+    return false;
+}
+```
+
+新常量 `SturdyJoniMpLockSeconds = 2f`，新状态 `_joniSturdyMpLockUntil`
+（`Time.time` 秒；只挂乔尼时清零，避免残留）。
+
+**顺带补一个漏**：乔尼**单挂**时同样跳过了原版无敌判定，怪物贴身会连着扣魔；
+现在这条路先判 `noel.isNoDamageActive()`（尊重 AIC 自己的无敌帧，含原版受击后
+那 1.3 秒），是活跃的无敌帧就整帧作废。
+
+验证：`build=2026-09-24.15`，DLL SHA256 `C044156E4AE01DB3…`（两份安装已同步；只覆盖 DLL）。

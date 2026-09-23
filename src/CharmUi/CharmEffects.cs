@@ -236,6 +236,8 @@ namespace KnightInCradle.CharmUi
         /// 坚硬外壳 + 乔尼的祝福**同时携带**时的单次受伤上限（2026-09-24 用户指定的组合规则）。
         /// </summary>
         public const int SturdyJoniDamageCap = 50;
+        /// <summary>坚硬外壳 + 乔尼的祝福：受伤后"锁魔力池"的秒数（这段时间内不再受伤）。</summary>
+        public const float SturdyJoniMpLockSeconds = 2f;
         /// <summary>佩戴时寄存的"真实上限 / 真实血量"（COOK SF，随存档序列化）：
         /// 伪次数血把 hp/maxhp 字段改小了，读档与"卸下还原"都只能靠它们。</summary>
         private const string SturdyRealMaxHpKey = "kic_noel_sturdy_maxhp";
@@ -568,6 +570,12 @@ namespace KnightInCradle.CharmUi
 
         /// <summary>true = 这次 HP 伤害是"魔力池打空后的强制死亡"，不要改写成扣魔。</summary>
         private static bool _joniDying;
+
+        /// <summary>
+        /// 护符3 + 护符30 组合：锁蓝（锁魔力池）截止时刻（`Time.time`，秒）。
+        /// 组合生效期间，受伤后 2 秒内伤害一律作废。
+        /// </summary>
+        private static float _joniSturdyMpLockUntil;
 
         /// <summary>诺艾尔是否正坐在长椅上（AIC 原生 BENCH 系列状态）。</summary>
         private static bool IsNoelOnBench(PRNoel pr)
@@ -5781,17 +5789,35 @@ namespace KnightInCradle.CharmUi
                 }
                 // 护符3 坚硬外壳 + 护符30 乔尼的祝福（2026-09-24 组合规则）：
                 // 只保留这两条，次数血不再参与（见 TickNoelSturdyCharm 的说明）：
-                //   ① 单次受到的伤害上限 50；② 受伤后 2 秒无敌。
+                //   ① 单次受到的伤害上限 50；② 受伤后 2 秒锁魔力池（这段时间内不再受伤）。
+                //
+                // ⚠ 为什么"2 秒无敌"不能用 AIC 原生 NoDamage：乔尼这条路是**拦下原本的
+                // HP 结算**（返回 false 跳过 `applyHpDamage` 本体），而原版的无敌判定正是
+                // `applyHpDamage` 里的第一句 `applyHpDamageRatio(Atk) == 0 → return 0`
+                // （`M2Attackable.cs:263-303`）。跳过本体 = 连原版无敌判定一起跳过，
+                // 所以 `NoDamage.Add(120)` 对魔力池不起作用（上一版"没给 2 秒无敌"的原因）。
+                // 这里改成模组自己计时：锁蓝期间一律不受伤害。
                 if (IsEquipped(CharmOwner.Noel, SturdyId))
                 {
+                    if (Time.time < _joniSturdyMpLockUntil)
+                    {
+                        return false; // 锁蓝中：伤害作废（不扣魔力）
+                    }
                     if (val > SturdyJoniDamageCap)
                     {
                         val = SturdyJoniDamageCap;
                     }
                     JoniRedirectDamageToMp(noel, val);
-                    GrantNoelInvincible(noel, SturdyInvincibleFrames);
+                    _joniSturdyMpLockUntil = Time.time + SturdyJoniMpLockSeconds;
                     return false; // 不走原本的 HP 结算
                 }
+                // 其余情况尊重 AIC 自己的无敌帧（原版受击后的 1.3 秒等）：
+                // 同样因为跳过了本体，这一步必须自己补上，否则怪物贴身时会连续扣魔。
+                if (noel.isNoDamageActive())
+                {
+                    return false;
+                }
+                _joniSturdyMpLockUntil = 0f; // 只挂了乔尼：组合计时清空，避免残留
                 JoniRedirectDamageToMp(noel, val);
                 return false; // 不再走原本的 HP 结算
             }
