@@ -1752,6 +1752,184 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
+        /// 护符27 深度聚集（诺艾尔侧）：
+        /// ① **诺艾尔无法使用法术**——释放法术的汇聚点 `M2PrSkill.explodeMagic`（`M2PrSkill.cs:3611`）
+        ///    直接拦掉（清蓄力 + 不产生任何子弹）；
+        /// ② 长按法术键仍会走原版咏唱流程（`MAGIC_CHANT_DELAY = 14 帧` 后开始咏唱动画），
+        ///    但**不弹法术选择界面**——把 `ActiveSelector.selectInit`（选择界面的注册入口，
+        ///    `ActiveSelector.cs:85`）拦掉，于是既不画选择环、也不走选择界面的慢动作；
+        /// ③ 长按法术键满 `DeepGatherDelay`（0.5 秒）后开始**把 MP 转成 HP**：
+        ///    1 MP → 1 HP，消耗速度 `DeepGatherMpPerSecond = 20 MP/秒`，直到松开法术键；
+        ///    开始回血的同一帧清掉蓄力（= **结束魔法咏唱动画**）。
+        /// 判据沿用原版的"法术键按住"：`PR.isMagicO()`（`M2PrSkill.cs:3226` 用的同一个）。
+        /// </summary>
+        private const float DeepGatherDelay = 0.5f;         // 长按多久开始回血（秒）
+        private const float DeepGatherMpPerSecond = 20f;    // MP 消耗速度（每秒）
+        private static float _noelDeepGatherHold;           // 已连续按住法术键的时长（秒）
+        private static float _noelDeepGatherMpAcc;          // MP 消耗的小数累积（1 MP 一次结算）
+        private static bool _noelDeepGatherHealing;         // 当前是否处于回血中
+
+        /// <summary>每帧推进（诺艾尔模式调用）：长按计时、结束咏唱、MP→HP 转化。</summary>
+        public static void TickNoelDeepGatherCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    return;
+                }
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, DeepGatherId))
+                {
+                    _noelDeepGatherHold = 0f;
+                    _noelDeepGatherMpAcc = 0f;
+                    _noelDeepGatherHealing = false;
+                    return;
+                }
+                bool holding;
+                try
+                {
+                    holding = pr.isMagicO(0); // 和原版咏唱同一个判据
+                }
+                catch (Exception)
+                {
+                    holding = false;
+                }
+                if (!holding)
+                {
+                    _noelDeepGatherHold = 0f;
+                    _noelDeepGatherMpAcc = 0f;
+                    _noelDeepGatherHealing = false;
+                    return;
+                }
+                _noelDeepGatherHold += Time.deltaTime;
+                if (_noelDeepGatherHold < KnightInCradlePlugin.DeepGatherDelay)
+                {
+                    return; // 还没满 0.5 秒：这一段就是原版咏唱动画（不含选择界面）
+                }
+                _noelDeepGatherHealing = true;
+                // ③-a 结束魔法咏唱动画：清掉蓄力（同时也保证这一发永远不会真的放出去）
+                try
+                {
+                    M2PrSkill skill = pr.Skill;
+                    if (skill != null && skill.getCurMagic() != null)
+                    {
+                        skill.killHoldMagic(false, false, false);
+                    }
+                }
+                catch (Exception)
+                {
+                }
+                // ③-b MP → HP：1 MP = 1 HP，20 MP/秒（HP 满了就不消耗）
+                if (PrHpField == null || PrMaxHpField == null)
+                {
+                    return;
+                }
+                int hp = (int)PrHpField.GetValue(pr);
+                int maxHp = (int)PrMaxHpField.GetValue(pr);
+                if (hp >= maxHp)
+                {
+                    _noelDeepGatherMpAcc = 0f;
+                    return;
+                }
+                _noelDeepGatherMpAcc += KnightInCradlePlugin.DeepGatherMpPerSecond * Time.deltaTime;
+                int mpUse = (int)_noelDeepGatherMpAcc;
+                if (mpUse <= 0)
+                {
+                    return;
+                }
+                _noelDeepGatherMpAcc -= mpUse;
+                int mpNow = (int)pr.get_mp();
+                if (mpUse > mpNow)
+                {
+                    mpUse = mpNow;
+                }
+                if (mpUse <= 0)
+                {
+                    return;
+                }
+                int heal = Mathf.Min(mpUse, maxHp - hp);
+                if (heal <= 0)
+                {
+                    return;
+                }
+                try
+                {
+                    pr.applyMpDamage(mpUse, true, null, false, false);
+                }
+                catch (Exception)
+                {
+                }
+                PrHpField.SetValue(pr, hp + heal);
+                RefreshNoelHudHp();
+                RefreshNoelHudMp();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 护符27 深度聚集（效果①）：诺艾尔**无法使用法术**——`M2PrSkill.explodeMagic` 前缀直接拦掉，
+        /// 只清掉蓄力、不产生子弹（原版"这一发没成型"的既有分支，`M2PrSkill.cs:3662-3666`）。
+        /// 只对本地诺艾尔 + 佩戴深度聚集生效；清蓄力用 `killHoldMagic(false,…)`（不返还）。
+        /// </summary>
+        private static bool DeepGatherExplodeMagicPrefix(M2PrSkill __instance, ref bool __result)
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, DeepGatherId))
+                {
+                    return true;
+                }
+                PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+                if (pr == null || !ReferenceEquals(__instance, pr.Skill))
+                {
+                    return true; // 只管本地诺艾尔
+                }
+                try
+                {
+                    __instance.killHoldMagic(false, false, false);
+                }
+                catch (Exception)
+                {
+                }
+                __result = false;
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// 护符27 深度聚集（效果②）：不弹**法术选择界面**。
+        /// 拦 `ActiveSelector.selectInit`（选择界面的注册入口）——只对诺艾尔自己的 `MagicSel` 生效，
+        /// `slowInit()` 会因为返回 false 走"没有界面"的那条分支（不画选择环、也不进入选择慢动作）。
+        /// </summary>
+        private static bool DeepGatherSelectInitPrefix(ActiveSelector __instance)
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, DeepGatherId))
+                {
+                    return true;
+                }
+                PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+                M2PrSkill skill = pr != null ? pr.Skill : null;
+                if (skill == null || !ReferenceEquals(__instance, skill.MagicSel))
+                {
+                    return true;
+                }
+                return false; // 不注册选择界面
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>
         /// 护符26 快速聚集（诺艾尔侧）：诺艾尔**魔法咏唱速度 +25%**。
         ///
         /// 挂点：`PR.getCastingTimeScale(MagicItem Mg)`（`nel/PR.cs:5126`）的**后缀**——
@@ -6070,6 +6248,26 @@ namespace KnightInCradle.CharmUi
                 {
                     harmony.Patch(castScale, postfix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(FastGatherCastScalePostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符27 深度聚集（诺艾尔侧）：① 无法使用法术（拦 explodeMagic）
+                MethodInfo explodeMagic = AccessTools.Method(typeof(M2PrSkill), "explodeMagic");
+                if (explodeMagic != null)
+                {
+                    harmony.Patch(explodeMagic, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(DeepGatherExplodeMagicPrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符27 深度聚集（诺艾尔侧）：② 不弹法术选择界面（拦选择界面的注册入口）
+                MethodInfo selectInit = AccessTools.Method(typeof(ActiveSelector), "selectInit",
+                    new[]
+                    {
+                        typeof(M2DrawBinder), typeof(float), typeof(float), typeof(float),
+                    });
+                if (selectInit != null)
+                {
+                    harmony.Patch(selectInit, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(DeepGatherSelectInitPrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符23 吸虫之巢（诺艾尔侧）：纯白之箭 / 聚能火球改成喷吸虫。
