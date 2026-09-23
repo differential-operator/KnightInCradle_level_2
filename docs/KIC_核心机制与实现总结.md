@@ -4321,3 +4321,21 @@ private static bool JoniSturdyLockDamagePrefix(M2PrADmg __instance, ref int __re
 
 验证：`build=2026-09-24.16`，DLL SHA256 `65663255F05ADC4F…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 44.10 【2026-09-24】28 + 29 + 30 三件套额外 +90 魔力上限
+
+需求：**同时**佩戴 28 生命血之心、29 生命血核心、30 乔尼的祝福 → 额外获得 90 MP（上限）。
+
+实现就在 `TickNoelHeartCharm` 的上限公式里（新常量 `JoniBlueHeartMpBonus = 90`）：
+
+```csharp
+if (joni) {
+    mpDelta += targetHp;              // 护符30 效果2：魔力上限 += 当前生命上限
+    if (blue1 && blue2) mpDelta += JoniBlueHeartMpBonus;  // 三件套 +90
+}
+```
+
+顺序上它落在"生命上限算术之后"，所以总上限 = 基础魔力 +50（28）+100（29）+ 生命上限 +90。
+上限变化会走 44.5 那条路：坐在长椅上装卸 → HP/MP 一并回满。
+
+验证：`build=2026-09-24.17`，DLL SHA256 `20B9EEBBA86FE5D4…`（两份安装已同步；只覆盖 DLL）。

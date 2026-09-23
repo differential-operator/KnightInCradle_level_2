@@ -727,6 +727,11 @@ namespace KnightInCradle.CharmUi
         /// <summary>护符29 生命血核心：生命上限 -60、魔力上限 +100。</summary>
         public const int BlueHeart2HpDelta = -60;
         public const int BlueHeart2MpDelta = 100;
+        /// <summary>
+        /// 28 生命血之心 + 29 生命血核心 + 30 乔尼的祝福 **三件同时佩戴**时的额外魔力上限
+        /// （2026-09-24 追加需求）。
+        /// </summary>
+        public const int JoniBlueHeartMpBonus = 90;
 
         /// <summary>基础上限寄存键（COOK SF，随存档序列化）：用来区分"存档里已经带上加成了"。</summary>
         private const string HeartBaseMaxHpKey = "kic_noel_heart_base";
@@ -796,6 +801,12 @@ namespace KnightInCradle.CharmUi
                 if (joni)
                 {
                     mpDelta += targetHp;
+                    // 追加（2026-09-24）：28 生命血之心 + 29 生命血核心 + 30 乔尼的祝福
+                    // 三件同时佩戴，再额外 +90 魔力上限。
+                    if (blue1 && blue2)
+                    {
+                        mpDelta += JoniBlueHeartMpBonus;
+                    }
                 }
                 int targetMp = Mathf.Max(1, _noelHeartBaseMaxMp + mpDelta);
                 int nowHpMax = (int)PrMaxHpField.GetValue(pr);
