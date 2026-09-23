@@ -563,6 +563,64 @@ namespace KnightInCradle.CharmUi
         /// <summary>UIStatus.MdGageT（HUD 上的 HP/MP 数字网格），用于精确识别 HP 数字的绘制调用。</summary>
         private static FieldInfo _uiMdGageTField;
 
+        /// <summary>UIStatus.MdH（HP 条填充网格）——用来把填充段染成乔尼的蓝色。</summary>
+        private static FieldInfo _joniMdHField;
+        private static int _joniColorDiagCount; // 临时诊断（验证完删除）
+
+        /// <summary>
+        /// 护符30 效果1（正式做法）：诺艾尔佩戴乔尼的祝福时，把 HUD **HP 条的填充段染成 `#0045FF`**。
+        ///
+        /// 和小骑士的血条染色是**同一套机制**：挂 `UIStatus.redrawAll` 的**后缀**
+        /// ——它是血条/魔力条/数字的统一重绘入口（`CombatGuard.RedrawAllPostfix` 就是用它把
+        /// 骑士血条染黑的）；这里直接改 `MdH` 网格前 4 个顶点（= 填充段）的颜色，
+        /// 位置/长度仍是游戏自己算好的，所以不需要我们算矩形，也不受分辨率影响。
+        /// 只染填充段、不动其余顶点（背景/虚血段保持原样），因此空条外观与原来一致。
+        /// </summary>
+        private static void JoniRedrawAllPostfix(UIStatus __instance)
+        {
+            try
+            {
+                if (__instance == null || IsKnightMode || !IsEquipped(CharmOwner.Noel, JohnnyId))
+                {
+                    return;
+                }
+                if (_joniMdHField == null)
+                {
+                    _joniMdHField = AccessTools.Field(typeof(UIStatus), "MdH");
+                }
+                MeshDrawer md = _joniMdHField != null ? _joniMdHField.GetValue(__instance) as MeshDrawer : null;
+                if (md == null)
+                {
+                    return;
+                }
+                Color32[] cols = md.getColorArray();
+                if (cols == null || cols.Length == 0)
+                {
+                    return;
+                }
+                // #0045FF
+                const byte r = 0x00;
+                const byte g = 0x45;
+                const byte b = 0xFF;
+                int keep = Mathf.Min(4, cols.Length); // 前 4 个顶点 = 填充段
+                for (int i = 0; i < keep; i++)
+                {
+                    cols[i].r = r;
+                    cols[i].g = g;
+                    cols[i].b = b;
+                }
+                if (_joniColorDiagCount < 5)
+                {
+                    _joniColorDiagCount++;
+                    KnightInCradlePlugin.PluginLog?.LogInfo(
+                        "[KIC][乔尼HP条] 已把 HP 填充段染成 #0045FF（顶点数=" + cols.Length + "）");
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         /// <summary>
         /// 护符30 效果3：**不显示 HP 条下方的数字**。
         ///
@@ -6364,6 +6422,15 @@ namespace KnightInCradle.CharmUi
                 {
                     harmony.Patch(drawString, prefix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(JoniHideHpNumberPrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符30 乔尼的祝福（诺艾尔侧）：HP 条填充段染成 #0045FF
+                // （与骑士血条染色同一挂点：UIStatus.redrawAll 后缀，重绘瞬间改网格顶点颜色）
+                MethodInfo redrawAll = AccessTools.Method(typeof(UIStatus), "redrawAll");
+                if (redrawAll != null)
+                {
+                    harmony.Patch(redrawAll, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(JoniRedrawAllPostfix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符21 苦痛荆棘（诺艾尔侧）：场景中的荆棘/尖刺（MAPDMG.SPIKE）对诺艾尔无效。
