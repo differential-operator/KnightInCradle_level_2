@@ -1769,7 +1769,8 @@ namespace KnightInCradle.CharmUi
         private static float _noelDeepGatherMpAcc;          // MP 消耗的小数累积（1 MP 一次结算）
         private static bool _noelDeepGatherHealing;         // 当前是否处于回血中
         private static int _deepGatherDiagCount;            // 临时诊断计数器（验证完删除）
-        private static AccessTools.FieldRef<M2PrSkill, float> _deepGatherMagicT; // 临时诊断
+        private static int _deepGatherDiag2Count;           // 临时诊断计数器（验证完删除）
+        private static int _deepGatherDiag3Count;           // 临时诊断计数器（验证完删除）
         private static AccessTools.FieldRef<PR, PR.STATE> _deepGatherPrState;    // 临时诊断
 
         /// <summary>每帧推进（诺艾尔模式调用）：长按计时、结束咏唱、MP→HP 转化。</summary>
@@ -1806,17 +1807,13 @@ namespace KnightInCradle.CharmUi
                         M2PrSkill sk = pr.Skill;
                         MagicSelector sel = sk != null ? sk.MagicSel : null;
                         string curKind = sel != null ? sel.GetCurent(false).ToString() : "?";
-                        if (_deepGatherMagicT == null)
-                        {
-                            _deepGatherMagicT = AccessTools.FieldRefAccess<M2PrSkill, float>("magic_t");
-                        }
+                        // 注意：`magic_t` 是**属性**（字段叫 `magic_t_`），直接读属性
+                        float mT = sk != null ? sk.magic_t : -999f;
                         if (_deepGatherPrState == null)
                         {
                             _deepGatherPrState = AccessTools.FieldRefAccess<PR, PR.STATE>("state");
                         }
-                        float mT = _deepGatherMagicT != null && sk != null
-                            ? _deepGatherMagicT(sk)
-                            : -999f;
+                        string st = _deepGatherPrState != null ? _deepGatherPrState(pr).ToString() : "?";
                         KnightInCradlePlugin.PluginLog?.LogInfo(
                             "[KIC][深聚诊断] hold=" + _noelDeepGatherHold.ToString("F2") +
                             " healing=" + _noelDeepGatherHealing +
@@ -1825,7 +1822,7 @@ namespace KnightInCradle.CharmUi
                             " selActive=" + (sel != null && sel.isActive()) +
                             " selCur=" + curKind +
                             " magicT=" + mT.ToString("F1") +
-                            " state=" + _deepGatherPrState(pr));
+                            " state=" + st);
                     }
                 }
                 catch (Exception)
@@ -1990,6 +1987,18 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
+                if (_deepGatherDiag2Count < 10)
+                {
+                    _deepGatherDiag2Count++;
+                    PRNoel prD = KnightInCradleBehaviour.GetPrPublic();
+                    KnightInCradlePlugin.PluginLog?.LogInfo(
+                        "[KIC][深聚诊断2] drawEd inst=" + (__instance != null ? __instance.GetType().Name : "null") +
+                        " 是诺艾尔选择器=" + IsDeepGatherMagicSelector(__instance) +
+                        " 模式骑士=" + IsKnightMode +
+                        " 佩戴=" + IsEquipped(CharmOwner.Noel, DeepGatherId) +
+                        " 是同一实例=" +
+                        (prD != null && prD.Skill != null && ReferenceEquals(__instance, prD.Skill.MagicSel)));
+                }
                 if (!IsDeepGatherMagicSelector(__instance))
                 {
                     return true;
@@ -2027,6 +2036,15 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
+                if (_deepGatherDiag3Count < 10)
+                {
+                    _deepGatherDiag3Count++;
+                    PRNoel prD = KnightInCradleBehaviour.GetPrPublic();
+                    KnightInCradlePlugin.PluginLog?.LogInfo(
+                        "[KIC][深聚诊断3] reawakeMagic 回血中=" + _noelDeepGatherHealing +
+                        " 是本地诺艾尔技能=" + (prD != null && ReferenceEquals(__instance, prD.Skill)) +
+                        " 佩戴=" + IsEquipped(CharmOwner.Noel, DeepGatherId));
+                }
                 if (!_noelDeepGatherHealing || IsKnightMode ||
                     !IsEquipped(CharmOwner.Noel, DeepGatherId))
                 {
