@@ -481,6 +481,61 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        // ================= 护符30 乔尼的祝福（诺艾尔侧） =================
+        /// <summary>
+        /// 护符30 乔尼的祝福（用户逐条给效果；当前已实现 2 / 4 / 5）：
+        /// ・效果2：**魔力上限 = 基础上限 + 其它护符修正 + 当前生命上限**（把血条的量并进魔力池）；
+        /// ・效果4：HP 的**扣血 / 回血**都改由**魔力池**结算——
+        ///   扣血 → `applyMpDamage`（不扣 HP），回血（`PR.cureHp`）→ 改成回魔（`cureMp`）；
+        ///   魔力本身的收支本来就记在这个池子上，于是"回血/扣血/回魔/扣魔"都算在魔力条里；
+        /// ・效果5：HP 字段不再被伤害/治疗改动 → **HP 条不随之变化**。
+        ///
+        /// ・效果1（HP 条渲染颜色改成 MP 条的颜色）与效果3（HP 条下方数字显示 `???/???`）属 HUD 层：
+        ///   AIC 的 HP/MP 条由屏幕 shader `Nel/UiBg`（按 `_HpRatio/_MpRatio` 画）渲染、颜色烘在 shader 里；
+        ///   数字则由 `UIStatus.redrawBarNumber` 用位图字体拼成定长字符串。两者都没有现成钩子，
+        ///   需要额外手段（见 docs 第 44 节，等用户选方案）。
+        /// </summary>
+        public static bool JoniBlessingActive(PRNoel pr)
+        {
+            return !IsKnightMode && pr != null && IsEquipped(CharmOwner.Noel, JohnnyId);
+        }
+
+        /// <summary>护符30 效果4：诺艾尔**回血 → 改成回魔**（HP 条不动）。</summary>
+        private static bool JoniCureHpPrefix(PR __instance, int val)
+        {
+            try
+            {
+                if (val <= 0 || !(__instance is PRNoel))
+                {
+                    return true;
+                }
+                if (!JoniBlessingActive((PRNoel)__instance))
+                {
+                    return true;
+                }
+                __instance.cureMp(val); // 回血改记在魔力池上
+                RefreshNoelHudMp();
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>护符30 效果4：诺艾尔**扣血 → 改成扣魔**（HP 条不动）。由受伤前缀调用。</summary>
+        private static void JoniRedirectDamageToMp(PRNoel noel, int val)
+        {
+            try
+            {
+                noel.applyMpDamage(val, true, null, false, false);
+            }
+            catch (Exception)
+            {
+            }
+            RefreshNoelHudMp();
+        }
+
         // ================= 生命上限修正：护符11 坚固心脏 / 28 生命血之心 / 29 生命血核心 =================
         /// <summary>护符11 坚固心脏：佩戴后提升的生命上限。</summary>
         public const int HeartMaxHpBonus = 120;
@@ -536,7 +591,8 @@ namespace KnightInCradle.CharmUi
                 bool heart = !IsKnightMode && IsEquipped(CharmOwner.Noel, HeartId);
                 bool blue1 = !IsKnightMode && IsEquipped(CharmOwner.Noel, BlueHeart1Id);
                 bool blue2 = !IsKnightMode && IsEquipped(CharmOwner.Noel, BlueHeart2Id);
-                bool want = heart || blue1 || blue2;
+                bool joni = !IsKnightMode && IsEquipped(CharmOwner.Noel, JohnnyId); // 护符30 乔尼的祝福
+                bool want = heart || blue1 || blue2 || joni;
                 if (want && !_noelHeartActive)
                 {
                     ActivateNoelHeart(pr, heart);
@@ -554,6 +610,11 @@ namespace KnightInCradle.CharmUi
                               (blue2 ? BlueHeart2HpDelta : 0);
                 int mpDelta = (blue1 ? BlueHeart1MpDelta : 0) + (blue2 ? BlueHeart2MpDelta : 0);
                 int targetHp = Mathf.Max(1, _noelHeartBaseMaxHp + hpDelta);
+                // 护符30：魔力上限 += 当前生命上限（效果2）
+                if (joni)
+                {
+                    mpDelta += targetHp;
+                }
                 int targetMp = Mathf.Max(1, _noelHeartBaseMaxMp + mpDelta);
                 int nowHpMax = (int)PrMaxHpField.GetValue(pr);
                 int nowMpMax = (int)PrMaxMpField.GetValue(pr);
@@ -5525,6 +5586,12 @@ namespace KnightInCradle.CharmUi
             TryGrantGrubsongMp();
             // 护符21 苦痛荆棘：受到伤害 → 对半径 3 格内的敌人反击（同样用"原始伤害"）
             TryThornsOfAgony(noel, val);
+            // 护符30 乔尼的祝福：扣血改由魔力池承担（HP 条不动）——放在被动之后，受击被动照常触发
+            if (JoniBlessingActive(noel))
+            {
+                JoniRedirectDamageToMp(noel, val);
+                return false; // 不再走原本的 HP 结算
+            }
             if (!_noelSturdyActive)
             {
                 return true;
@@ -6205,6 +6272,15 @@ namespace KnightInCradle.CharmUi
                 {
                     harmony.Patch(sturdyDmg, prefix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(SturdyHpDamagePrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符30 乔尼的祝福（诺艾尔侧）：回血改成回魔（HP 条不动）
+                // 注意挂的是 PR 的 override（PR.cureHp 覆盖了 M2Attackable 的同名方法）
+                MethodInfo cureHp = AccessTools.Method(typeof(PR), "cureHp", new[] { typeof(int) });
+                if (cureHp != null)
+                {
+                    harmony.Patch(cureHp, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(JoniCureHpPrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符21 苦痛荆棘（诺艾尔侧）：场景中的荆棘/尖刺（MAPDMG.SPIKE）对诺艾尔无效。

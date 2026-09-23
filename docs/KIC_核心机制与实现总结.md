@@ -4090,3 +4090,42 @@ maxmp = base_mp + 生命血之心(+50) + 生命血核心(+100)
 | 11+28 同戴 | HP 上限 基础+90 |
 
 验证：`build=2026-09-24.4`，DLL SHA256 `B06FFCDF40C49CC8…`（两份安装已同步；只覆盖 DLL）。
+
+---
+
+## 44. 护符 30 乔尼的祝福（诺艾尔侧，2026-09-24，build=2026-09-24.5）
+
+**用户给的五条效果**（分步讲解中）：
+① HP 渲染颜色改成 MP 的渲染颜色；② MP 上限提高，数值 = 当前 HP 上限；
+③ HP 条下方数字显示 `???/???`；④（重点）MP 条既当血条又当魔力条：回血/扣血/血量相关机制 +
+回魔/扣魔/魔力相关机制**全部由这一条结算**；⑤ 回血/扣血/血量相关机制不影响 HP 条。
+
+### 44.1 本轮已实现：效果 2 / 4 / 5
+
+| 效果 | 做法 |
+|---|---|
+| ② MP 上限 += 当前 HP 上限 | 并进上一节那套"HP/MP 上限修正"里：`maxmp = base_mp + 其它护符修正 + (佩戴乔尼时) maxhp` |
+| ④ 扣血 → 扣魔 | 受伤前缀（`M2Attackable.applyHpDamage`）里，在幼虫之歌/苦痛荆棘等受击被动之后：改为 `PR.applyMpDamage(val,…)` 并 **返回 false**（不再走 HP 结算） |
+| ④ 回血 → 回魔 | `PR.cureHp(int)` 前缀：佩戴时改为调用 `cureMp(val)` 并返回 false（`cureHp` 在 PR 上有 override，必须挂 PR 而不是 M2Attackable） |
+| ⑤ HP 条不动 | 因为 hp 字段不再被伤害/治疗写，血条自然保持不动 |
+
+魔力本身的收支（法术耗魔、霰弹蓄力、灵魂捕手/噬魂者的回魔等）本来就记在 `mp` 上 ✓，
+所以效果 4 的"两条合一"在这几条改完之后自动成立：**蓝色魔力条就是唯一的命条**。
+
+> 已知未定：**魔力池见底时诺艾尔不会死亡**（AIC 的死亡判定读的是 hp，而 hp 现在被冻结）。
+> 等用户明确"池子打空是否等于死亡"后再处理。
+> 与护符 3 坚硬外壳的冲突按用户要求**暂不处理**。
+
+### 44.2 效果 1 / 3 的现状（HUD 层，需另选方案）
+
+- **效果1（HP 条颜色）**：AIC 的 HP/MP 条不是普通 UI 图，而是由屏幕 shader **`Nel/UiBg`**
+  按 `_HpRatio`/`_MpRatio` 两个 uniform 绘制（`UIBase.changeBgMaterial` → `MtrBg`），
+  条的颜色**烘在 shader 里**，C# 侧没有颜色 uniform；`MeshDrawer` 也不提供逐顶点改色的接口
+  （只有 `getVertexArray()` 读顶点位置、`setColorTe` 之类的绘制期变换）。→ 需要：改 shader 资源，
+  或由模组在 HUD 上**自绘一条蓝色覆盖条**（`KnightHudDeco` 已有读 `MdH/MdM` 顶点算条中心的工具，
+  可以复用其位置）。
+- **效果3（`???/???`）**：HP 数字是 `UIStatus.redrawBarNumber`（`UIStatus.cs:2124`）里用位图字体
+  `Chr.DrawScaleStringTo` 拼出来的定长字符串（`stb += (int)get_hp(); stb += "/"; stb += (int)get_maxhp();`），
+  没有现成钩子。→ 需要：Harmony transpiler 替换这串拼接，或由模组遮住原数字并自绘 `???/???`。
+
+验证：`build=2026-09-24.5`，DLL SHA256 `A96B0940C5EBC8AF…`（两份安装已同步；只覆盖 DLL）。
