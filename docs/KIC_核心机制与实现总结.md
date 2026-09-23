@@ -3344,3 +3344,58 @@ if (!_noelSturdyActive) ...
 
 验证：`build=2026-09-23.18`，DLL SHA256 `8AEDE4A9B31D329B…`，两份安装已同步；
 启动日志应是 `72 成功 / 0 失败`（上一版 71 + 本次新增的地图伤害前缀）。
+
+---
+
+## 35. 护符 22 巴尔德之壳（诺艾尔侧，2026-09-23，build=2026-09-23.19）
+
+**需求**：诺艾尔**正在进行魔法咏唱**时，自身中心渲染 `blocker_shell`（同小骑士的巴尔德之壳），
+并且**咏唱期间无敌**；另外要给"壳渲染大小 / 高度 / 宽度"三个可调配置。
+
+### 35.1 判定"正在咏唱"
+
+```csharp
+MagicItem curMg = pr.Skill.getCurMagic();          // 手里握着的那发魔法（`M2PrSkill.CurMg`）
+bool chanting = curMg != null && curMg.isPreparingCircle && pr.Skill.getHoldingMp(true) >= 1;
+```
+
+`CurMg` 只在"按住咏唱键、蓄力还留着"期间非空（落下时 `killHoldMagic` 会置 null），
+`getHoldingMp(true) >= 1` 与霰弹/法术扭曲者用的是同一套"蓄力量"读数——所以"咏唱开始 → 壳展开，
+蓄力被用光/被打断/松手施放 → 壳收起"这一条链是自动成立的。
+
+### 35.2 无敌
+
+1. **主**：每帧给 AIC 原生无敌续期——`M2Attackable.NoDamage.Add(2f)`
+   （`M2NoDamageManager.Add(float)` = 把 `NDMG.DEFAULT` 一系全类型无敌续到 `floort + 2`，
+   见 `M2NoDamageManager.cs:81-113`）。咏唱一停就不再续，**立刻失效**，不会残留无敌时间。
+2. **兜底 + "不算受伤"**：在已有的受伤前缀 `SturdyHpDamagePrefix`（`M2Attackable.applyHpDamage`）最前面，
+   壳生效时 `val = 0` 直接返回：
+   - 覆盖原生无敌挡不住的**穿透类**伤害（岩浆/雷霆 A/抓取穿透，`isPenetrateDefault`）；
+   - 同时跳过幼虫之歌（回魔）与苦痛荆棘（反击）——"壳挡下的攻击不算受伤"，
+     与小骑士侧的羁绊口径一致。
+
+### 35.3 渲染
+
+素材沿用骑士侧已部署的那套：`assets/hk/sheets/baldur/sprites/blocker_shell_*.png`
+（出现 4 帧 / 收起 3 帧，均为 20fps，与小骑士 `BaldurAppear`、`BaldurDisappear` 同一批帧）。
+
+- 剪辑：**展开时播出现（20fps）→ 停在持有帧 `blocker_shell_appear0004`；收起时播收起剪辑 → 隐藏**；
+- 锚点：诺艾尔**身体中心**（`mbottom - sizey/2`），可再按 `ShellOffsetY` 上下微调（y 向下为正）；
+- 图层：`M2Mover.DRAW_ORDER.PR1`（身前层，同小骑士的壳），叠 3 层绘制让壳更实（同小骑士做法）；
+- 尺寸基准取小骑士的 `BaldurShellScale = 0.26`：
+
+```
+w = 贴图宽 × 0.26 × ShellScale × ShellWidthRatio
+h = 贴图高 × 0.26 × ShellScale × ShellHeightRatio
+```
+
+### 35.4 配置
+
+| 分组 | 键 | 默认 | 含义 |
+|---|---|---|---|
+| `Charm22` | `ShellScale` | 1 | 壳整体渲染大小（宽高等比；1 = 小骑士的壳同尺寸） |
+| `Charm22` | `ShellWidthRatio` | 1 | 只改宽度 |
+| `Charm22` | `ShellHeightRatio` | 1 | 只改高度 |
+| `Charm22` | `ShellOffsetY` | 0 | 上下微调（格；负 = 向上） |
+
+验证：`build=2026-09-23.19`，DLL SHA256 `0C2F8A00A4A1CA20…`（两份安装已同步；只覆盖 DLL）。

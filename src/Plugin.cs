@@ -117,6 +117,16 @@ namespace KnightInCradle
         /// <summary>反击半径（格）。</summary>
         internal static ConfigEntry<float> ThornsRadiusConfig;
 
+        // ---- 护符22 巴尔德之壳（诺艾尔侧：咏唱时展开硬壳）----
+        /// <summary>壳贴图整体渲染大小倍率（宽高等比）。</summary>
+        internal static ConfigEntry<float> BaldurShellScaleConfig;
+        /// <summary>壳渲染宽度倍率（只改宽度）。</summary>
+        internal static ConfigEntry<float> BaldurShellWidthConfig;
+        /// <summary>壳渲染高度倍率（只改高度）。</summary>
+        internal static ConfigEntry<float> BaldurShellHeightConfig;
+        /// <summary>壳渲染位置上下微调（格；y 向下为正，负 = 向上）。</summary>
+        internal static ConfigEntry<float> BaldurShellOffsetYConfig;
+
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
         internal static float MagicSlashScale =>
@@ -135,6 +145,14 @@ namespace KnightInCradle
             ThornsDamageMultConfig != null ? Mathf.Clamp(ThornsDamageMultConfig.Value, 0.1f, 10f) : 2f;
         internal static float ThornsRadius =>
             ThornsRadiusConfig != null ? Mathf.Clamp(ThornsRadiusConfig.Value, 0.5f, 12f) : 3f;
+        internal static float BaldurShellScale =>
+            BaldurShellScaleConfig != null ? Mathf.Clamp(BaldurShellScaleConfig.Value, 0.05f, 5f) : 1f;
+        internal static float BaldurShellWidthRatio =>
+            BaldurShellWidthConfig != null ? Mathf.Clamp(BaldurShellWidthConfig.Value, 0.05f, 5f) : 1f;
+        internal static float BaldurShellHeightRatio =>
+            BaldurShellHeightConfig != null ? Mathf.Clamp(BaldurShellHeightConfig.Value, 0.05f, 5f) : 1f;
+        internal static float BaldurShellOffsetY =>
+            BaldurShellOffsetYConfig != null ? Mathf.Clamp(BaldurShellOffsetYConfig.Value, -5f, 5f) : 0f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -329,6 +347,15 @@ namespace KnightInCradle
                 "苦痛荆棘：受到伤害时，对周围敌人造成的伤害 = 这次受到的伤害 × 这个倍率（默认 2）。");
             ThornsRadiusConfig = Config.Bind("Charm21", "ThornsRadius", 3f,
                 "苦痛荆棘：反击的圆形半径（格，默认 3）。");
+            // 护符22 巴尔德之壳（诺艾尔侧：咏唱时展开硬壳）
+            BaldurShellScaleConfig = Config.Bind("Charm22", "ShellScale", 1f,
+                "巴尔德之壳：壳贴图的整体渲染大小倍率（宽高等比，默认 1 = 与小骑士的壳同尺寸）。");
+            BaldurShellWidthConfig = Config.Bind("Charm22", "ShellWidthRatio", 1f,
+                "巴尔德之壳：只改渲染宽度（默认 1）。");
+            BaldurShellHeightConfig = Config.Bind("Charm22", "ShellHeightRatio", 1f,
+                "巴尔德之壳：只改渲染高度（默认 1）。");
+            BaldurShellOffsetYConfig = Config.Bind("Charm22", "ShellOffsetY", 0f,
+                "巴尔德之壳：渲染位置上下微调（格；y 向下为正，负 = 向上，默认 0 = 诺艾尔身体中心）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

@@ -1265,6 +1265,362 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
+        /// 护符22 巴尔德之壳（诺艾尔侧）：
+        /// 诺艾尔**正在魔法咏唱**（= 正握着蓄力魔力）时，在她身体中心渲染 `blocker_shell`
+        /// （与小骑士的巴尔德之壳同一套素材/尺寸），并且**咏唱期间处于无敌状态**。
+        ///
+        /// ① 无敌：走 AIC 原生 `M2NoDamageManager`（`M2Attackable.NoDamage`），
+        ///    每帧续 2 帧（`BaldurShellInvincibleFrames`）——咏唱一停就立刻失效，不留尾巴；
+        ///    额外在受伤前缀 `SturdyHpDamagePrefix` 里把伤害改写成 0 作为兜底
+        ///    （覆盖原生无敌也挡不住的穿透类伤害，并让"壳挡下的攻击不算受伤"：
+        ///     幼虫之歌/苦痛荆棘都不触发，与小骑士侧的口径一致）。
+        /// ② 渲染：与小骑士一样播 出现(20fps,4 帧) → 持有帧 → 收起(3 帧)，
+        ///    锚点 = 诺艾尔身体中心（`mbottom - sizey/2`），图层 PR1（身前层）。
+        /// </summary>
+        private const float BaldurShellInvincibleFrames = 2f;
+        /// <summary>壳贴图基准缩放（取小骑士 `BaldurShellScale` 的同一数值，保证"同小骑士"的大小）。</summary>
+        private const float BaldurShellBaseScale = 0.26f;
+        /// <summary>壳动画帧率（与小骑士的 BaldurAppear/Disappear 一致）。</summary>
+        private const float BaldurShellFps = 20f;
+
+        private static readonly string[] NoelShellAppearSprites =
+        {
+            "blocker_shell_appear0000",
+            "blocker_shell_appear0001",
+            "blocker_shell_appear0002",
+            "blocker_shell_appear0004",
+        };
+        private static readonly string[] NoelShellDisappearSprites =
+        {
+            "blocker_shell_appear0002",
+            "blocker_shell_appear0001",
+            "blocker_shell_appear0000",
+        };
+
+        private static Texture2D _noelShellHoldTex;      // 完全展开后的持有帧
+        private static Texture2D[] _noelShellAppearTex;
+        private static Texture2D[] _noelShellDisappearTex;
+        private static Texture2D[] _noelShellPlayingTex; // 正在播的一次性剪辑（出现/收起）
+        private static Texture2D _noelShellCurTex;       // 本帧要画的帧
+        private static float _noelShellTimer;
+        private static int _noelShellIndex;
+        private static bool _noelShellActive;            // 壳展开中（= 正在咏唱）
+        private static bool _noelShellLoadTried;
+        private static MeshDrawer _noelShellMesh;
+        private static Material _noelShellMat;
+        private static M2RenderTicket _noelShellTicket;
+        private static Map2d _noelShellMap;
+
+        /// <summary>诺艾尔是不是"正在魔法咏唱"：握着蓄力魔力（`CurMg`）且蓄力量 ≥ 1。</summary>
+        private static bool IsNoelMagicChanting(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null || pr.Skill == null)
+                {
+                    return false;
+                }
+                MagicItem curMg = pr.Skill.getCurMagic();
+                return curMg != null && curMg.isPreparingCircle && pr.Skill.getHoldingMp(true) >= 1;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>巴尔德之壳此刻是否该生效（佩戴 + 诺艾尔模式 + 正在咏唱）。</summary>
+        private static bool IsNoelShellActive(PRNoel pr)
+        {
+            return !IsKnightMode && IsEquipped(CharmOwner.Noel, BaldurId) && IsNoelMagicChanting(pr);
+        }
+
+        /// <summary>每帧推进（诺艾尔模式调用）：壳的展开/收起、无敌续期、动画与票据维护。</summary>
+        public static void TickNoelBaldurShellCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    return;
+                }
+                bool want = IsNoelShellActive(pr);
+                if (want && !_noelShellActive)
+                {
+                    _noelShellActive = true;
+                    PlayNoelShellClip(true);
+                }
+                else if (!want && _noelShellActive)
+                {
+                    _noelShellActive = false;
+                    PlayNoelShellClip(false);
+                }
+                if (want)
+                {
+                    // 咏唱期间持续无敌（每帧续 2 帧，停下就立刻失效）
+                    try
+                    {
+                        if (PrNoDamageField != null &&
+                            PrNoDamageField.GetValue(pr) is M2NoDamageManager nd)
+                        {
+                            nd.Add(BaldurShellInvincibleFrames);
+                        }
+                    }
+                    catch (Exception)
+                    {
+                    }
+                }
+                AdvanceNoelShell(Time.deltaTime);
+                EnsureNoelShellTicket(pr, _noelShellActive || _noelShellPlayingTex != null);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>播一次"出现/收起"剪辑（贴图未加载时什么都不做）。</summary>
+        private static void PlayNoelShellClip(bool appear)
+        {
+            try
+            {
+                if (!EnsureNoelShellTextures())
+                {
+                    return;
+                }
+                _noelShellPlayingTex = appear ? _noelShellAppearTex : _noelShellDisappearTex;
+                _noelShellTimer = 0f;
+                _noelShellIndex = 0;
+                _noelShellCurTex = _noelShellPlayingTex != null && _noelShellPlayingTex.Length > 0
+                    ? _noelShellPlayingTex[0]
+                    : _noelShellHoldTex;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>壳动画推进：一次性剪辑播完 → 展开时停在持有帧，收起时消失。</summary>
+        private static void AdvanceNoelShell(float dt)
+        {
+            try
+            {
+                if (_noelShellPlayingTex == null)
+                {
+                    _noelShellCurTex = _noelShellActive ? _noelShellHoldTex : null;
+                    return;
+                }
+                _noelShellTimer += dt;
+                float frameTime = 1f / Mathf.Max(BaldurShellFps, 0.001f);
+                int guard = 30;
+                while (_noelShellTimer >= frameTime && guard-- > 0)
+                {
+                    _noelShellTimer -= frameTime;
+                    _noelShellIndex++;
+                }
+                if (_noelShellIndex >= _noelShellPlayingTex.Length)
+                {
+                    _noelShellPlayingTex = null;
+                    _noelShellCurTex = _noelShellActive ? _noelShellHoldTex : null;
+                }
+                else
+                {
+                    _noelShellCurTex = _noelShellPlayingTex[_noelShellIndex];
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>壳贴图：从 `assets/hk/sheets/baldur/sprites/` 读出现/收起帧与持有帧（只读一次）。</summary>
+        private static bool EnsureNoelShellTextures()
+        {
+            if (_noelShellHoldTex != null)
+            {
+                return true;
+            }
+            if (_noelShellLoadTried)
+            {
+                return false;
+            }
+            _noelShellLoadTried = true;
+            try
+            {
+                _noelShellAppearTex = LoadNoelShellFrames(NoelShellAppearSprites);
+                _noelShellDisappearTex = LoadNoelShellFrames(NoelShellDisappearSprites);
+                _noelShellHoldTex = LoadNoelShellTex(NoelShellAppearSprites[NoelShellAppearSprites.Length - 1]);
+                if (_noelShellHoldTex == null && _noelShellAppearTex != null && _noelShellAppearTex.Length > 0)
+                {
+                    _noelShellHoldTex = _noelShellAppearTex[_noelShellAppearTex.Length - 1];
+                }
+                if (_noelShellHoldTex == null)
+                {
+                    KnightInCradlePlugin.PluginLog?.LogWarning(
+                        "[KIC][巴尔德之壳] 没找到 blocker_shell 素材（assets/hk/sheets/baldur/sprites），壳不显示");
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static Texture2D[] LoadNoelShellFrames(string[] names)
+        {
+            if (names == null || names.Length == 0)
+            {
+                return null;
+            }
+            var list = new List<Texture2D>();
+            for (int i = 0; i < names.Length; i++)
+            {
+                Texture2D tex = LoadNoelShellTex(names[i]);
+                if (tex != null)
+                {
+                    list.Add(tex);
+                }
+            }
+            return list.Count > 0 ? list.ToArray() : null;
+        }
+
+        private static Texture2D LoadNoelShellTex(string sprite)
+        {
+            try
+            {
+                string path = System.IO.Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "assets", "hk",
+                    "sheets", "baldur", "sprites", sprite + ".png");
+                if (!System.IO.File.Exists(path))
+                {
+                    return null;
+                }
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (!ImageConversion.LoadImage(tex, System.IO.File.ReadAllBytes(path)))
+                {
+                    UnityEngine.Object.Destroy(tex);
+                    return null;
+                }
+                tex.filterMode = FilterMode.Point;
+                tex.wrapMode = TextureWrapMode.Clamp;
+                return tex;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>壳票据：绑当前地图的 MovRenderer（身前层 PR1，同小骑士的壳）。</summary>
+        private static void EnsureNoelShellTicket(PRNoel pr, bool want)
+        {
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null)
+            {
+                return;
+            }
+            if (!want)
+            {
+                ReleaseNoelShellTicket();
+                return;
+            }
+            if (!EnsureNoelShellTextures())
+            {
+                return; // 素材缺失：只是不显示，无敌照常
+            }
+            if (_noelShellMesh != null && _noelShellMap == mp && _noelShellTicket != null)
+            {
+                return;
+            }
+            ReleaseNoelShellTicket();
+            _noelShellMap = mp;
+            _noelShellMesh = new MeshDrawer(null, 4 * 16, 6 * 16);
+            _noelShellMesh.draw_gl_only = true;
+            _noelShellMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _noelShellMat.EnableKeyword("NO_PIXELSNAP");
+            _noelShellMesh.activate("noel_baldur_shell", _noelShellMat, false, MTRX.ColWhite, null);
+            _noelShellTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR1, null, PrepareNoelShellMesh, _noelShellMesh, null, null);
+        }
+
+        private static void ReleaseNoelShellTicket()
+        {
+            try
+            {
+                if (_noelShellTicket != null && _noelShellMap != null && _noelShellMap.MovRenderer != null)
+                {
+                    _noelShellMap.MovRenderer.deassignDrawable(_noelShellTicket, -1);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (_noelShellMat != null)
+                {
+                    IN.DestroyOne(_noelShellMat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _noelShellTicket = null;
+            _noelShellMesh = null;
+            _noelShellMat = null;
+            _noelShellMap = null;
+        }
+
+        /// <summary>
+        /// 壳绘制：锚定诺艾尔身体中心，按当前帧画 `blocker_shell`。
+        /// 尺寸 = 贴图尺寸 × `BaldurShellBaseScale`（同小骑士）× `ShellScale` × `ShellWidth/HeightRatio`；
+        /// 位置 = 身体中心 + `ShellOffsetY` 格（y 向下为正）。为了和小骑士一样"更实"，叠 3 层绘制。
+        /// </summary>
+        private static bool PrepareNoelShellMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelShellMap;
+            if (mp == null || _noelShellMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelShellMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            Texture2D tex = _noelShellCurTex;
+            if (pr == null || tex == null)
+            {
+                MdOut = _noelShellMesh;
+                return true;
+            }
+            float cy = pr.mbottom - pr.sizey * 0.5f + KnightInCradlePlugin.BaldurShellOffsetY;
+            float mx = mp.pixel2ux(pr.x * mp.CLEN);
+            float my = mp.pixel2uy(cy * mp.CLEN);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mx, my, 0f));
+            float scale = BaldurShellBaseScale * KnightInCradlePlugin.BaldurShellScale;
+            float w = tex.width * scale * KnightInCradlePlugin.BaldurShellWidthRatio;
+            float h = tex.height * scale * KnightInCradlePlugin.BaldurShellHeightRatio;
+            if (w <= 0f || h <= 0f)
+            {
+                MdOut = _noelShellMesh;
+                return true;
+            }
+            _noelShellMesh.Col = MTRX.ColWhite;
+            _noelShellMesh.initForImgAndTexture(tex);
+            _noelShellMesh.uv_top = 0f;
+            _noelShellMesh.uv_height = 1f;
+            _noelShellMesh.uv_left = 0f;
+            _noelShellMesh.uv_width = 1f;
+            // `MeshDrawer.Rect(x, y, w, h)` 的 (x,y) 就是矩形中心 → (0,0) = 以锚点为中心
+            _noelShellMesh.Rect(0f, 0f, w, h, false);
+            _noelShellMesh.Rect(0f, 0f, w, h, false);
+            _noelShellMesh.Rect(0f, 0f, w, h, false);
+            MdOut = _noelShellMesh;
+            return true;
+        }
+
+        /// <summary>
         /// 护符21 苦痛荆棘（诺艾尔侧）效果①：诺艾尔不会受到**场景中荆棘/尖刺**的伤害。
         ///
         /// AIC 的棘刺伤害是"地图危险区"：地图 chip 带 `mapdmg` meta 时由 `BCCLine` 建成
@@ -2979,6 +3335,13 @@ namespace KnightInCradle.CharmUi
         {
             if (!(__instance is PRNoel noel) || val <= 0)
             {
+                return true;
+            }
+            // 护符22 巴尔德之壳：咏唱中被壳保护 —— 不扣血，且不算"受伤"
+            // （幼虫之歌/苦痛荆棘都不触发，与小骑士侧"壳挡下的攻击不计为受伤"一致）
+            if (IsNoelShellActive(noel))
+            {
+                val = 0;
                 return true;
             }
             // 护符9 幼虫之歌：受到伤害 → 立刻回 20MP（用"原始伤害"判断，先于坚硬外壳的改写）
