@@ -302,8 +302,9 @@ namespace KnightInCradle
                 "蜕变挽歌：蓄力释放（魔法霰弹及其变种）时是否也发射剑气（默认开）。" +
                 "关掉则只有不蓄力的轻攻击会发射剑气。");
             ElegyShotgunOnHitConfig = Config.Bind("Charm10", "ElegyShotgunOnHit", true,
-                "蜕变挽歌：蓄力释放的剑气命中敌人时，是否视为对其触发一次魔法霰弹" +
-                "（伤害 + 原版霰弹击中动画/音效）并清掉自己的蓄力（默认开）。");
+                "蜕变挽歌：蓄力释放的剑气命中敌人时，是否补上原版魔法霰弹的击中动画/音效" +
+                "并清掉自己的蓄力（默认开）。剑气伤害不受这个开关影响：" +
+                "未蓄力=诺艾尔轻攻击的伤害，已蓄力=魔法霰弹的伤害。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

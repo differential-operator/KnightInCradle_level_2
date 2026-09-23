@@ -590,7 +590,11 @@ namespace KnightInCradle.CharmUi
         /// <summary>剑气判定箱（世界单位）——与小骑士一致。</summary>
         public const float ElegyHitboxW = 2.0f;
         public const float ElegyHitboxH = 1.4f;
-        /// <summary>剑气伤害：**真实伤害**（`fix_damage`，不按非满血减伤打折）。（2026-09-22 四稿：30 → 18）</summary>
+        /// <summary>
+        /// 剑气伤害的**兜底值**（只在拿不到这一刀的攻击包数据时用）。
+        /// 正式伤害按需求改成"复用那一刀的攻击包"：
+        /// 未蓄力 = 轻攻击的伤害，已蓄力 = 魔法霰弹（含变种）的伤害。
+        /// </summary>
         public const int ElegyDamage = 18;
         /// <summary>剑气贴图（与小骑士同款）。</summary>
         public const string ElegySprite = "slashes_effect0001";
@@ -611,13 +615,18 @@ namespace KnightInCradle.CharmUi
             /// <summary>这一道剑气是不是"蓄力释放"（魔法霰弹及其变种）发出来的——贴图用 magic 版。</summary>
             public bool Magic;
             /// <summary>
-            /// 蓄力释放时，把这一刀的**霰弹判定参数**整份抄下来（`NelAttackInfo` 复制构造）。
-            /// 剑气命中敌人时按这份数据结算一次"魔法霰弹击中"，然后清掉蓄力。
-            /// null = 不是蓄力释放的剑气。
+            /// 发射这道剑气的那一刀的攻击包（`NelAttackInfo` 复制构造，独立于原包，不怕原包回收）。
+            /// 剑气命中时按这份数据结算伤害：未蓄力 = 轻攻击的伤害，已蓄力 = 魔法霰弹的伤害。
             /// </summary>
-            public NelAttackInfo ShotAtk;
-            /// <summary>这把刀（挥击）的 kind——用来算"萨满之石/坚固力量"的乘区。</summary>
-            public MGKIND ShotKind;
+            public NelAttackInfo CarriedAtk;
+            /// <summary>那一刀的 kind——用来算"萨满之石/坚固力量"的乘区。</summary>
+            public MGKIND CarriedKind;
+            /// <summary>
+            /// 那一刀的"伤害发布率"（`PR.getHpDamagePublishRatio`，含力量等级等加成）。
+            /// 原版在 `CircleCast` 里用它 `shuffleHpMpDmg`；这里在**开火时**先记下来，
+            /// 命中时按同一口径结算，伤害才与真正打出那一刀一致。
+            /// </summary>
+            public float CarriedRatio;
             public readonly HashSet<NelEnemy> Hits = new HashSet<NelEnemy>();
         }
 
@@ -665,18 +674,22 @@ namespace KnightInCradle.CharmUi
                     return;
                 }
                 float dir = pr.mpf_is_right;
-                NelAttackInfo shotAtk = null;
-                if (charged && __result.Atk0 != null)
+                // 把"这一刀的攻击判定"抄一份下来：剑气命中时当作那一刀打中该敌人来结算
+                // （未蓄力 = 轻攻击，已蓄力 = 魔法霰弹；这一份是独立的 NelAttackInfo，
+                //  不会随原攻击包回收而失效）。同时记下这一刀的"伤害发布率"。
+                NelAttackInfo carriedAtk = null;
+                float carriedRatio = 1f;
+                if (__result.Atk0 != null)
                 {
-                    // 把"这一刀的霰弹判定"抄一份下来：剑气命中时用它当作魔法霰弹结算
-                    // （这一份是独立的 NelAttackInfo，不会随原攻击包回收而失效）
                     try
                     {
-                        shotAtk = new NelAttackInfo(__result.Atk0);
+                        carriedAtk = new NelAttackInfo(__result.Atk0);
+                        carriedRatio = pr.getHpDamagePublishRatio(__result);
                     }
                     catch (Exception)
                     {
-                        shotAtk = null;
+                        carriedAtk = null;
+                        carriedRatio = 1f;
                     }
                 }
                 _noelElegyBlades.Add(new NoelElegyBlade
@@ -686,8 +699,9 @@ namespace KnightInCradle.CharmUi
                     Dir = dir,
                     Traveled = 0f,
                     Magic = charged,
-                    ShotAtk = shotAtk,
-                    ShotKind = __result.kind,
+                    CarriedAtk = carriedAtk,
+                    CarriedKind = __result.kind,
+                    CarriedRatio = carriedRatio,
                 });
                 try
                 {
@@ -792,26 +806,64 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        /// <summary>剑气伤害：固定 20 点真实伤害（`fix_damage`），走 AIC 完整受击管线。</summary>
+        /// <summary>
+        /// 剑气伤害（需求 2026-09-23 调整）：
+        /// **未蓄力 → 诺艾尔这一记轻攻击的伤害**；**已蓄力 → 这一发魔法霰弹（含变种）的伤害**。
+        /// 做法是直接复用发射这道剑气的那一刀的攻击包（开火时复制下来的 `CarriedAtk`）：
+        /// `hpdmg0` 乘上萨满之石/坚固力量/会心（`NoelFinalDamageMult`），再用这一刀的
+        /// "伤害发布率" `shuffleHpMpDmg`（与原版 `CircleCast` 同一套），最后 `applyDamage`。
+        /// **不再走 `fix_damage` 的真实伤害**（`fix_damage` 保持原攻击包的值 = false），
+        /// 因此会照常吃敌人的减伤/浮动。
+        /// 只有拿不到攻击包数据时才退回旧的固定 18 点真实伤害兜底。
+        /// </summary>
         private static void ApplyNoelElegyDamage(PRNoel pr, NelEnemy enemy, NoelElegyBlade b)
         {
             try
             {
-                // 护符16 沉重之击：剑气也是"诺艾尔造成的伤害"，"会心"期间同样 +40%。
-                int dmg = ElegyDamage;
+                NelAttackInfo src = b.CarriedAtk;
+                if (src != null)
+                {
+                    // 护符5/13/16 的最终伤害乘区（与 CircleCast 那条路同一个函数）
+                    float mult = NoelFinalDamageMult(b.CarriedKind, b.Magic);
+                    int baseDmg = src.hpdmg0;
+                    int dmg = (baseDmg > 0 && mult > 1f)
+                        ? Mathf.FloorToInt(baseDmg * mult + 0.5f)
+                        : baseDmg;
+                    var atk = new NelAttackInfo(src);
+                    atk.Caster = pr;
+                    atk.hpdmg0 = dmg;
+                    atk.hpdmg_current = -1000; // 置回未结算态 → 按下面的发布率重新算
+                    atk._apply_knockback_current = true;
+                    atk.shuffleHpMpDmg(enemy, b.CarriedRatio, 1f, dmg, atk.mpdmg0);
+                    atk.CenterXy(enemy.x, enemy.y, 0f);
+                    // 护符16 沉重之击：剑气打中敌人也算"这一发攻击命中了"
+                    ResolveHeavyFocusHit();
+                    enemy.applyDamage(atk, false);
+                    try
+                    {
+                        DashAudio.PlayEnemyHit();
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    // 蓄力释放的剑气命中 → 补一次"魔法霰弹击中"的动画/音效，并清掉蓄力
+                    TriggerNoelElegyShotgun(pr, enemy, b);
+                    return;
+                }
+                // ---- 兜底：拿不到攻击包数据时沿用旧的固定真实伤害 ----
+                int fallback = ElegyDamage;
                 if (IsHeavyFocusActive)
                 {
-                    dmg = Mathf.FloorToInt(dmg * HeavyBlowFocusMult + 0.5f);
+                    fallback = Mathf.FloorToInt(fallback * HeavyBlowFocusMult + 0.5f);
                 }
-                var atk = new NelAttackInfo();
-                atk.hpdmg_current = dmg;
-                atk.hpdmg0 = dmg;
-                atk.fix_damage = true;
-                atk.CenterXy(enemy.x, enemy.y, 0f);
-                atk.Caster = pr;
-                // 护符16 沉重之击：剑气打中敌人也算"这一发攻击命中了"
+                var atkFallback = new NelAttackInfo();
+                atkFallback.hpdmg_current = fallback;
+                atkFallback.hpdmg0 = fallback;
+                atkFallback.fix_damage = true;
+                atkFallback.Caster = pr;
+                atkFallback.CenterXy(enemy.x, enemy.y, 0f);
                 ResolveHeavyFocusHit();
-                enemy.applyDamage(atk, false);
+                enemy.applyDamage(atkFallback, false);
                 try
                 {
                     DashAudio.PlayEnemyHit();
@@ -823,14 +875,14 @@ namespace KnightInCradle.CharmUi
             catch (Exception)
             {
             }
-            // 蓄力释放的剑气命中 → 对该敌人额外结算一次"魔法霰弹击中"，并清掉自己的蓄力
-            TriggerNoelElegyShotgun(pr, enemy, b);
         }
 
         /// <summary>
         /// 护符10 蜕变挽歌 × 魔法蓄力（需求）：魔法蓄力之后发射的剑气命中敌人时，
-        /// **视为对该敌人触发了一次魔法霰弹**——按原版霰弹结算伤害，并播放原版霰弹的
-        /// 击中动画/音效（`MDAT.setFullChargeShotgunEffect`），最后清掉自己的蓄力。
+        /// **视为对该敌人触发了一次魔法霰弹**——播放原版霰弹的击中动画/音效
+        /// （`MDAT.setFullChargeShotgunEffect`），并清掉自己的蓄力。
+        /// （伤害部分不在这里：剑气自身的伤害已经在 `ApplyNoelElegyDamage` 里按那一刀的攻击包
+        ///   结算过了——未蓄力是轻攻击的伤害，已蓄力本来就是魔法霰弹的伤害。）
         ///
         /// 只在"这一发剑气是蓄力释放的（`Magic`）**且**此刻蓄力还在"时触发；
         /// 蓄力已经被别的方式消耗掉（例如这一刀的近身霰弹真的打中了）就不重复触发，
@@ -840,7 +892,7 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (!b.Magic || b.ShotAtk == null || IsKnightMode || !KnightInCradlePlugin.ElegyShotgunOnHit)
+                if (!b.Magic || b.CarriedAtk == null || IsKnightMode || !KnightInCradlePlugin.ElegyShotgunOnHit)
                 {
                     return;
                 }
@@ -864,21 +916,7 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                // ① 伤害：抄下来的霰弹判定 × 萨满之石/坚固力量/会心（与 CircleCast 那条路同一口径）
-                float mult = NoelFinalDamageMult(b.ShotKind, true);
-                int dmg = b.ShotAtk.hpdmg0;
-                if (dmg > 0 && mult > 1f)
-                {
-                    dmg = Mathf.FloorToInt(dmg * mult + 0.5f);
-                }
-                var atk = new NelAttackInfo(b.ShotAtk);
-                atk.Caster = pr;
-                atk.hpdmg0 = dmg;
-                atk.hpdmg_current = dmg;
-                atk.CenterXy(enemy.x, enemy.y, 0f);
-                ResolveHeavyFocusHit();
-                enemy.applyDamage(atk, false);
-                // ② 击中动画/音效：原版霰弹那套（满蓄力时带瞬间减速的后仰效果）
+                // ① 击中动画/音效：原版霰弹那套（满蓄力时带瞬间减速的后仰效果）
                 float charge01 = Mathf.Clamp01(holdingMp / Mathf.Max(1f, curMg.reduce_mp));
                 var hitItem = new M2Ray.M2RayHittedItem();
                 hitItem.type = HITTYPE.EN;
@@ -887,7 +925,7 @@ namespace KnightInCradle.CharmUi
                 hitItem.hit_ux = mp.map2globalux(enemy.x);
                 hitItem.hit_uy = mp.map2globaluy(enemy.y);
                 MDAT.setFullChargeShotgunEffect(pr, charge01, hitItem, false, true, 0.47123894f);
-                // ③ 清除自己的蓄力：与原版"霰弹把蓄力耗尽"时的收尾同一个调用（不复位、不返还魔力）
+                // ② 清除自己的蓄力：与原版"霰弹把蓄力耗尽"时的收尾同一个调用（不复位、不返还魔力）
                 skill.killHoldMagic(false, false, false);
             }
             catch (Exception)

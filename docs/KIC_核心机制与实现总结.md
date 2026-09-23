@@ -3246,3 +3246,30 @@ Mg.is_normal_attack && Mg.reduce_mp > 0f
 | `Charm10` | `ElegyShotgunOnHit` | true | 蓄力释放的剑气命中时是否结算"魔法霰弹击中"并清蓄力 |
 
 验证：`build=2026-09-23.15`，DLL SHA256 `FA37E35CED4F0A84…`（两份安装已同步；只覆盖 DLL）。
+
+### 33.3 【2026-09-23 改口径】剑气伤害 = 那一刀的伤害（不再固定 18 真实伤害）
+
+**需求**：未魔法蓄力 → 剑气造成**诺艾尔轻攻击的伤害**（不走真实伤害，直接走轻攻击）；
+已魔法蓄力 → 剑气造成**当前魔法霰弹的伤害**。
+
+做法：剑气不再自带固定伤害，而是**带上发射它的那一刀**——
+
+1. 开火时（`executeSmallAttack` 后缀）无论有没有蓄力，都 `new NelAttackInfo(__result.Atk0)`
+   复制一份攻击包存进剑气（`CarriedAtk`，带 kind、属性、击退、burst、split_mpdmg…），
+   并记下 `pr.getHpDamagePublishRatio(__result)`（这一刀的**伤害发布率**，含力量等级等加成）。
+2. 命中时（`ApplyNoelElegyDamage`）：
+
+```
+hpdmg0'  = round( CarriedAtk.hpdmg0 × [萨满 1.25] × [坚固力量 1.25] × [会心 1.4] )
+hpdmg    = shuffleHpMpDmg(敌人, CarriedRatio, …)   // 与原版 CircleCast 同一套（含浮动）
+applyDamage(atk)                                    // fix_damage 保持 false → 吃敌人减伤
+```
+
+   于是未蓄力时就是那一记轻攻击（`PR_PUNCH`）的伤害与手感，已蓄力时就是那一发魔法霰弹
+   （`PR_SHOTGUN` / 各变种 kind）的伤害——与 33.1 的"霰弹命中触发"自然合并：
+   伤害已由剑气本体按霰弹口径结算，`TriggerNoelElegyShotgun` 只负责**击中动画/音效 + 清蓄力**，
+   不重复算伤害。`ElegyDamage = 18` 降级为"拿不到攻击包数据时"的兜底。
+
+配置 `[Charm10] ElegyShotgunOnHit` 现在只控制"击中动画/音效 + 清蓄力"，不影响伤害。
+
+验证：`build=2026-09-23.16`，DLL SHA256 `6FC1E003F3645704…`（两份安装已同步；只覆盖 DLL）。
