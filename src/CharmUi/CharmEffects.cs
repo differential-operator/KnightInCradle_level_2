@@ -577,6 +577,9 @@ namespace KnightInCradle.CharmUi
         /// <summary>UIStatus.MdH（HP 条填充网格）——用来把填充段染成乔尼的蓝色。</summary>
         private static FieldInfo _joniMdHField;
 
+        /// <summary>UIStatus.MdM（MP 条填充网格）——乔尼的祝福下两条同色（#46B2FF）。</summary>
+        private static FieldInfo _joniMdMField;
+
         /// <summary>
         /// 护符30 效果1（正式做法）：诺艾尔佩戴乔尼的祝福时，把 HUD **HP 条的填充段染成 `#46B2FF`**。
         ///
@@ -598,30 +601,67 @@ namespace KnightInCradle.CharmUi
                 {
                     _joniMdHField = AccessTools.Field(typeof(UIStatus), "MdH");
                 }
-                MeshDrawer md = _joniMdHField != null ? _joniMdHField.GetValue(__instance) as MeshDrawer : null;
-                if (md == null)
+                if (_joniMdMField == null)
                 {
-                    return;
+                    _joniMdMField = AccessTools.Field(typeof(UIStatus), "MdM");
                 }
-                Color32[] cols = md.getColorArray();
-                if (cols == null || cols.Length == 0)
+                // HP 条：染 #46B2FF。
+                TintJoniGauge(__instance, _joniMdHField, false);
+                // MP 条（追加需求 2026-09-24）：同样染 #46B2FF ——
+                // 佩戴乔尼后 MP 条本身就是血条，两条同色才是"一条池子"的观感。
+                // 与原版一致：MP 为 0 时原版不画填充段（前 4 顶点是空条背景），
+                // 此时不能染色，否则会出现一条假的满格条，改为只把填充段置透明。
+                bool mpEmpty = true;
+                try
                 {
-                    return;
+                    PRNoel prNow = KnightInCradleBehaviour.GetPrPublic();
+                    mpEmpty = prNow == null || PrMpField == null ||
+                              (int)PrMpField.GetValue(prNow) <= 0;
                 }
-                // #46B2FF
-                const byte r = 0x46;
-                const byte g = 0xB2;
-                const byte b = 0xFF;
-                int keep = Mathf.Min(4, cols.Length); // 前 4 个顶点 = 填充段
-                for (int i = 0; i < keep; i++)
+                catch (Exception)
                 {
-                    cols[i].r = r;
-                    cols[i].g = g;
-                    cols[i].b = b;
                 }
+                TintJoniGauge(__instance, _joniMdMField, mpEmpty);
             }
             catch (Exception)
             {
+            }
+        }
+
+        /// <summary>
+        /// 把 HUD 网格的**填充段（前 4 个顶点）**染成 `#46B2FF`；`empty = true` 时改为置透明。
+        /// 其余顶点（背景 / 虚血 / cushion / hold 段）一概不动，保持原版观感。
+        /// </summary>
+        private static void TintJoniGauge(UIStatus ui, FieldInfo field, bool empty)
+        {
+            if (ui == null || field == null)
+            {
+                return;
+            }
+            MeshDrawer md = field.GetValue(ui) as MeshDrawer;
+            if (md == null)
+            {
+                return;
+            }
+            Color32[] cols = md.getColorArray();
+            if (cols == null || cols.Length == 0)
+            {
+                return;
+            }
+            const byte r = 0x46;
+            const byte g = 0xB2;
+            const byte b = 0xFF;
+            int keep = Mathf.Min(4, cols.Length);
+            for (int i = 0; i < keep; i++)
+            {
+                if (empty)
+                {
+                    cols[i].a = 0;
+                    continue;
+                }
+                cols[i].r = r;
+                cols[i].g = g;
+                cols[i].b = b;
             }
         }
 

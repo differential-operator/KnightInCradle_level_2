@@ -4190,3 +4190,18 @@ if (nowHpMax != targetHp || nowMpMax != targetMp) {
 含 `_joniColorDiagCount`、`_joniTickDiagCount` 两个计数器字段）**全部删除**。
 
 验证：`build=2026-09-24.12`，DLL SHA256 `6AF47CAC970FE9C6…`（两份安装已同步；只覆盖 DLL）。
+
+### 44.6 【2026-09-24】MP 条与 HP 条同色（`#46B2FF`）
+
+佩戴乔尼的祝福时 MP 条**本身就是血条**（效果4），所以两条同色才是"一条池子"的观感。
+于是在同一个 `JoniRedrawAllPostfix` 里，除了 `MdH`，也把 **`MdM`（MP 条填充网格）的
+前 4 个顶点**染成 `#46B2FF`。
+
+细节：原版在 MP = 0 时**不画填充段**（此时 `MdM` 前 4 顶点是"空条背景"），所以这一路
+复刻了模组骑士侧的处理——`mp <= 0` 时把前 4 顶点置**透明**而不是染色，避免出现一条假的
+满格条。（护符30 下 MP 归零即死亡，这一帧基本一闪而过，属于兜底。）
+
+抽了个共用小工具 `TintJoniGauge(UIStatus, FieldInfo, bool empty)`：只改前 4 个顶点，
+背景 / 虚血 / cushion / hold 段一律不动，保持原版观感。
+
+验证：`build=2026-09-24.13`，DLL SHA256 `6330E6C7546A7C4A…`（两份安装已同步；只覆盖 DLL）。
