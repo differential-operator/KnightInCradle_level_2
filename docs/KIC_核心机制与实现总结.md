@@ -4281,3 +4281,43 @@ if (IsEquipped(CharmOwner.Noel, SturdyId)) {
 那 1.3 秒），是活跃的无敌帧就整帧作废。
 
 验证：`build=2026-09-24.15`，DLL SHA256 `C044156E4AE01DB3…`（两份安装已同步；只覆盖 DLL）。
+
+### 44.9 【2026-09-24】"锁魔力池"挡不住 → 补上**魔力伤害**那条路
+
+**现象**（用户实测 .15）：锁蓝窗口内**还是会短时间内连着掉"血"（魔力池）**。
+
+**原因**：锁是加在 `M2Attackable.applyHpDamage` 上的，而 AIC 的攻击除了 HP 伤害，
+还会附带**魔力伤害**：
+
+```csharp
+// nel/M2PrADmg.cs:1459（applyDamage 六参核心重载内部）
+this.splitMpByDamage(out mp_dmg, Atk, Atk._mpdmg, MANA_HIT.EN | FROM_DAMAGE_SPLIT | FALL, 22, ...);
+// nel/M2PrADmg.cs:1505 → PR.Skill.splitMpByDamage(...) → 直接扣 mp
+```
+
+`split_mpdmg`（`Atk._mpdmg`）这条路**完全不经过 `applyHpDamage`**。
+乔尼把魔力池当血条用之后，这种伤害同样是"掉血"，却绕开了我们的锁
+（同时它还会顺手把魔力球撒出来 —— 这与护符2 蜂群集结时期看到的"怪会吸魔力球"是同一套机制）。
+
+**改法**：把锁加到**伤害管线最外层**——与护符22 巴尔德之壳同一个挂点
+（`M2PrADmg.applyDamage` 六参核心重载，在 NoDamage 判定之前）：
+
+```csharp
+private static bool JoniSturdyLockDamagePrefix(M2PrADmg __instance, ref int __result)
+{
+    // 只管本地诺艾尔
+    if (!IsJoniSturdyMpLocked(noel)) return true;
+    __result = 0;   // 锁蓝中：这一次受击整个不结算（HP 伤害、魔力伤害、受击演出都不走）
+    return false;
+}
+```
+
+`IsJoniSturdyMpLocked()` = 两种护符都戴着 + `Time.time < _joniSturdyMpLockUntil`。
+两层是互补的：最外层管"整次受击"，`applyHpDamage` 那层管"伤害上限 50 + 开锁"。
+
+挂载单独包了 try/catch：`CharmEffects.Apply` 内部若抛异常是**静默中断后面全部补丁**，
+不能让这一条把其它护符一起带走（失败会在日志里打 `[KIC][锁蓝] 拦截补丁挂载失败`）。
+另加了**临时诊断**（≤10 条）：`[KIC][锁蓝] 拦截受击 t=…（锁定到 …）`，用于确认锁是否真的起作用。
+
+验证：`build=2026-09-24.16`，DLL SHA256 `65663255F05ADC4F…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

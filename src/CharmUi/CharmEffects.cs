@@ -1825,6 +1825,64 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        /// <summary>
+        /// 护符3 坚硬外壳 + 护符30 乔尼的祝福（组合）：**锁魔力池窗口内整次受击都不结算**。
+        ///
+        /// 为什么不能只在 `M2Attackable.applyHpDamage` 上锁：那条只管 **HP 伤害**，而 AIC 的攻击
+        /// 还能附带**魔力伤害**（`Atk._mpdmg` / `split_mpdmg`），它走的是
+        /// `M2PrADmg.splitMpByDamage`（`M2PrADmg.cs:1459 / 1505`），**根本不经过**
+        /// `applyHpDamage`。乔尼把魔力池当血条用之后，这些伤害同样会掉"血"，于是绕过锁
+        /// —— 这正是"短时间内还会受多次伤害"的来源。
+        ///
+        /// 所以锁蓝期间直接在**伤害管线最外层**整次作废：挂点与护符22 巴尔德之壳相同
+        /// （`M2PrADmg.applyDamage` 六参核心重载，在 NoDamage 判定之前）。
+        /// </summary>
+        private static bool JoniSturdyLockDamagePrefix(M2PrADmg __instance, ref int __result)
+        {
+            try
+            {
+                if (__instance == null)
+                {
+                    return true;
+                }
+                PRNoel noel = KnightInCradleBehaviour.GetPrPublic();
+                if (noel == null || !ReferenceEquals(__instance.Pr, noel))
+                {
+                    return true; // 只管本地诺艾尔
+                }
+                if (!IsJoniSturdyMpLocked(noel))
+                {
+                    return true;
+                }
+                __result = 0; // 锁蓝中：这一次受击整个不结算
+                if (_joniLockDiag < 10)
+                {
+                    _joniLockDiag++;
+                    KnightInCradlePlugin.PluginLog?.LogInfo(
+                        "[KIC][锁蓝] 拦截受击 t=" + Time.time.ToString("F2") +
+                        "（锁定到 " + _joniSturdyMpLockUntil.ToString("F2") + "）");
+                }
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>临时诊断计数（锁蓝拦截日志，10 条封顶；验证后删）。</summary>
+        private static int _joniLockDiag;
+
+        /// <summary>
+        /// 组合（乔尼 + 硬壳）是否正处于"锁魔力池"窗口内：两种护符都戴着，且还在 2 秒窗口里。
+        /// </summary>
+        private static bool IsJoniSturdyMpLocked(PRNoel noel)
+        {
+            return Time.time < _joniSturdyMpLockUntil &&
+                   IsEquipped(CharmOwner.Noel, SturdyId) &&
+                   JoniBlessingActive(noel);
+        }
+
         /// <summary>壳动画推进：一次性剪辑播完 → 展开时停在持有帧，收起时消失。</summary>
         private static void AdvanceNoelShell(float dt)
         {
@@ -6567,6 +6625,24 @@ namespace KnightInCradle.CharmUi
                     harmony.Patch(prDmgShell, prefix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(NoelShellDamagePrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符3+护符30 组合：锁魔力池窗口内，整次受击在伤害管线最外层作废
+                // （同一个挂点；HP 伤害之外的"魔力伤害"走 splitMpByDamage，必须在这里拦）
+                if (prDmgShell != null)
+                {
+                    // 单独 try/catch：CharmEffects.Apply 的失败是"静默中断后续全部补丁"，
+                    // 不能因为这一条挂不上就把后面的护符效果一起带走。
+                    try
+                    {
+                        harmony.Patch(prDmgShell, prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(JoniSturdyLockDamagePrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    catch (Exception ex)
+                    {
+                        KnightInCradlePlugin.PluginLog?.LogWarning(
+                            "[KIC][锁蓝] 拦截补丁挂载失败：" + ex.Message);
+                    }
                 }
                 // 护符26 快速聚集（诺艾尔侧）：诺艾尔咏唱速度 +25%
                 // 挂 PR.getCastingTimeScale（咏唱推进速度），只对"正在咏唱的那一发"生效
