@@ -4205,3 +4205,35 @@ if (nowHpMax != targetHp || nowMpMax != targetMp) {
 背景 / 虚血 / cushion / hold 段一律不动，保持原版观感。
 
 验证：`build=2026-09-24.13`，DLL SHA256 `6330E6C7546A7C4A…`（两份安装已同步；只覆盖 DLL）。
+
+### 44.7 【2026-09-24】护符3 坚硬外壳 + 护符30 乔尼的祝福（组合规则）
+
+此前 44.1 记的"与坚硬外壳的冲突暂不处理"，现在按用户指定定案：
+
+> 同时携带时：**诺艾尔单次受到的最大伤害为 50，且受伤后获得 2 秒无敌时间。**
+
+实现两处（都在 `src/CharmUi/CharmEffects.cs`）：
+
+1. **次数血让位**（`TickNoelSturdyCharm`）：
+   `want = IsEquipped(Noel, SturdyId) && !JoniBlessingActive(pr)`。
+   理由：乔尼已经把血条并进魔力池（`maxmp = 基础上限 + 当前生命上限`），此时再对 HP 上限
+   ÷50 只会**平白把魔力池也缩掉**，和"单次伤 ≤ 50"自相矛盾；HP 条本身也不再参与结算，
+   次数血失去意义。所以乔尼生效期间硬壳走 `Deactivate`（还原真实 hp/maxhp、清寄存键），
+   乔尼卸下后下一帧自动重新激活（此时寄存键已空，读到的就是真实值）。
+2. **组合伤害规则**（`SturdyHpDamagePrefix` 的乔尼分支）：
+
+```csharp
+if (IsEquipped(CharmOwner.Noel, SturdyId)) {
+    if (val > SturdyJoniDamageCap) val = SturdyJoniDamageCap; // 50
+    JoniRedirectDamageToMp(noel, val);                       // 扣魔（魔力条 = 血条）
+    GrantNoelInvincible(noel, SturdyInvincibleFrames);       // 120 帧 = 2 秒
+    return false;
+}
+```
+
+顺带把"给无敌"抽成共用小工具 `GrantNoelInvincible(PRNoel, float frames)`
+（走 AIC 原生 `M2NoDamageManager.Add`），硬壳单挂的那种走同一函数。
+新常量：`SturdyJoniDamageCap = 50`。
+（幼虫之歌 / 苦痛荆棘仍用**原始伤害**结算，与本次组合规则无关。）
+
+验证：`build=2026-09-24.14`，DLL SHA256 `0C776954A089C24E…`（两份安装已同步；只覆盖 DLL）。

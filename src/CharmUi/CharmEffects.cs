@@ -232,6 +232,10 @@ namespace KnightInCradle.CharmUi
         public const int SturdyDamageThreshold = 20;
         /// <summary>受击后的无敌时长（帧，60fps 基准）：2 秒 = 120 帧。</summary>
         public const float SturdyInvincibleFrames = 120f;
+        /// <summary>
+        /// 坚硬外壳 + 乔尼的祝福**同时携带**时的单次受伤上限（2026-09-24 用户指定的组合规则）。
+        /// </summary>
+        public const int SturdyJoniDamageCap = 50;
         /// <summary>佩戴时寄存的"真实上限 / 真实血量"（COOK SF，随存档序列化）：
         /// 伪次数血把 hp/maxhp 字段改小了，读档与"卸下还原"都只能靠它们。</summary>
         private const string SturdyRealMaxHpKey = "kic_noel_sturdy_maxhp";
@@ -277,7 +281,13 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                bool want = IsEquipped(CharmOwner.Noel, SturdyId);
+                // 护符3 + 护符30（2026-09-24 组合规则）：佩戴乔尼的祝福时，次数血**整体让位**——
+                // 乔尼已经把血条并进魔力池（HP 条不再参与结算），再对 HP 上限 ÷50 只会平白把
+                // 魔力池也缩掉（魔力上限 = 基础上限 + 生命上限），与组合效果"单次伤 ≤ 50"自相矛盾。
+                // 因此乔尼生效期间这里把坚硬外壳当成"未佩戴"（走 Deactivate 还原真实 hp/maxhp），
+                // 组合效果由 SturdyHpDamagePrefix 里的乔尼分支实现：单次 ≤ 50 + 受击 2 秒无敌。
+                // 乔尼卸下后下一帧 want 恢复 true，外壳会自动重新生效（寄存值此时已是真实值）。
+                bool want = IsEquipped(CharmOwner.Noel, SturdyId) && !JoniBlessingActive(pr);
                 if (want && !_noelSturdyActive)
                 {
                     ActivateNoelSturdy(pr);
@@ -5769,6 +5779,19 @@ namespace KnightInCradle.CharmUi
                 {
                     return true; // 魔力池打空后的强制死亡：走原版 HP 结算
                 }
+                // 护符3 坚硬外壳 + 护符30 乔尼的祝福（2026-09-24 组合规则）：
+                // 只保留这两条，次数血不再参与（见 TickNoelSturdyCharm 的说明）：
+                //   ① 单次受到的伤害上限 50；② 受伤后 2 秒无敌。
+                if (IsEquipped(CharmOwner.Noel, SturdyId))
+                {
+                    if (val > SturdyJoniDamageCap)
+                    {
+                        val = SturdyJoniDamageCap;
+                    }
+                    JoniRedirectDamageToMp(noel, val);
+                    GrantNoelInvincible(noel, SturdyInvincibleFrames);
+                    return false; // 不走原本的 HP 结算
+                }
                 JoniRedirectDamageToMp(noel, val);
                 return false; // 不再走原本的 HP 结算
             }
@@ -5781,18 +5804,28 @@ namespace KnightInCradle.CharmUi
             // 掉血后 HUD 的数字也要立刻更新（原版受伤流程走 cushion 分支，不会置 redraw_bar_num）
             RefreshNoelHudHp();
             // 无论记成 0 还是 1，都立刻给 2 秒无敌
+            GrantNoelInvincible(noel, SturdyInvincibleFrames);
+            return true;
+        }
+
+        /// <summary>
+        /// 给诺艾尔上无敌帧：走 AIC 原生 `M2NoDamageManager`（挂在 `M2Attackable.NoDamage` 上），
+        /// 后续伤害由游戏自己挡掉，而不是模组另做一套计时。
+        /// （护符3 坚硬外壳、护符3+护符30 组合都用它，帧数 60fps 基准。）
+        /// </summary>
+        private static void GrantNoelInvincible(PRNoel noel, float frames)
+        {
             try
             {
-                if (PrNoDamageField != null &&
+                if (noel != null && PrNoDamageField != null &&
                     PrNoDamageField.GetValue(noel) is M2NoDamageManager nd)
                 {
-                    nd.Add(SturdyInvincibleFrames);
+                    nd.Add(frames);
                 }
             }
             catch (Exception)
             {
             }
-            return true;
         }
 
         /// <summary>萨满之石：法术伤害每段提升 25%（四舍五入取整）。</summary>
