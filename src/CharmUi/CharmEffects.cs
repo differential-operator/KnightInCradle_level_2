@@ -558,14 +558,24 @@ namespace KnightInCradle.CharmUi
 
         /// <summary>true = 这次 HP 伤害是"魔力池打空后的强制死亡"，不要改写成扣魔。</summary>
         private static bool _joniDying;
-        private static int _joniTickDiagCount; // 临时诊断（验证完删除）
 
+        /// <summary>诺艾尔是否正坐在长椅上（AIC 原生 BENCH 系列状态）。</summary>
+        private static bool IsNoelOnBench(PRNoel pr)
+        {
+            try
+            {
+                return pr != null && pr.isBenchState();
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
         /// <summary>UIStatus.MdGageT（HUD 上的 HP/MP 数字网格），用于精确识别 HP 数字的绘制调用。</summary>
         private static FieldInfo _uiMdGageTField;
 
         /// <summary>UIStatus.MdH（HP 条填充网格）——用来把填充段染成乔尼的蓝色。</summary>
         private static FieldInfo _joniMdHField;
-        private static int _joniColorDiagCount; // 临时诊断（验证完删除）
 
         /// <summary>
         /// 护符30 效果1（正式做法）：诺艾尔佩戴乔尼的祝福时，把 HUD **HP 条的填充段染成 `#46B2FF`**。
@@ -608,12 +618,6 @@ namespace KnightInCradle.CharmUi
                     cols[i].r = r;
                     cols[i].g = g;
                     cols[i].b = b;
-                }
-                if (_joniColorDiagCount < 5)
-                {
-                    _joniColorDiagCount++;
-                    KnightInCradlePlugin.PluginLog?.LogInfo(
-                        "[KIC][乔尼HP条] 已把 HP 填充段染成 #46B2FF（顶点数=" + cols.Length + "）");
                 }
             }
             catch (Exception)
@@ -712,15 +716,6 @@ namespace KnightInCradle.CharmUi
                 bool blue1 = !IsKnightMode && IsEquipped(CharmOwner.Noel, BlueHeart1Id);
                 bool blue2 = !IsKnightMode && IsEquipped(CharmOwner.Noel, BlueHeart2Id);
                 bool joni = !IsKnightMode && IsEquipped(CharmOwner.Noel, JohnnyId); // 护符30 乔尼的祝福
-                // 临时诊断（验证完删除）：确认乔尼是否被识别为"已佩戴"
-                if (_joniTickDiagCount < 6 && Time.frameCount % 120 == 0)
-                {
-                    _joniTickDiagCount++;
-                    KnightInCradlePlugin.PluginLog?.LogInfo(
-                        "[KIC][乔尼HUD] tick 佩戴=" + joni +
-                        " 骑士模式=" + IsKnightMode +
-                        " 上限hp=" + PrMaxHpField.GetValue(pr) + " 上限mp=" + PrMaxMpField.GetValue(pr));
-                }
                 bool want = heart || blue1 || blue2 || joni;
                 if (want && !_noelHeartActive)
                 {
@@ -753,6 +748,18 @@ namespace KnightInCradle.CharmUi
                     PrMaxMpField.SetValue(pr, targetMp);
                     RefreshNoelHudHp();
                     RefreshNoelHudMp();
+                    // 追加需求（2026-09-24）：**坐在长椅上**装卸坚固心脏 / 生命血之心 / 生命血核心 /
+                    // 乔尼的祝福导致上限变化时，HP、MP 一并**回满**（等于坐在椅子上重新装满容量）。
+                    if (IsNoelOnBench(pr))
+                    {
+                        PrHpField.SetValue(pr, targetHp);
+                        if (PrMpField != null)
+                        {
+                            PrMpField.SetValue(pr, targetMp);
+                        }
+                        RefreshNoelHudHp();
+                        RefreshNoelHudMp();
+                    }
                 }
                 if ((int)PrHpField.GetValue(pr) > targetHp)
                 {
