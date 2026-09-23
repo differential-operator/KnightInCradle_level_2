@@ -1296,16 +1296,29 @@ namespace KnightInCradle.CharmUi
             "blocker_shell_appear0001",
             "blocker_shell_appear0000",
         };
+        /// <summary>壳挡下伤害时的受击动画（同小骑士的 BaldurImpact 剪辑）。</summary>
+        private static readonly string[] NoelShellImpactSprites =
+        {
+            "blocker_shell_impact0001",
+            "blocker_shell_appear0002",
+            "blocker_shell_appear0000",
+        };
+        /// <summary>壳破碎时的起始帧（冲击帧），后面接收起帧。</summary>
+        private const string NoelShellBreakLeadSprite = "blocker_shell_impact0001";
 
         private static Texture2D _noelShellHoldTex;      // 完全展开后的持有帧
         private static Texture2D[] _noelShellAppearTex;
         private static Texture2D[] _noelShellDisappearTex;
+        private static Texture2D[] _noelShellImpactTex;
+        private static Texture2D[] _noelShellBreakTex;   // 破碎 = 冲击帧 + 收起帧
         private static Texture2D[] _noelShellPlayingTex; // 正在播的一次性剪辑（出现/收起）
         private static Texture2D _noelShellCurTex;       // 本帧要画的帧
         private static float _noelShellTimer;
         private static int _noelShellIndex;
         private static bool _noelShellActive;            // 壳展开中（= 正在咏唱）
         private static bool _noelShellLoadTried;
+        private static int _noelShellBlocksLeft = 3;     // 还能挡几次（每次展开重置为上限）
+        private static float _noelShellRecoverAt;        // > 0 = 已破碎，到这个时间点恢复
         private static MeshDrawer _noelShellMesh;
         private static Material _noelShellMat;
         private static M2RenderTicket _noelShellTicket;
@@ -1332,7 +1345,9 @@ namespace KnightInCradle.CharmUi
         /// <summary>巴尔德之壳此刻是否该生效（佩戴 + 诺艾尔模式 + 正在咏唱）。</summary>
         private static bool IsNoelShellActive(PRNoel pr)
         {
-            return !IsKnightMode && IsEquipped(CharmOwner.Noel, BaldurId) && IsNoelMagicChanting(pr);
+            // 破碎后的恢复期内不生效（10 秒内壳不会展开、也不保护）
+            return _noelShellRecoverAt <= 0f && !IsKnightMode && IsEquipped(CharmOwner.Noel, BaldurId) &&
+                   IsNoelMagicChanting(pr);
         }
 
         /// <summary>每帧推进（诺艾尔模式调用）：壳的展开/收起、无敌续期、动画与票据维护。</summary>
@@ -1344,10 +1359,20 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
+                // 破碎后的恢复时间到点 → 次数回满（若还在咏唱，壳会在这一帧重新展开）
+                if (_noelShellRecoverAt > 0f && Time.unscaledTime >= _noelShellRecoverAt)
+                {
+                    _noelShellRecoverAt = 0f;
+                    _noelShellBlocksLeft = KnightInCradlePlugin.BaldurShellMaxBlocks;
+                }
                 bool want = IsNoelShellActive(pr);
                 if (want && !_noelShellActive)
                 {
                     _noelShellActive = true;
+                    if (_noelShellBlocksLeft <= 0)
+                    {
+                        _noelShellBlocksLeft = KnightInCradlePlugin.BaldurShellMaxBlocks;
+                    }
                     PlayNoelShellClip(true);
                 }
                 else if (!want && _noelShellActive)
@@ -1383,11 +1408,23 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
+                PlayNoelShellClip(appear ? _noelShellAppearTex : _noelShellDisappearTex);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>播一次指定剪辑（贴图未加载时什么都不做）。</summary>
+        private static void PlayNoelShellClip(Texture2D[] frames)
+        {
+            try
+            {
                 if (!EnsureNoelShellTextures())
                 {
                     return;
                 }
-                _noelShellPlayingTex = appear ? _noelShellAppearTex : _noelShellDisappearTex;
+                _noelShellPlayingTex = frames;
                 _noelShellTimer = 0f;
                 _noelShellIndex = 0;
                 _noelShellCurTex = _noelShellPlayingTex != null && _noelShellPlayingTex.Length > 0
@@ -1396,6 +1433,71 @@ namespace KnightInCradle.CharmUi
             }
             catch (Exception)
             {
+            }
+        }
+
+        /// <summary>
+        /// 壳挡下了一次伤害：扣一次抵挡次数并播受击动画；
+        /// 次数用尽 → **壳破碎**（收起 + 进入 `ShellRecoverSeconds` 秒的恢复期，期间不再展开/不保护）。
+        /// </summary>
+        private static void ConsumeNoelShellBlock()
+        {
+            int maxBlocks = KnightInCradlePlugin.BaldurShellMaxBlocks;
+            if (_noelShellBlocksLeft > maxBlocks)
+            {
+                _noelShellBlocksLeft = maxBlocks;
+            }
+            if (_noelShellBlocksLeft > 0)
+            {
+                _noelShellBlocksLeft--;
+            }
+            if (_noelShellBlocksLeft > 0)
+            {
+                PlayNoelShellClip(_noelShellImpactTex); // 还有次数：受击动画后回到持有帧
+                return;
+            }
+            // 次数用尽：破碎
+            _noelShellActive = false;
+            _noelShellRecoverAt = Time.unscaledTime + KnightInCradlePlugin.BaldurShellRecoverSeconds;
+            PlayNoelShellClip(_noelShellBreakTex);
+            KnightInCradlePlugin.PluginLog?.LogInfo(
+                "[KIC][巴尔德之壳] 挡满 " + maxBlocks + " 次 → 破碎，" +
+                KnightInCradlePlugin.BaldurShellRecoverSeconds + " 秒后恢复");
+        }
+
+        /// <summary>
+        /// 护符22 巴尔德之壳（诺艾尔侧）：壳展开期间把**整次伤害结算**拦下来
+        /// （不扣血、不打断咏唱、不被击退），并消耗一次抵挡次数。
+        ///
+        /// 挂点 `M2PrADmg.applyDamage` 的 6 参核心重载（`nel/M2PrADmg.cs:1109`）：
+        /// 玩家受到的每一发伤害都要从这里进去（敌人的 5 参重载只是转调到这里，
+        /// 地图危险区 `PR.applyDamageFromMap` 也走同一条），
+        /// 而且它在 `NoDamage` 判定**之前**，所以"壳挡住了几次"能准确计数。
+        /// </summary>
+        private static bool NoelShellDamagePrefix(M2PrADmg __instance, ref int __result)
+        {
+            try
+            {
+                if (__instance == null)
+                {
+                    return true;
+                }
+                PRNoel noel = KnightInCradleBehaviour.GetPrPublic();
+                if (noel == null || !ReferenceEquals(__instance.Pr, noel))
+                {
+                    return true; // 只管本地诺艾尔
+                }
+                if (!IsNoelShellActive(noel))
+                {
+                    return true; // 壳没展开 / 已破碎恢复中
+                }
+                ConsumeNoelShellBlock();
+                __result = 0; // 这次伤害整个不结算
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
             }
         }
 
@@ -1448,6 +1550,19 @@ namespace KnightInCradle.CharmUi
             {
                 _noelShellAppearTex = LoadNoelShellFrames(NoelShellAppearSprites);
                 _noelShellDisappearTex = LoadNoelShellFrames(NoelShellDisappearSprites);
+                _noelShellImpactTex = LoadNoelShellFrames(NoelShellImpactSprites);
+                // 破碎 = 起始冲击帧 + 收起帧
+                var breakFrames = new List<Texture2D>();
+                Texture2D lead = LoadNoelShellTex(NoelShellBreakLeadSprite);
+                if (lead != null)
+                {
+                    breakFrames.Add(lead);
+                }
+                if (_noelShellDisappearTex != null)
+                {
+                    breakFrames.AddRange(_noelShellDisappearTex);
+                }
+                _noelShellBreakTex = breakFrames.Count > 0 ? breakFrames.ToArray() : null;
                 _noelShellHoldTex = LoadNoelShellTex(NoelShellAppearSprites[NoelShellAppearSprites.Length - 1]);
                 if (_noelShellHoldTex == null && _noelShellAppearTex != null && _noelShellAppearTex.Length > 0)
                 {
@@ -4043,6 +4158,20 @@ namespace KnightInCradle.CharmUi
                 {
                     harmony.Patch(mapDmg, prefix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(ThornsMapDamagePrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符22 巴尔德之壳（诺艾尔侧）：壳展开期间拦截整次伤害结算，并计抵挡次数。
+                // 挂 M2PrADmg.applyDamage 的 6 参核心重载（玩家受伤总入口，在 NoDamage 判定之前）。
+                MethodInfo prDmgShell = AccessTools.Method(typeof(M2PrADmg), "applyDamage",
+                    new[]
+                    {
+                        typeof(NelAttackInfo), typeof(HITTYPE).MakeByRefType(), typeof(bool),
+                        typeof(string), typeof(bool), typeof(bool),
+                    });
+                if (prDmgShell != null)
+                {
+                    harmony.Patch(prDmgShell, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(NoelShellDamagePrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符4 灵魂捕手（诺艾尔侧）：法术命中敌人 → 回 6 MP。

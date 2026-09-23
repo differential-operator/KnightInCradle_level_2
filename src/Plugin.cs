@@ -126,6 +126,10 @@ namespace KnightInCradle
         internal static ConfigEntry<float> BaldurShellHeightConfig;
         /// <summary>壳渲染位置上下微调（格；y 向下为正，负 = 向上）。</summary>
         internal static ConfigEntry<float> BaldurShellOffsetYConfig;
+        /// <summary>壳能抵挡的伤害次数上限（需求：3）。</summary>
+        internal static ConfigEntry<int> BaldurShellMaxBlocksConfig;
+        /// <summary>壳破碎后的恢复时间（秒，需求：10）。</summary>
+        internal static ConfigEntry<float> BaldurShellRecoverSecondsConfig;
 
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
@@ -153,6 +157,12 @@ namespace KnightInCradle
             BaldurShellHeightConfig != null ? Mathf.Clamp(BaldurShellHeightConfig.Value, 0.05f, 5f) : 1f;
         internal static float BaldurShellOffsetY =>
             BaldurShellOffsetYConfig != null ? Mathf.Clamp(BaldurShellOffsetYConfig.Value, -5f, 5f) : 0f;
+        internal static int BaldurShellMaxBlocks =>
+            BaldurShellMaxBlocksConfig != null ? Mathf.Clamp(BaldurShellMaxBlocksConfig.Value, 1, 20) : 3;
+        internal static float BaldurShellRecoverSeconds =>
+            BaldurShellRecoverSecondsConfig != null
+                ? Mathf.Clamp(BaldurShellRecoverSecondsConfig.Value, 0.1f, 120f)
+                : 10f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -356,6 +366,10 @@ namespace KnightInCradle
                 "巴尔德之壳：只改渲染高度（默认 1）。");
             BaldurShellOffsetYConfig = Config.Bind("Charm22", "ShellOffsetY", 0f,
                 "巴尔德之壳：渲染位置上下微调（格；y 向下为正，负 = 向上，默认 0 = 诺艾尔身体中心）。");
+            BaldurShellMaxBlocksConfig = Config.Bind("Charm22", "ShellMaxBlocks", 3,
+                "巴尔德之壳：最多能抵挡几次伤害（默认 3）。挡满后壳破碎，进入恢复时间。");
+            BaldurShellRecoverSecondsConfig = Config.Bind("Charm22", "ShellRecoverSeconds", 10f,
+                "巴尔德之壳：破碎后多久才能再次展开（秒，默认 10）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();
