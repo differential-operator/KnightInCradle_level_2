@@ -3634,3 +3634,25 @@ if (!sitting) { 每 SpawnInterval 秒：若 count < MaxCount 且 MP ≥ SpawnMpC
 
 验证：`build=2026-09-23.28`，DLL SHA256 `A8208D25E8DDEEA2…`（两份安装已同步；只覆盖 DLL）。
 本护符没有新增 Harmony 补丁（走每帧 tick + 已有的物理查询），补丁计数仍是 `74 成功 / 0 失败`。
+
+### 37.6 【2026-09-23 部署修正】小剑山素材没进安装目录
+
+**现象（用户实测）**：佩戴护符后**看不到小剑山，但伤害正常**。
+
+**原因**：`assets/hk/` 在 `.gitignore` 里（HK 素材不入库），部署 DLL 时不会带素材。
+`sheets/spike/`（spike_1~8.png）是**这次才第一次用到**的目录，两份安装里都没有，
+于是贴图加载失败——代码里只记一条警告就"只是不显示"，所以伤害/逻辑照常。
+日志证据：
+
+```
+[Warning:KnightInCradle] [KIC][发光子宫] 没找到小剑山素材（assets/hk/sheets/spike/spike_1~8.png），小剑山不显示
+```
+
+**修正**：把 `sheets/spike/`（8 张，166 KB）拷进两份安装的
+`BepInEx/plugins/KnightInCradle/assets/hk/sheets/spike/`。
+同时顺手把仓库里另外三个**尚未部署**的小素材目录 `slashes/`、`dark_descent/`、`tentacle/`
+（共约 1 MB）也一并同步，避免以后再用到它们时重复踩坑
+（`dream_to_dark/` 约 29 MB，等真做到对应护符再拷）。
+
+> 教训（与 36.7 的 cfg 坑并列）：**只要用到新的素材目录，就要检查它在两份安装里是否存在**；
+> "画面缺失但机制正常"基本就是这个原因。
