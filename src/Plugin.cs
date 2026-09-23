@@ -222,7 +222,7 @@ namespace KnightInCradle
         internal static float UterusExplosionSize =>
             UterusExplosionSizeConfig != null ? Mathf.Clamp(UterusExplosionSizeConfig.Value, 0.5f, 20f) : 6f;
         internal static float UterusSpikeScale =>
-            UterusSpikeScaleConfig != null ? Mathf.Clamp(UterusSpikeScaleConfig.Value, 0.02f, 2f) : 0.22f;
+            UterusSpikeScaleConfig != null ? Mathf.Clamp(UterusSpikeScaleConfig.Value, 0.02f, 2f) : 0.11f;
         internal static float UterusSpikeFps =>
             UterusSpikeFpsConfig != null ? Mathf.Clamp(UterusSpikeFpsConfig.Value, 1f, 60f) : 12f;
 
@@ -460,8 +460,8 @@ namespace KnightInCradle
                 "发光子宫：小剑山命中敌人时造成的范围伤害（默认 30，真伤）。");
             UterusExplosionSizeConfig = Config.Bind("Charm25", "ExplosionSize", 6f,
                 "发光子宫：范围伤害的判定框边长（格，默认 6 = 以命中点为中心 6×6 格）。");
-            UterusSpikeScaleConfig = Config.Bind("Charm25", "SpikeScale", 0.22f,
-                "发光子宫：小剑山贴图的渲染缩放（默认 0.22，同小骑士的幼体缩放）。");
+            UterusSpikeScaleConfig = Config.Bind("Charm25", "SpikeScale", 0.11f,
+                "发光子宫：小剑山贴图的渲染缩放（默认 0.11 = 原 0.22 的一半）。");
             UterusSpikeFpsConfig = Config.Bind("Charm25", "SpikeFps", 12f,
                 "发光子宫：小剑山循环动画帧率（spike_1~spike_8 循环，默认 12）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
