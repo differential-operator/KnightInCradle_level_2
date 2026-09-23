@@ -1752,6 +1752,45 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
+        /// 护符26 快速聚集（诺艾尔侧）：诺艾尔**魔法咏唱速度 +25%**。
+        ///
+        /// 挂点：`PR.getCastingTimeScale(MagicItem Mg)`（`nel/PR.cs:5126`）的**后缀**——
+        /// 它是"这一发魔法的推进速度"：咏唱推进用 `M2PrSkill.cs:525`
+        /// （`base.TS × max(1, getCastingTimeScale) × magic_prepare_speed`），
+        /// 咏唱中物品的 TS 用 `MagicItem.cs:2200`，所以加它同时加快**读条**与**咏唱完成后的出手延迟**，
+        /// 而**不改**魔法威力（威力由 `mp_hold` 缩放）与耗魔总量（扣魔发生在释放时）。
+        ///
+        /// 只对"**当前正在咏唱的这发**"生效（`Skill.getCurMagic() == Mg`）：
+        /// 松手释放后的子弹再调 `getCastingTimeScale`（例如 `MgWhiteArrow.cs:71` 用来自缩放箭体）
+        /// 时 `CurMg` 已经为 null，因此飞行/命中的表现完全不受影响。
+        /// </summary>
+        private static void FastGatherCastScalePostfix(PR __instance, MagicItem Mg, ref float __result)
+        {
+            try
+            {
+                if (Mg == null || __instance == null || IsKnightMode ||
+                    !IsEquipped(CharmOwner.Noel, FastGatherId))
+                {
+                    return;
+                }
+                PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+                if (pr == null || !ReferenceEquals(__instance, pr))
+                {
+                    return; // 只管本地诺艾尔
+                }
+                M2PrSkill skill = __instance.Skill;
+                if (skill == null || !ReferenceEquals(skill.getCurMagic(), Mg))
+                {
+                    return; // 只加快"正在咏唱的那一发"
+                }
+                __result *= KnightInCradlePlugin.FastGatherChantSpeedMult;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
         /// 魔物是否处于**召唤/生成阶段**（`NelEnemy.STATE.SUMMONED`）。
         /// 这个阶段**不能打**：AIC 的生成流程（`NelEnemy.runSummoned`，`NelEnemy.cs:1199-1236`）靠
         /// 60 帧后自己调 `quitSummonAndAppear` 把 `disappearing` 复位；中途挨打会被踢出 SUMMONED 状态，
@@ -6021,6 +6060,16 @@ namespace KnightInCradle.CharmUi
                 {
                     harmony.Patch(prDmgShell, prefix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(NoelShellDamagePrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符26 快速聚集（诺艾尔侧）：诺艾尔咏唱速度 +25%
+                // 挂 PR.getCastingTimeScale（咏唱推进速度），只对"正在咏唱的那一发"生效
+                MethodInfo castScale = AccessTools.Method(typeof(PR), "getCastingTimeScale",
+                    new[] { typeof(MagicItem) });
+                if (castScale != null)
+                {
+                    harmony.Patch(castScale, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(FastGatherCastScalePostfix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符23 吸虫之巢（诺艾尔侧）：纯白之箭 / 聚能火球改成喷吸虫。

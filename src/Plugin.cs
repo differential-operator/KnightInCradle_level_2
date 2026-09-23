@@ -169,6 +169,10 @@ namespace KnightInCradle
         /// <summary>法阵单次伤害（同小骑士 10）。</summary>
         internal static ConfigEntry<int> ShelterCircleDamageConfig;
 
+        // ---- 护符26 快速聚集（诺艾尔侧：魔法咏唱速度）----
+        /// <summary>咏唱速度倍率（需求：+25%）。</summary>
+        internal static ConfigEntry<float> FastGatherChantSpeedConfig;
+
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
         internal static float MagicSlashScale =>
@@ -235,6 +239,8 @@ namespace KnightInCradle
             ShelterCircleRadiusConfig != null ? Mathf.Clamp(ShelterCircleRadiusConfig.Value, 0.5f, 15f) : 3f;
         internal static int ShelterCircleDamage =>
             ShelterCircleDamageConfig != null ? Mathf.Clamp(ShelterCircleDamageConfig.Value, 1, 999) : 10;
+        internal static float FastGatherChantSpeedMult =>
+            FastGatherChantSpeedConfig != null ? Mathf.Clamp(FastGatherChantSpeedConfig.Value, 0.1f, 5f) : 1.25f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -479,6 +485,10 @@ namespace KnightInCradle
                 "防御者纹章：法阵实心圆半径（格，默认 3，同小骑士）。");
             ShelterCircleDamageConfig = Config.Bind("Charm24", "CircleDamage", 10,
                 "防御者纹章：法阵单次伤害（默认 10；进入立刻一次，之后每 1 秒一次）。");
+            // 护符26 快速聚集（诺艾尔侧）
+            FastGatherChantSpeedConfig = Config.Bind("Charm26", "ChantSpeedMult", 1.25f,
+                "快速聚集：诺艾尔**魔法咏唱速度**倍率（默认 1.25 = +25%）。" +
+                "只加快咏唱/蓄力的推进速度，不改变魔法威力与耗魔总量。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

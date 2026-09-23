@@ -3772,3 +3772,51 @@ private static bool IsEnemySummoning(NelEnemy enemy)
 3. **爆炸 AoE**：即使爆炸点附近有剑山，也不吃这次范围伤害。
 
 验证：`build=2026-09-23.33`，DLL SHA256 `D8F07C3677F630F3…`（两份安装已同步；只覆盖 DLL）。
+
+---
+
+## 41. 护符 26 快速聚集（诺艾尔侧，2026-09-23，build=2026-09-23.34）
+
+**需求**：诺艾尔**魔法咏唱速度提升 25%**。
+
+### 41.1 挂点：`PR.getCastingTimeScale(MagicItem)`
+
+AIC 里"这一发魔法推进得多快"由 `PR.getCastingTimeScale`（`nel/PR.cs:5126`）给出：
+
+```csharp
+float num = this.baseTS;
+if (Mg != null) {
+    num *= this.Ser.ChantSpeedRate();
+    num *= (this.getCastableMp() <= 0f) ? this.Skill.pr_mp_hunder_chant_speed
+                                        : this.Skill.pr_chant_speed_with_cane;
+}
+return num * this.NM2D.NightCon.WindSpeed();
+```
+
+它被两处消费，正好覆盖"咏唱"全程：
+
+| 用途 | 出处 |
+|---|---|
+| **读条推进**（咏唱/蓄力条走得多快，也含咏唱完成后的出手延迟） | `M2PrSkill.cs:525`：`base.TS × max(1, getCastingTimeScale) × magic_prepare_speed` |
+| **咏唱中物品的 TS** | `MagicItem.cs:2200`：`Mg.TS = (t >= casttime \|\| sa >= 100) ? 1 : Caster.getCastingTimeScale(Mg)` |
+
+所以对它做**后缀 ×1.25** 就是"咏唱速度 +25%"：
+读条更快、蓄满更快、出手延迟同步缩短；**威力不变**（由 `mp_hold` 缩放）、**耗魔总量不变**（扣魔在释放时）。
+
+### 41.2 只作用于"正在咏唱的那一发"
+
+```csharp
+if (skill == null || !ReferenceEquals(skill.getCurMagic(), Mg)) return;   // 只加快正在咏唱的这一发
+```
+
+这一条很关键：松手释放后的子弹还会再调 `getCastingTimeScale`（例如 `MgWhiteArrow.cs:71`
+用 `max(1, scale)` 自缩放箭体 `dz`），那时 `Skill.CurMg` 已经是 null，于是**飞行/命中表现完全不受影响**。
+只对**本地诺艾尔 + 诺艾尔模式 + 佩戴快速聚集**生效。
+
+### 41.3 配置
+
+| 分组 | 键 | 默认 | 含义 |
+|---|---|---|---|
+| `Charm26` | `ChantSpeedMult` | 1.25 | 咏唱速度倍率（+25%） |
+
+验证：`build=2026-09-23.34`，DLL SHA256 `1CEB5F409069E8AC…`（两份安装已同步；只覆盖 DLL）。
