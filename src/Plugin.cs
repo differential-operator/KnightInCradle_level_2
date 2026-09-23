@@ -111,6 +111,12 @@ namespace KnightInCradle
         /// <summary>护符10 蜕变挽歌：蓄力释放的剑气伤害 = 魔法霰弹伤害 × 这个比例（默认 0.3）。</summary>
         internal static ConfigEntry<float> ElegyChargedDamageRatioConfig;
 
+        // ---- 护符21 苦痛荆棘（诺艾尔侧）----
+        /// <summary>反击伤害倍率：受到伤害 × 这个值（需求：2 倍）。</summary>
+        internal static ConfigEntry<float> ThornsDamageMultConfig;
+        /// <summary>反击半径（格）。</summary>
+        internal static ConfigEntry<float> ThornsRadiusConfig;
+
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
         internal static float MagicSlashScale =>
@@ -125,6 +131,10 @@ namespace KnightInCradle
             ElegyChargedDamageRatioConfig != null
                 ? Mathf.Clamp(ElegyChargedDamageRatioConfig.Value, 0.05f, 2f)
                 : 0.3f;
+        internal static float ThornsDamageMult =>
+            ThornsDamageMultConfig != null ? Mathf.Clamp(ThornsDamageMultConfig.Value, 0.1f, 10f) : 2f;
+        internal static float ThornsRadius =>
+            ThornsRadiusConfig != null ? Mathf.Clamp(ThornsRadiusConfig.Value, 0.5f, 12f) : 3f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -314,6 +324,11 @@ namespace KnightInCradle
             ElegyChargedDamageRatioConfig = Config.Bind("Charm10", "ElegyChargedDamageRatio", 0.3f,
                 "蜕变挽歌：**蓄力释放**的剑气伤害倍率（默认 0.3 = 只造成魔法霰弹伤害的 30%）。" +
                 "未蓄力的剑气不受影响（那一路就是轻攻击的伤害）。");
+            // 护符21 苦痛荆棘（诺艾尔侧）
+            ThornsDamageMultConfig = Config.Bind("Charm21", "ThornsDamageMult", 2f,
+                "苦痛荆棘：受到伤害时，对周围敌人造成的伤害 = 这次受到的伤害 × 这个倍率（默认 2）。");
+            ThornsRadiusConfig = Config.Bind("Charm21", "ThornsRadius", 3f,
+                "苦痛荆棘：反击的圆形半径（格，默认 3）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

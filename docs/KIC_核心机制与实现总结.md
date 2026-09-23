@@ -3292,3 +3292,55 @@ hpdmg0' = round( 攻击包.hpdmg0 × [萨满 1.25] × [坚固力量 1.25] × [�
 | `Charm10` | `ElegyChargedDamageRatio` | 0.3 | 蓄力释放的剑气伤害倍率（0.3 = 霰弹伤害的 30%）；只影响蓄力那一路 |
 
 验证：`build=2026-09-23.17`，DLL SHA256 `7775E628890CEE8B…`（两份安装已同步；只覆盖 DLL）。
+
+---
+
+## 34. 护符 21 苦痛荆棘（诺艾尔侧，2026-09-23，build=2026-09-23.18）
+
+**需求**：① 诺艾尔不会受到场景中**荆棘和尖刺**的伤害；
+② 诺艾尔**受到伤害时，对半径 3 格内的目标造成"受到伤害 × 2"的伤害**。
+（护符 20 亡者之怒机制复杂，按用户要求放到最后做。）
+
+### 34.1 效果①：免疫场景棘刺（`MAPDMG.SPIKE`）
+
+AIC 的棘刺是"地图危险区"：地图 chip 带 `mapdmg` meta 时，`BCCLine` 会把它建进
+`M2MapDamageContainer`（`BCCLine.cs:282-351`），kind 由 `MDMGCon.Create(string)` 解析，
+缺省就是 `MAPDMG.SPIKE`（`M2MapDamageContainer.cs:71-79`）；物理体压到该区域时走
+`M2Attackable.applyDamageFromMap`（`M2Attackable.cs:186` 或 `M2FootManager.cs:1131`）。
+
+玩家侧的实现是 **`PR.applyDamageFromMap`**（`nel/PR.cs:3100`，override）：
+它 `shuffleHpMpDmg` 后交给 `DMG.applyDamage(...)`。所以挂它的**前缀**、在
+`MDI.kind == MAPDMG.SPIKE` 时直接 `__result = null; return false;`（=这一次地图伤害没发生），
+掉血/击退/僵直全部不产生；`THUNDER / FIRE / LAVA` 等其它地图伤害照旧。
+只对**本地诺艾尔 + 诺艾尔模式 + 佩戴苦痛荆棘**生效。补丁用显式参数类型定位
+（`M2MapDamageContainer.M2MapDamageItem, AttackInfo, float, float, bool`），避免误挂到基类上。
+
+### 34.2 效果②：受伤反击（半径 3 格，伤害 = 受到伤害 × 2）
+
+挂在已有的"诺艾尔受伤"钩子上——`SturdyHpDamagePrefix`（`M2Attackable.applyHpDamage`），
+与幼虫之歌、坚硬外壳同一个入口：
+
+```csharp
+TryGrantGrubsongMp();          // 护符9
+TryThornsOfAgony(noel, val);   // 护符21：val = 这次受到的**原始**伤害
+if (!_noelSturdyActive) ...
+```
+
+- 用**原始伤害**（先于坚硬外壳把伤害改写成 0/1），所以同一次受击即便被外壳记成 0 点，
+  荆棘反击依然按"真的挨了一下"结算；
+- 同一帧只反击一次（`_thornsLastFrame`，与幼虫之歌同一套去重做法）；
+- 半径用**地图坐标**判定（1 格 = 1.0）：先 `Physics2D.OverlapCircleAll` 粗筛
+  （掩码复用剑气那套 `NoelEnemyOverlapMask`），再按 `dx²+dy² ≤ r²` 复核；
+- 伤害是**固定伤害**（`fix_damage = true`），值 = `round(受到伤害 × 2)`，
+  不受萨满之石/坚固力量/会心影响（需求就是"受到伤害的 2 倍"，与小骑士侧同为固定伤害）；
+- 只打敌人（`NelEnemy`），不会误伤自己。
+
+### 34.3 配置
+
+| 分组 | 键 | 默认 | 含义 |
+|---|---|---|---|
+| `Charm21` | `ThornsDamageMult` | 2 | 反击伤害 = 受到伤害 × 该倍率 |
+| `Charm21` | `ThornsRadius` | 3 | 反击半径（格） |
+
+验证：`build=2026-09-23.18`，DLL SHA256 `8AEDE4A9B31D329B…`，两份安装已同步；
+启动日志应是 `72 成功 / 0 失败`（上一版 71 + 本次新增的地图伤害前缀）。

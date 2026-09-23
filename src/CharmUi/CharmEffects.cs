@@ -636,7 +636,8 @@ namespace KnightInCradle.CharmUi
         private static M2RenderTicket _noelElegyTicket;
         private static Map2d _noelElegyMap;
         private static Texture2D _noelElegyTex;
-        private static int _noelElegyMask = -1;
+        /// <summary>"找敌人"的物理层掩码缓存（蜕变挽歌剑气 / 苦痛荆棘共用）。</summary>
+        private static int _noelEnemyMask = -1;
 
         /// <summary>
         /// 护符10 蜕变挽歌（诺艾尔侧）：诺艾尔**轻攻击**（含蓄力后的魔法霰弹，见 2026-09-23 的需求）
@@ -750,11 +751,12 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        private static int NoelElegyOverlapMask()
+        /// <summary>诺艾尔侧"找敌人"用的物理层掩码（蜕变挽歌剑气 / 苦痛荆棘共用）。</summary>
+        private static int NoelEnemyOverlapMask()
         {
-            if (_noelElegyMask >= 0)
+            if (_noelEnemyMask >= 0)
             {
-                return _noelElegyMask;
+                return _noelEnemyMask;
             }
             int mask = LayerMask.GetMask("EnemySelf", "Enemy", "AttackHitable");
             foreach (string name in new[] { "Ignore Raycast", "Water", "TransparentFX", "Default" })
@@ -767,7 +769,7 @@ namespace KnightInCradle.CharmUi
             }
             if (mask != 0)
             {
-                _noelElegyMask = mask;
+                _noelEnemyMask = mask;
             }
             return mask;
         }
@@ -779,7 +781,7 @@ namespace KnightInCradle.CharmUi
             {
                 return;
             }
-            int mask = NoelElegyOverlapMask();
+            int mask = NoelEnemyOverlapMask();
             if (mask == 0)
             {
                 return;
@@ -1178,6 +1180,119 @@ namespace KnightInCradle.CharmUi
             }
             catch (Exception)
             {
+            }
+        }
+
+        // ================= 护符21 苦痛荆棘（诺艾尔侧） =================
+        /// <summary>反击伤害 = 这次受到的伤害 × 该倍率（需求：2 倍）。</summary>
+        public const float ThornsDamageMult = 2f;
+        /// <summary>反击半径（格，需求：3）。</summary>
+        public const float ThornsRadius = 3f;
+
+        private static int _thornsLastFrame = -100;
+
+        /// <summary>
+        /// 护符21 苦痛荆棘（诺艾尔侧）效果②：诺艾尔受到伤害时，对**半径 3 格内**的敌人
+        /// 造成"这次受到的伤害 × 2"的伤害（固定伤害 `fix_damage`，与场上难度曲线无关，
+        /// 与诺艾尔侧的其它护符乘区也无关——需求就是"受到伤害的 2 倍"）。
+        ///
+        /// 由伤害前缀 `SturdyHpDamagePrefix`（`M2Attackable.applyHpDamage`）在**原始伤害 &gt; 0** 时调用，
+        /// 与幼虫之歌同一个时机：即便同一次伤害随后被坚硬外壳改写成 0/1，反击照样按"真的挨了一下"结算；
+        /// 同一帧的多次伤害入口只结算一次。
+        /// </summary>
+        private static void TryThornsOfAgony(PRNoel noel, int damage)
+        {
+            try
+            {
+                if (noel == null || damage <= 0 || IsKnightMode || !IsEquipped(CharmOwner.Noel, ThornsId))
+                {
+                    return;
+                }
+                if (_thornsLastFrame == Time.frameCount)
+                {
+                    return; // 同一帧只反击一次
+                }
+                _thornsLastFrame = Time.frameCount;
+                Map2d mp = noel.Mp;
+                if (mp == null)
+                {
+                    return;
+                }
+                int mask = NoelEnemyOverlapMask();
+                if (mask == 0)
+                {
+                    return;
+                }
+                int dmg = Mathf.Max(1, Mathf.FloorToInt(damage * KnightInCradlePlugin.ThornsDamageMult + 0.5f));
+                float radius = KnightInCradlePlugin.ThornsRadius;
+                float mx = mp.pixel2ux(noel.x * mp.CLEN);
+                float my = mp.pixel2uy(noel.y * mp.CLEN);
+                Vector2 center = mp.gameObject.transform.TransformPoint(new Vector2(mx, my));
+                // 世界坐标的圆只用来粗筛，真正的"3 格"用地图坐标复核（grid = 1.0）
+                Collider2D[] hits = Physics2D.OverlapCircleAll(center, radius, mask);
+                var done = new HashSet<NelEnemy>();
+                for (int i = 0; i < hits.Length; i++)
+                {
+                    Collider2D c = hits[i];
+                    if (c == null)
+                    {
+                        continue;
+                    }
+                    NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
+                    if (enemy == null || !enemy.is_alive || !done.Add(enemy))
+                    {
+                        continue;
+                    }
+                    float dx = enemy.x - noel.x;
+                    float dy = enemy.y - noel.y;
+                    if (dx * dx + dy * dy > radius * radius)
+                    {
+                        continue;
+                    }
+                    var atk = new NelAttackInfo();
+                    atk.hpdmg0 = dmg;
+                    atk.hpdmg_current = dmg;
+                    atk.fix_damage = true;
+                    atk.Caster = noel;
+                    atk.AttackFrom = noel;
+                    atk.CenterXy(enemy.x, enemy.y, 0f);
+                    enemy.applyDamage(atk, false);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 护符21 苦痛荆棘（诺艾尔侧）效果①：诺艾尔不会受到**场景中荆棘/尖刺**的伤害。
+        ///
+        /// AIC 的棘刺伤害是"地图危险区"：地图 chip 带 `mapdmg` meta 时由 `BCCLine` 建成
+        /// `M2MapDamageContainer` 的条目（`MAPDMG.SPIKE` = トゲ/棘刺；`MDAT.cs:206` 那段），
+        /// 物理体触碰时走 `M2Attackable.applyDamageFromMap` → `PR.applyDamageFromMap`
+        /// （`nel/PR.cs:3100`，是玩家侧的 override）。这里给它的前缀直接返回 null（=没造成伤害），
+        /// 于是尖刺/荆棘的掉血、击退、僵直全部不发生；雷霆/火/岩浆等其它地图伤害不受影响。
+        /// 只对本地诺艾尔 + 诺艾尔模式 + 佩戴苦痛荆棘时生效。
+        /// </summary>
+        private static bool ThornsMapDamagePrefix(PR __instance, M2MapDamageContainer.M2MapDamageItem MDI,
+            ref AttackInfo __result)
+        {
+            try
+            {
+                if (IsKnightMode || MDI == null || MDI.kind != MAPDMG.SPIKE)
+                {
+                    return true;
+                }
+                if (!(__instance is PRNoel) || !IsEquipped(CharmOwner.Noel, ThornsId))
+                {
+                    return true;
+                }
+                __result = null; // 这一次地图伤害作废
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
             }
         }
 
@@ -2868,6 +2983,8 @@ namespace KnightInCradle.CharmUi
             }
             // 护符9 幼虫之歌：受到伤害 → 立刻回 20MP（用"原始伤害"判断，先于坚硬外壳的改写）
             TryGrantGrubsongMp();
+            // 护符21 苦痛荆棘：受到伤害 → 对半径 3 格内的敌人反击（同样用"原始伤害"）
+            TryThornsOfAgony(noel, val);
             if (!_noelSturdyActive)
             {
                 return true;
@@ -3548,6 +3665,21 @@ namespace KnightInCradle.CharmUi
                 {
                     harmony.Patch(sturdyDmg, prefix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(SturdyHpDamagePrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符21 苦痛荆棘（诺艾尔侧）：场景中的荆棘/尖刺（MAPDMG.SPIKE）对诺艾尔无效。
+                // 玩家侧的地图伤害入口是 PR.applyDamageFromMap 这个 override（`nel/PR.cs:3100`），
+                // 前缀直接返回 null = 这一次地图伤害不生效。
+                MethodInfo mapDmg = AccessTools.Method(typeof(PR), "applyDamageFromMap",
+                    new[]
+                    {
+                        typeof(M2MapDamageContainer.M2MapDamageItem), typeof(AttackInfo),
+                        typeof(float), typeof(float), typeof(bool),
+                    });
+                if (mapDmg != null)
+                {
+                    harmony.Patch(mapDmg, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(ThornsMapDamagePrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符4 灵魂捕手（诺艾尔侧）：法术命中敌人 → 回 6 MP。
