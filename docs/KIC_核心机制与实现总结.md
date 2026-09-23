@@ -3399,29 +3399,3 @@ h = 贴图高 × 0.26 × ShellScale × ShellHeightRatio
 | `Charm22` | `ShellOffsetY` | 0 | 上下微调（格；负 = 向上） |
 
 验证：`build=2026-09-23.19`，DLL SHA256 `0C2F8A00A4A1CA20…`（两份安装已同步；只覆盖 DLL）。
-
-### 35.5 【2026-09-23 补充】壳只在"咏唱中"起效（法杖附魔霰弹后停止保护）
-
-**需求补充**：魔法蓄力之后，一旦为法杖**附魔魔法霰弹**，巴尔德之壳就停止保护——
-壳仅在诺艾尔**咏唱过程中**起作用。
-
-实现：判定里加上 `!curMg.chant_finished`。
-
-```csharp
-chanting = curMg != null && curMg.isPreparingCircle && !curMg.chant_finished && holdingMp >= 1;
-```
-
-`MagicItem.chant_finished`（`MagicItem.cs:2060`，flags 位 32768）就是"咏唱读满、
-法杖已经附魔魔法霰弹、按 z 即可放霰弹"的状态（`M2PrSkill.cs:3389/3449` 那段逻辑用的同一标志）。
-所以现在的时序是：
-
-```
-按住咏唱键（咏唱进行中） → 壳展开 + 无敌
-咏唱读满（法杖附魔霰弹） → 壳收起、保护停止
-松手施放 / 蓄力被打空     → （本来就没壳）
-```
-
-注意 `chant_finished` 是会被回退的（`MagicItem.cs:2746-2749`：蓄力量被扣回 `t < casttime` 时会置回 false），
-所以蓄力被消耗一半后重新读条时，壳会重新出现——这正是"仅在咏唱时"的口径。
-
-验证：`build=2026-09-23.20`，DLL SHA256 `682A5B49AE2B5579…`（两份安装已同步；只覆盖 DLL）。

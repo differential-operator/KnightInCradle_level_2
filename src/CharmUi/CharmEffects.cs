@@ -1268,8 +1268,6 @@ namespace KnightInCradle.CharmUi
         /// 护符22 巴尔德之壳（诺艾尔侧）：
         /// 诺艾尔**正在魔法咏唱**（= 正握着蓄力魔力）时，在她身体中心渲染 `blocker_shell`
         /// （与小骑士的巴尔德之壳同一套素材/尺寸），并且**咏唱期间处于无敌状态**。
-        /// 注：**咏唱读满（法杖附魔魔法霰弹）之后壳就收起、保护也停止**——壳只在咏唱过程中起效
-        /// （见 `IsNoelMagicChanting` 里的 `!chant_finished`）。
         ///
         /// ① 无敌：走 AIC 原生 `M2NoDamageManager`（`M2Attackable.NoDamage`），
         ///    每帧续 2 帧（`BaldurShellInvincibleFrames`）——咏唱一停就立刻失效，不留尾巴；
@@ -1313,14 +1311,7 @@ namespace KnightInCradle.CharmUi
         private static M2RenderTicket _noelShellTicket;
         private static Map2d _noelShellMap;
 
-        /// <summary>
-        /// 诺艾尔是不是"正在魔法咏唱"（= 巴尔德之壳的保护窗口）。
-        /// 条件：握着蓄力魔力（`CurMg`）＋ 蓄力量 ≥ 1 ＋ **咏唱还没完成**（`!chant_finished`）。
-        ///
-        /// 为什么要排除 `chant_finished`：咏唱读满之后，法杖就被"附魔"成**魔法霰弹**
-        /// （`MagicItem.chant_finished`，`M2PrSkill.cs:3389/3449` 那段"蓄满 → 可放霰弹"的状态），
-        /// 按用户要求这时候巴尔德之壳**不再保护**——壳只在**咏唱过程中**起效。
-        /// </summary>
+        /// <summary>诺艾尔是不是"正在魔法咏唱"：握着蓄力魔力（`CurMg`）且蓄力量 ≥ 1。</summary>
         private static bool IsNoelMagicChanting(PRNoel pr)
         {
             try
@@ -1330,8 +1321,7 @@ namespace KnightInCradle.CharmUi
                     return false;
                 }
                 MagicItem curMg = pr.Skill.getCurMagic();
-                return curMg != null && curMg.isPreparingCircle && !curMg.chant_finished &&
-                       pr.Skill.getHoldingMp(true) >= 1;
+                return curMg != null && curMg.isPreparingCircle && pr.Skill.getHoldingMp(true) >= 1;
             }
             catch (Exception)
             {
