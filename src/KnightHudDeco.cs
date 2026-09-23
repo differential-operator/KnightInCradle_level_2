@@ -50,6 +50,7 @@ namespace KnightInCradle
         /// <summary>乔尼的祝福：自绘 HP 条颜色（需求指定 #0045FF，单一颜色）。</summary>
         private static readonly Color JoniHpBarColor = new Color(0f, 69f / 255f, 1f, 1f);
         private Texture2D _joniBarTex;
+        private static int _joniBarDiagCount; // 临时诊断（验证完删除）
 
         /// <summary>
         /// 护符30 效果1：HP 条渲染成 MP 条那种颜色——直接**在 HUD 上自绘一条纯蓝矩形**盖住
@@ -61,13 +62,25 @@ namespace KnightInCradle
         {
             try
             {
+                if (_joniBarDiagCount >= 0 && _joniBarDiagCount < 12)
+                {
+                    _joniBarDiagCount++;
+                }
                 if (!TryGetHudAnchor(out float ax, out float ay, out float hpCx, out float mpCx, out float cy))
                 {
+                    if (_joniBarDiagCount <= 12)
+                    {
+                        KnightInCradlePlugin.PluginLog?.LogInfo("[KIC][乔尼HP条] 锚点获取失败");
+                    }
                     return;
                 }
                 UIStatus ui = UIStatus.Instance;
                 if (ui == null || FMdH == null)
                 {
+                    if (_joniBarDiagCount <= 12)
+                    {
+                        KnightInCradlePlugin.PluginLog?.LogInfo("[KIC][乔尼HP条] ui=" + (ui != null) + " FMdH=" + (FMdH != null));
+                    }
                     return;
                 }
                 MeshDrawer mh = FMdH.GetValue(ui) as MeshDrawer;
@@ -102,9 +115,19 @@ namespace KnightInCradle
                     _joniBarTex.hideFlags = HideFlags.HideAndDontSave;
                 }
                 Color prev = GUI.color;
+                int prevDepth = GUI.depth;
                 GUI.color = JoniHpBarColor;
+                GUI.depth = -2000; // 压低 depth = 画在更上层（保证盖在游戏 HUD 条之上）
                 GUI.DrawTexture(new Rect(Mathf.Min(x0, x1), Mathf.Min(y0, y1), w, h), _joniBarTex);
                 GUI.color = prev;
+                GUI.depth = prevDepth;
+                if (_joniBarDiagCount <= 12)
+                {
+                    KnightInCradlePlugin.PluginLog?.LogInfo(
+                        "[KIC][乔尼HP条] 已绘制 rect=(" + Mathf.Min(x0, x1).ToString("F1") + "," +
+                        Mathf.Min(y0, y1).ToString("F1") + ") 宽=" + w.ToString("F1") + " 高=" + h.ToString("F1") +
+                        " 屏幕=" + Screen.width + "x" + Screen.height + " scale=" + IN.pixel_scale);
+                }
             }
             catch (Exception)
             {
