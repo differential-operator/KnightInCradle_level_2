@@ -484,11 +484,11 @@ namespace KnightInCradle.CharmUi
         // ================= 生命上限修正：护符11 坚固心脏 / 28 生命血之心 / 29 生命血核心 =================
         /// <summary>护符11 坚固心脏：佩戴后提升的生命上限。</summary>
         public const int HeartMaxHpBonus = 120;
-        /// <summary>护符28 生命血之心：生命上限 -50、魔力上限 +50。</summary>
-        public const int BlueHeart1HpDelta = -50;
+        /// <summary>护符28 生命血之心：生命上限 -30、魔力上限 +50。</summary>
+        public const int BlueHeart1HpDelta = -30;
         public const int BlueHeart1MpDelta = 50;
-        /// <summary>护符29 生命血核心：生命上限 -100、魔力上限 +100。</summary>
-        public const int BlueHeart2HpDelta = -100;
+        /// <summary>护符29 生命血核心：生命上限 -60、魔力上限 +100。</summary>
+        public const int BlueHeart2HpDelta = -60;
         public const int BlueHeart2MpDelta = 100;
 
         /// <summary>基础上限寄存键（COOK SF，随存档序列化）：用来区分"存档里已经带上加成了"。</summary>
