@@ -3733,3 +3733,29 @@ private static bool IsEnemySummoning(NelEnemy enemy)
 `ResolveDamageTarget` `:24600-24605`），这次只是把诺艾尔侧补齐。
 
 验证：`build=2026-09-23.31`，DLL SHA256 `E2C049F68F541AB2…`（两份安装已同步；只覆盖 DLL）。
+
+---
+
+## 40. 发光子宫追加效果：剑山及其污染体不攻击诺艾尔（build=2026-09-23.32）
+
+**需求**：佩戴发光子宫时，**剑山及其污染体不会攻击诺艾尔，即便攻击也不会造成伤害**。
+
+### 40.1 谁是"剑山 / 污染体"
+
+- **剑山** = `NelNUni`（本地化 key `Enemy_UNI`，"剑山"，即 Sea Urchin）；
+- **污染体** = 雷雨天气把魔物变成的 **OverDrive** 形态；在 AIC 里它**不是新实例**，
+  而是**同一个敌人**变强（`NelEnemy.initOverDrive(false, true)`，
+  `OverDriveManager.cs:204-215`）。
+
+所以只要 `en is NelNUni` 就同时覆盖"剑山"和"剑山污染体"（`IsUniEnemy`）。
+
+### 40.2 两条实现
+
+| 需求 | 做法 |
+|---|---|
+| **不会攻击诺艾尔** | ① 每帧清空地图上所有剑山的锁定目标（`NAI.AimPr = null`，遍历 `mp.getMv(i)`，同蜂群集结的 `ClearHiveEnemyAim` 写法）；② `NAI.AimPr` 的 setter 前缀里拦一道：目标是玩家本体（`value is PR`）+ 发光子宫生效 + 敌人是剑山 → 拒绝赋值 |
+| **攻击也不造成伤害** | 在玩家受伤入口 `M2PrADmg.applyDamage`（6 参核心重载）的前缀里加一条：`Atk.Caster is NelNUni` 且发光子宫生效 → 伤害整个作废（`__result = 0; return false`，不扣血/不打断/不击退） |
+
+两条都只在**诺艾尔模式 + 佩戴发光子宫**时生效，不影响骑士模式与其它敌人。
+
+验证：`build=2026-09-23.32`，DLL SHA256 `76DB032E26BDE865…`（两份安装已同步；只覆盖 DLL）。

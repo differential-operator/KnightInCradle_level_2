@@ -1479,7 +1479,7 @@ namespace KnightInCradle.CharmUi
         /// 地图危险区 `PR.applyDamageFromMap` 也走同一条），
         /// 而且它在 `NoDamage` 判定**之前**，所以"壳挡住了几次"能准确计数。
         /// </summary>
-        private static bool NoelShellDamagePrefix(M2PrADmg __instance, ref int __result)
+        private static bool NoelShellDamagePrefix(M2PrADmg __instance, NelAttackInfo Atk, ref int __result)
         {
             try
             {
@@ -1491,6 +1491,12 @@ namespace KnightInCradle.CharmUi
                 if (noel == null || !ReferenceEquals(__instance.Pr, noel))
                 {
                     return true; // 只管本地诺艾尔
+                }
+                // 护符25 发光子宫：剑山及其污染体的攻击一律不造成伤害
+                if (IsUniAttackBlocked(Atk))
+                {
+                    __result = 0;
+                    return false;
                 }
                 if (!IsNoelShellActive(noel))
                 {
@@ -2379,6 +2385,8 @@ namespace KnightInCradle.CharmUi
                 {
                 }
                 // ① 生成：每 SpawnInterval 秒消耗 SpawnMpCost MP（坐长椅休息时不消耗、不生成）
+                // ③ 剑山及其污染体不会攻击诺艾尔：每帧清掉它们对她的锁定目标
+                ClearUniEnemyAim(mp);
                 if (!sitting)
                 {
                     _noelSpikeSpawnTimer -= dt;
@@ -2586,6 +2594,80 @@ namespace KnightInCradle.CharmUi
         {
             int n = _noelSpikeBoomFrames != null ? _noelSpikeBoomFrames.Length : 13;
             return Mathf.Max(0.01f, n / NoelSpikeBoomFps);
+        }
+
+        /// <summary>
+        /// 是不是"**剑山**"（`NelNUni` = `Enemy_UNI`）。
+        /// 剑山的污染体（雷雨 OverDrive）是**同一个实例**变强（`NelEnemy.initOverDrive`，
+        /// `OverDriveManager.cs:204-215`），所以一个 `is NelNUni` 判断就同时覆盖两种形态。
+        /// </summary>
+        private static bool IsUniEnemy(NelEnemy en)
+        {
+            try
+            {
+                return en is NelNUni;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>发光子宫是否正在生效（诺艾尔模式 + 佩戴）。</summary>
+        private static bool NoelUterusActive()
+        {
+            return !IsKnightMode && IsEquipped(CharmOwner.Noel, UterusId);
+        }
+
+        /// <summary>
+        /// 发光子宫效果③：**剑山及其污染体不会攻击诺艾尔**——
+        /// 每帧把地图上所有剑山的锁定目标（`NAI.AimPr`）清空，配合 `NaiAimPrSetPrefix` 里的拦截，
+        /// 它们就不会再把诺艾尔作为目标。
+        /// </summary>
+        private static void ClearUniEnemyAim(Map2d mp)
+        {
+            try
+            {
+                if (mp == null || !NoelUterusActive())
+                {
+                    return;
+                }
+                for (int i = mp.count_movers - 1; i >= 0; i--)
+                {
+                    if (mp.getMv(i) is NelNUni uni)
+                    {
+                        NAI ai = uni.getAI();
+                        if (ai != null && ai.AimPr != null)
+                        {
+                            ai.AimPr = null; // set_AimPr 前缀放行 null → 清空目标
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 发光子宫效果③的后半句："**即便攻击也不会造成伤害**"——
+        /// 剑山（含污染体）打过来的伤害一律作废（不扣血、不打断、不击退）。
+        /// 由 `NoelShellDamagePrefix` 在玩家受伤入口调用。
+        /// </summary>
+        private static bool IsUniAttackBlocked(NelAttackInfo Atk)
+        {
+            try
+            {
+                if (Atk == null || !NoelUterusActive())
+                {
+                    return false;
+                }
+                return Atk.Caster is NelNUni;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         /// <summary>坐长椅时小剑山的落点：脚下地面减去贴图半高（同小骑士的做法）。</summary>
@@ -6663,6 +6745,11 @@ namespace KnightInCradle.CharmUi
             if (value == null)
             {
                 return true; // 允许清空
+            }
+            // 护符25 发光子宫：剑山及其污染体不把诺艾尔（玩家本体）作为目标
+            if (value is PR && NoelUterusActive() && IsUniEnemy(__instance.En))
+            {
+                return false;
             }
             if (HiveNeutralActive())
             {
