@@ -568,7 +568,7 @@ namespace KnightInCradle.CharmUi
         private static int _joniColorDiagCount; // 临时诊断（验证完删除）
 
         /// <summary>
-        /// 护符30 效果1（正式做法）：诺艾尔佩戴乔尼的祝福时，把 HUD **HP 条的填充段染成 `#0045FF`**。
+        /// 护符30 效果1（正式做法）：诺艾尔佩戴乔尼的祝福时，把 HUD **HP 条的填充段染成 `#46B2FF`**。
         ///
         /// 和小骑士的血条染色是**同一套机制**：挂 `UIStatus.redrawAll` 的**后缀**
         /// ——它是血条/魔力条/数字的统一重绘入口（`CombatGuard.RedrawAllPostfix` 就是用它把
@@ -598,9 +598,9 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                // #0045FF
-                const byte r = 0x00;
-                const byte g = 0x45;
+                // #46B2FF
+                const byte r = 0x46;
+                const byte g = 0xB2;
                 const byte b = 0xFF;
                 int keep = Mathf.Min(4, cols.Length); // 前 4 个顶点 = 填充段
                 for (int i = 0; i < keep; i++)
@@ -613,7 +613,7 @@ namespace KnightInCradle.CharmUi
                 {
                     _joniColorDiagCount++;
                     KnightInCradlePlugin.PluginLog?.LogInfo(
-                        "[KIC][乔尼HP条] 已把 HP 填充段染成 #0045FF（顶点数=" + cols.Length + "）");
+                        "[KIC][乔尼HP条] 已把 HP 填充段染成 #46B2FF（顶点数=" + cols.Length + "）");
                 }
             }
             catch (Exception)
