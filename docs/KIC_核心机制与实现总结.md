@@ -4160,3 +4160,33 @@ maxmp = base_mp + 生命血之心(+50) + 生命血核心(+100)
 
 > 2026-09-24 微调：颜色由 `#0045FF` 改为 **`#46B2FF`**（用户实测染色成功后指定）。
 > `build=2026-09-24.11`，DLL SHA256 `FCEA71B0A22DC9D5…`。
+
+### 44.5 【2026-09-24】名额变化时"在长椅上回满 HP/MP"
+
+需求：**坐在长椅上**装卸 11 坚固心脏 / 28 生命血之心 / 29 生命血核心 / 30 乔尼的祝福
+（这四个都会改 HP、MP 上限）时，HP、MP 要一并**回满到新上限**。
+
+实现位置：`CharmEffects.TickNoelHeartCharm`。原来只做"上限变大/变小后把超出部分夹回"，
+现在加一层判定：
+
+```
+if (nowHpMax != targetHp || nowMpMax != targetMp) {
+    PrMaxHpField/PrMaxMpField = targetHp/targetMp;  // 改上限（原有）
+    if (IsNoelOnBench(pr)) {                        // 新增
+        PrHpField = targetHp;  PrMpField = targetMp; // 直接回满
+        RefreshNoelHudHp/Mp();
+    }
+}
+```
+
+`IsNoelOnBench(PRNoel)` = `pr.isBenchState()`（AIC 原生 BENCH 系状态判定，
+`EpManager.cs:497` / `M2PrABench.cs:37` 等原版逻辑同样用它），包 try/catch。
+
+只在**上限发生变化的那一帧**回满：长椅上开关护符 → 上限变化 → 回满；
+不在长椅上时该分支不触发（本来也不能装卸，所以行为等价于"只在椅子生效"）。
+注意它**不会**让长椅每帧回满——没有上限变化时不进入该分支。
+
+顺带把 44.3 阶段留下的乔尼临时诊断日志（`[KIC][乔尼HP条]` / `[KIC][乔尼HUD]`，
+含 `_joniColorDiagCount`、`_joniTickDiagCount` 两个计数器字段）**全部删除**。
+
+验证：`build=2026-09-24.12`，DLL SHA256 `6AF47CAC970FE9C6…`（两份安装已同步；只覆盖 DLL）。
