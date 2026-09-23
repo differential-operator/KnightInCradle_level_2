@@ -3915,3 +3915,33 @@ if (num2 > 0) { base.selectInit(...); ... }   // ← 只有 num2 > 0 才注册�
 （另：42.4 节的 `drawEd`/`prepareTx` 两个补丁已删除，`reawakeMagic` 只保留"回血期间不重新咏唱"。）
 
 验证：`build=2026-09-23.40`，DLL SHA256 `49866635CE1F3062…`（两份安装已同步；只覆盖 DLL）。
+
+### 42.6 【2026-09-23 第四稿（现用）】冻住"咏唱读满后的准备阶段"
+
+**用户实测（.40）**：选择界面仍闪、**咏唱动画仍然看不到**；
+并给出关键解释：AIC 里长按法术键＝选择魔法（纯白之箭是第一位，所以直接选中），
+而"法术被我屏蔽 → 没放出来 → 施法终止 → 咏唱动画也没触发"。
+
+**日志实证（build .40 诊断）**：
+
+```
+[KIC][深聚诊断] hold=0.18 healing=False curMg=null      selActive=True  selCur=WHITEARROW magicT=12.0 state=NORMAL
+[KIC][深聚诊断] hold=0.45 healing=False curMg=WHITEARROW selActive=False selCur=WHITEARROW magicT=27.0 state=NORMAL
+[KIC][深聚诊断] hold=0.70 healing=True  curMg=null      selActive=True  selCur=WHITEARROW magicT=13.0 state=NORMAL
+```
+
+→ 读条确实开始了（0.45s 时 `curMg=WHITEARROW`、`magicT=27`），是**我们 0.5 秒的清蓄力把它掐掉**；
+而玩家看到的"咏唱动画"（姿势切 `magic_init` + 持杖/法阵特效亮起）**要等读满**
+（`CurMg.chant_finished` → `PR.STATE.MAG_EXPLODE_PREPARE`，`M2PrSkill.cs:3449-3464`）才出现，
+0.23→0.5 秒这段时间根本来不及读满，所以"看不到动画"。
+
+**现用做法**（两条）：
+
+1. **读条加速**：`PR.getCastingTimeScale` 后缀在佩戴深度聚集（且还没开始回血）时再乘
+   `Charm27/ChantBoost`（默认 4）—— 让读条在 0.5 秒内**读满**，于是咏唱动画真的会亮起来；
+2. **冻住准备阶段**：`M2PrSkill.runMagExplodePrepare` 后缀把 `magic_t` 按在 **-1 以下**：
+   流程会停在 `MAG_EXPLODE_PREPARE`（姿势/法阵保持显示 = 玩家要的"咏唱动画"），
+   `explodeMagic` 永远不会被调用 → **法术自然放不出去**（效果①自动成立，不再依赖拦 explodeMagic）。
+   到 0.5 秒 tick 清蓄力，动画随即结束并开始回血。
+
+验证：`build=2026-09-23.41`，DLL SHA256 `00C6669D24D0B3D7…`（两份安装已同步；只覆盖 DLL）。

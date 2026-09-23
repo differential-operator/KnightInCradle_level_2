@@ -178,6 +178,8 @@ namespace KnightInCradle
         internal static ConfigEntry<float> DeepGatherDelayConfig;
         /// <summary>回血时的 MP 消耗速度（MP/秒，需求：20）。</summary>
         internal static ConfigEntry<float> DeepGatherMpPerSecondConfig;
+        /// <summary>深度聚集：读条加速倍率（只为让咏唱动画在 0.5 秒内出现）。</summary>
+        internal static ConfigEntry<float> DeepGatherChantBoostConfig;
 
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
@@ -253,6 +255,10 @@ namespace KnightInCradle
             DeepGatherMpPerSecondConfig != null
                 ? Mathf.Clamp(DeepGatherMpPerSecondConfig.Value, 1f, 200f)
                 : 20f;
+        internal static float DeepGatherChantBoost =>
+            DeepGatherChantBoostConfig != null
+                ? Mathf.Clamp(DeepGatherChantBoostConfig.Value, 0.1f, 20f)
+                : 4f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -506,6 +512,9 @@ namespace KnightInCradle
                 "深度聚集：长按法术键多久后开始把 MP 转成 HP（秒，默认 0.5）。");
             DeepGatherMpPerSecondConfig = Config.Bind("Charm27", "MpPerSecond", 20f,
                 "深度聚集：回血时的 MP 消耗速度（MP/秒，默认 20；1 MP 换 1 HP）。");
+            DeepGatherChantBoostConfig = Config.Bind("Charm27", "ChantBoost", 4f,
+                "深度聚集：读条加速倍率（默认 4）。只为了让'持杖/法阵'的咏唱动画能在 0.5 秒里出现，" +
+                "数值越大动画出现得越早；填 1 = 不加速。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

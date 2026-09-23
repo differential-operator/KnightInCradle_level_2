@@ -1955,6 +1955,44 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        /// <summary>
+        /// 护符27 深度聚集（效果②的关键）：把"**咏唱读满后的准备阶段**"冻住，让玩家看得见咏唱动画。
+        ///
+        /// AIC 的完整流程是：咏唱读满（`CurMg.chant_finished`）→ `PR.STATE.MAG_EXPLODE_PREPARE`
+        /// （姿势切 `magic_init`、持杖/法阵特效亮起 = 玩家眼里的"咏唱动画"）
+        /// → 准备时间走完（`magic_t` 从负数涨到 0）→ `explodeMagic` 把法术放出去。
+        /// 本模组把 `magic_t` **按在 -1 以下**，于是永远停在准备阶段：
+        /// 姿势/法阵持续显示 ✓、法术永远放不出去 ✓（`explodeMagic` 根本不会被调用）。
+        /// 到 0.5 秒时 tick 清掉蓄力（`killHoldMagic`），动画随之结束并开始回血。
+        /// </summary>
+        private static void DeepGatherPrepareFreezePostfix(M2PrSkill __instance)
+        {
+            try
+            {
+                if (__instance == null || IsKnightMode || _noelDeepGatherHealing ||
+                    !IsEquipped(CharmOwner.Noel, DeepGatherId))
+                {
+                    return;
+                }
+                PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+                if (pr == null || !ReferenceEquals(__instance, pr.Skill))
+                {
+                    return;
+                }
+                if (__instance.getCurMagic() == null)
+                {
+                    return;
+                }
+                if (__instance.magic_t > -1f)
+                {
+                    __instance.magic_t = -1f; // 冻在准备阶段（法阵/姿势保持，不会施放）
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         private static bool IsDeepGatherMagicSelector(object selector)
         {
             try
@@ -2063,8 +2101,15 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (Mg == null || __instance == null || IsKnightMode ||
-                    !IsEquipped(CharmOwner.Noel, FastGatherId))
+                if (Mg == null || __instance == null || IsKnightMode)
+                {
+                    return;
+                }
+                bool fastGather = IsEquipped(CharmOwner.Noel, FastGatherId);
+                // 深度聚集：为了让"持杖/法阵"的咏唱动画能在这 0.5 秒里出现，读条也要加速
+                // （回血开始后就不再加速，交给回血逻辑）
+                bool deepGather = !_noelDeepGatherHealing && IsEquipped(CharmOwner.Noel, DeepGatherId);
+                if (!fastGather && !deepGather)
                 {
                     return;
                 }
@@ -2078,7 +2123,14 @@ namespace KnightInCradle.CharmUi
                 {
                     return; // 只加快"正在咏唱的那一发"
                 }
-                __result *= KnightInCradlePlugin.FastGatherChantSpeedMult;
+                if (fastGather)
+                {
+                    __result *= KnightInCradlePlugin.FastGatherChantSpeedMult;
+                }
+                if (deepGather)
+                {
+                    __result *= KnightInCradlePlugin.DeepGatherChantBoost;
+                }
             }
             catch (Exception)
             {
@@ -6386,6 +6438,16 @@ namespace KnightInCradle.CharmUi
                 if (reawakeMagic != null)
                 {
                     PatchDeepGather(harmony, reawakeMagic, nameof(DeepGatherReawakeMagicPrefix), "reawakeMagic(回血期间不咏唱)");
+                }
+                // 护符27 深度聚集（诺艾尔侧）：② 把"咏唱读满后的准备阶段"冻住
+                // —— 姿势/法阵保持显示（=玩家要的咏唱动画），法术永远不会放出去
+                MethodInfo magPrepare = AccessTools.Method(typeof(M2PrSkill), "runMagExplodePrepare");
+                if (magPrepare != null)
+                {
+                    harmony.Patch(magPrepare, postfix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(DeepGatherPrepareFreezePostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                    KnightInCradlePlugin.PluginLog?.LogInfo("[KIC][深聚] 补丁已挂载：runMagExplodePrepare(冻住准备阶段)");
                 }
                 // 护符23 吸虫之巢（诺艾尔侧）：纯白之箭 / 聚能火球改成喷吸虫。
                 // 挂 MagicItem.explode(bool) 的后缀：返回值就是"这一发原版子弹"，
