@@ -130,6 +130,8 @@ namespace KnightInCradle
         internal static ConfigEntry<int> BaldurShellMaxBlocksConfig;
         /// <summary>壳破碎后的恢复时间（秒，需求：10）。</summary>
         internal static ConfigEntry<float> BaldurShellRecoverSecondsConfig;
+        /// <summary>壳是否画在诺艾尔图层之后（true = 身后；false = 身前，同小骑士的壳）。</summary>
+        internal static ConfigEntry<bool> BaldurShellBehindNoelConfig;
 
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
@@ -163,6 +165,8 @@ namespace KnightInCradle
             BaldurShellRecoverSecondsConfig != null
                 ? Mathf.Clamp(BaldurShellRecoverSecondsConfig.Value, 0.1f, 120f)
                 : 10f;
+        internal static bool BaldurShellBehindNoel =>
+            BaldurShellBehindNoelConfig == null || BaldurShellBehindNoelConfig.Value;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -370,6 +374,9 @@ namespace KnightInCradle
                 "巴尔德之壳：最多能抵挡几次伤害（默认 3）。挡满后壳破碎，进入恢复时间。");
             BaldurShellRecoverSecondsConfig = Config.Bind("Charm22", "ShellRecoverSeconds", 10f,
                 "巴尔德之壳：破碎后多久才能再次展开（秒，默认 10）。");
+            BaldurShellBehindNoelConfig = Config.Bind("Charm22", "ShellBehindNoel", true,
+                "巴尔德之壳：壳是否画在**诺艾尔图层之后**（默认 true = 在诺艾尔身后）。" +
+                "改成 false 就回到小骑士那种『画在人前』的效果。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

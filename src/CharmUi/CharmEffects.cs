@@ -1323,6 +1323,7 @@ namespace KnightInCradle.CharmUi
         private static Material _noelShellMat;
         private static M2RenderTicket _noelShellTicket;
         private static Map2d _noelShellMap;
+        private static bool _noelShellTicketBehind = true; // 当前票据建在哪个层（配置改了要重建）
 
         /// <summary>诺艾尔是不是"正在魔法咏唱"：握着蓄力魔力（`CurMg`）且蓄力量 ≥ 1。</summary>
         private static bool IsNoelMagicChanting(PRNoel pr)
@@ -1643,19 +1644,24 @@ namespace KnightInCradle.CharmUi
             {
                 return; // 素材缺失：只是不显示，无敌照常
             }
-            if (_noelShellMesh != null && _noelShellMap == mp && _noelShellTicket != null)
+            bool behind = KnightInCradlePlugin.BaldurShellBehindNoel;
+            if (_noelShellMesh != null && _noelShellMap == mp && _noelShellTicket != null &&
+                _noelShellTicketBehind == behind)
             {
                 return;
             }
             ReleaseNoelShellTicket();
             _noelShellMap = mp;
+            _noelShellTicketBehind = behind;
             _noelShellMesh = new MeshDrawer(null, 4 * 16, 6 * 16);
             _noelShellMesh.draw_gl_only = true;
             _noelShellMat = MTRX.newMtr(MTRX.ShaderGDT);
             _noelShellMat.EnableKeyword("NO_PIXELSNAP");
             _noelShellMesh.activate("noel_baldur_shell", _noelShellMat, false, MTRX.ColWhite, null);
             _noelShellTicket = mp.MovRenderer.assignDrawable(
-                M2Mover.DRAW_ORDER.PR1, null, PrepareNoelShellMesh, _noelShellMesh, null, null);
+                // PR0 = 诺艾尔图层**之后**（身后层，同模组的会心光圈）；PR1 = 身前层（同小骑士的壳）
+                behind ? M2Mover.DRAW_ORDER.PR0 : M2Mover.DRAW_ORDER.PR1,
+                null, PrepareNoelShellMesh, _noelShellMesh, null, null);
         }
 
         private static void ReleaseNoelShellTicket()
