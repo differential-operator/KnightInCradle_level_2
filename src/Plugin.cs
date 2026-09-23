@@ -144,6 +144,8 @@ namespace KnightInCradle
         internal static ConfigEntry<int> NestFlukeDamageShamanConfig;
         /// <summary>吸虫发射初速度倍率（需求：1.25）。</summary>
         internal static ConfigEntry<float> NestFlukeSpeedMultConfig;
+        /// <summary>吸虫命中后再造成一次伤害的概率（需求：50%）。</summary>
+        internal static ConfigEntry<float> NestFlukeDoubleHitChanceConfig;
 
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
@@ -180,15 +182,19 @@ namespace KnightInCradle
         internal static bool BaldurShellBehindNoel =>
             BaldurShellBehindNoelConfig == null || BaldurShellBehindNoelConfig.Value;
         internal static int NestArrowFlukeCount =>
-            NestArrowFlukeCountConfig != null ? Mathf.Clamp(NestArrowFlukeCountConfig.Value, 1, 48) : 8;
+            NestArrowFlukeCountConfig != null ? Mathf.Clamp(NestArrowFlukeCountConfig.Value, 1, 48) : 10;
         internal static int NestFireballFlukeCount =>
-            NestFireballFlukeCountConfig != null ? Mathf.Clamp(NestFireballFlukeCountConfig.Value, 1, 48) : 14;
+            NestFireballFlukeCountConfig != null ? Mathf.Clamp(NestFireballFlukeCountConfig.Value, 1, 48) : 16;
         internal static int NestFlukeDamage =>
             NestFlukeDamageConfig != null ? Mathf.Clamp(NestFlukeDamageConfig.Value, 1, 999) : 7;
         internal static int NestFlukeDamageWithShaman =>
             NestFlukeDamageShamanConfig != null ? Mathf.Clamp(NestFlukeDamageShamanConfig.Value, 1, 999) : 9;
         internal static float NestFlukeSpeedMult =>
             NestFlukeSpeedMultConfig != null ? Mathf.Clamp(NestFlukeSpeedMultConfig.Value, 0.1f, 5f) : 1.25f;
+        internal static float NestFlukeDoubleHitChance =>
+            NestFlukeDoubleHitChanceConfig != null
+                ? Mathf.Clamp(NestFlukeDoubleHitChanceConfig.Value, 0f, 1f)
+                : 0.5f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -400,10 +406,10 @@ namespace KnightInCradle
                 "巴尔德之壳：壳是否画在**诺艾尔图层之后**（默认 true = 在诺艾尔身后）。" +
                 "改成 false 就回到小骑士那种『画在人前』的效果。");
             // 护符23 吸虫之巢（诺艾尔侧）
-            NestArrowFlukeCountConfig = Config.Bind("Charm23", "ArrowFlukeCount", 8,
-                "吸虫之巢：纯白之箭改放几只吸虫（默认 8）。");
-            NestFireballFlukeCountConfig = Config.Bind("Charm23", "FireballFlukeCount", 14,
-                "吸虫之巢：聚能火球改放几只吸虫（默认 14）。");
+            NestArrowFlukeCountConfig = Config.Bind("Charm23", "ArrowFlukeCount", 10,
+                "吸虫之巢：纯白之箭改放几只吸虫（默认 10）。");
+            NestFireballFlukeCountConfig = Config.Bind("Charm23", "FireballFlukeCount", 16,
+                "吸虫之巢：聚能火球改放几只吸虫（默认 16）。");
             NestFlukeDamageConfig = Config.Bind("Charm23", "FlukeDamage", 7,
                 "吸虫之巢：每只吸虫的伤害（真伤，默认 7）。");
             NestFlukeDamageShamanConfig = Config.Bind("Charm23", "FlukeDamageWithShaman", 9,
@@ -411,6 +417,8 @@ namespace KnightInCradle
             NestFlukeSpeedMultConfig = Config.Bind("Charm23", "FlukeSpeedMult", 1.25f,
                 "吸虫之巢：吸虫**发射初速度**的倍率（默认 1.25 = 小骑士原速的 1.25 倍）。" +
                 "只影响发射瞬间的水平/垂直初速，落地弹跳速度不变。");
+            NestFlukeDoubleHitChanceConfig = Config.Bind("Charm23", "FlukeDoubleHitChance", 0.5f,
+                "吸虫之巢：吸虫命中敌人后再造成一次同样伤害的概率（默认 0.5 = 50%）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

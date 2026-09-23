@@ -1993,6 +1993,14 @@ namespace KnightInCradle.CharmUi
                     atk.AttackFrom = pr;
                     atk.CenterXy(enemy.x, enemy.y, 0f);
                     enemy.applyDamage(atk, false);
+                    // 需求：命中后有一定概率再造成一次同样的伤害（小骑士版本是 25%）
+                    if (UnityEngine.Random.value < KnightInCradlePlugin.NestFlukeDoubleHitChance)
+                    {
+                        atk.hpdmg0 = dmg;
+                        atk.hpdmg_current = dmg;
+                        atk.CenterXy(enemy.x, enemy.y, 0f);
+                        enemy.applyDamage(atk, false);
+                    }
                     return true;
                 }
             }
