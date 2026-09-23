@@ -3093,3 +3093,61 @@ Atk.hpdmg0(临时) = hpdmg0 × [萨满 1.25（法术）] × [坚固力量 1.25�
 - 退出会心即释放票据；素材缺失时只是不显示，连击与伤害照常。
 
 验证：`build=2026-09-22.51`，DLL SHA256 `6BA544F2565A6E8B…`（两份安装已同步；只覆盖 DLL）。
+
+---
+
+## 31. 【口径确认】伤害乘区：萨满之石（5）与坚固力量（13）（2026-09-23，build=2026-09-23.13）
+
+### 31.1 需求口径（用户确认）
+
+| 招式（游戏内名） | 萨满之石 ×1.25 | 坚固力量 ×1.25 |
+|---|---|---|
+| 所有法术技能（纯白之箭/地面炸弹/火球/雷霆/水石/黑洞/花环…） | ✔ | — |
+| 魔法霰弹（蓄力后轻攻击） | ✔ | ✔ |
+| **魔法霰弹变种**（蓄力状态下释放的下列技艺） | ✔ | ✔ |
+| 轻攻击 Punch、旋风斩击 Cyclone Slash、彗星俯冲 Comet Dive、突进冲击 Dashpunch、凌空横斩 Airpunch、会心重击 Fatal Smash、轮舞斩击 Dancing Slash | 仅"变种"时 ✔ | ✔ |
+
+两件同时佩戴时，魔法霰弹及其变种 = **×1.25 × 1.25**（连乘，不是覆盖）。
+
+### 31.2 招式 → kind 对照（0.30g 反编译实证）
+
+`M2PrSkill.executeSmallAttack`（`M2PrSkill.cs:2587-2830`）里，"蓄力后释放的挥击"分两类：
+
+| 招式 | 未蓄力 kind | 蓄力（变种）时 |
+|---|---|---|
+| 轻攻击 / 凌空横斩 | `PR_PUNCH` | **kind 直接变成 `PR_SHOTGUN`**（`:2705`） |
+| 旋风斩击 | `PR_WHEEL` | kind 仍是 `PR_WHEEL`，只是 state 为 `WHEEL_SHOTGUN` |
+| 彗星俯冲 | `PR_COMET` | 仍是 `PR_COMET`（`COMET_SHOTGUN`） |
+| 突进冲击 | `PR_DASHPUNCH` | 仍是 `PR_DASHPUNCH`（`DASHPUNCH_SHOTGUN`） |
+| 会心重击 | `PR_SMASH` | 仍是 `PR_SMASH`（`SMASH_SHOTGUN`） |
+| 轮舞斩击 Dancing Slash | **`PR_EVADECOUNTER`** | 仍是 `PR_EVADECOUNTER`（`EVADECOUNTER_SHOTGUN`） |
+
+轮舞斩击的对应关系是本轮新查实的：`SkillManager.SKILL_TYPE.evade_dancing`
+（中文名"轮舞斩击"，操作=弹开敌人攻击后 ←/→ + z）在 `M2PrSkill.cs:2017-2021`
+把 state 置为 `EVADECOUNTER`/`EVADECOUNTER_SHOTGUN`，而 `:2657-2664` 给它的 kind 是
+`PR_EVADECOUNTER`。**旧的文档注释写"PR_WHEEL = 旋风斩击 / 轮舞斩击"是错的**，已修正。
+
+### 31.3 本轮修掉的两个漏项
+
+1. **坚固力量漏了轮舞斩击**：`IsPowerBoostKind` 原来只列 `PR_PUNCH/PR_SHOTGUN/PR_WHEEL/PR_COMET/PR_DASHPUNCH/PR_SMASH`，
+   现已补 `PR_EVADECOUNTER`（未列出的 滑铲 `PR_SLIDING`、护盾冲击/环轨护盾 `PR_SHIELD_*` 按需求**不**加成）。
+2. **萨满之石漏了"霰弹变种"**：变种的 kind 是自己的技艺 kind（见 31.2），
+   `IsPlayerMagicKind` 判不出来，所以"同时佩戴两件时变种只有 ×1.25"。
+   新增判据 `IsNoelShotgunFlavored(MagicItem)`：
+
+```csharp
+// ① 主判据：initShotGun 把"本次蓄力的耗魔"写进了 reduce_mp（MDAT.cs:1162）
+//    普通挥击的 reduce_mp 恒为 0（MagicItem.init:46），法术类则不是 NORMAL_ATTACK
+Mg.is_normal_attack && Mg.reduce_mp > 0f
+// ② 兜底：蓄力刚开始就释放时 reduce_mp 会被取整成 0，此时看是否还在 *_SHOTGUN 状态
+|| (Mg.Caster as PRNoel)?.isShotgunState()
+```
+
+萨满之石的条件因此从"`IsPlayerMagicKind(kind)`"变为
+"`IsPlayerMagicKind(kind) || IsNoelShotgunFlavored(Mg)`"；坚固力量仍只看 kind。两者在同一个
+`mult` 上连乘，所以霰弹及其变种 = ×1.5625。
+
+同一条判据也补给了**护符 4 灵魂捕手 / 护符 6 噬魂者**（"用法术命中敌人回 MP"）：
+蓄力释放的挥击同样算魔法，命中即回 MP（此前只有魔法霰弹本身算）。
+
+验证：`build=2026-09-23.13`，DLL SHA256 `1C3E1D52C83E3A25…`（两份安装已同步；只覆盖 DLL）。

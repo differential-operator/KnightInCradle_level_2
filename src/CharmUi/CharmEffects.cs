@@ -409,9 +409,9 @@ namespace KnightInCradle.CharmUi
                 {
                     return; // 不是诺艾尔放的法术
                 }
-                if (!IsPlayerMagicKind(Mg.kind))
+                if (!IsPlayerMagicKind(Mg.kind) && !IsNoelShotgunFlavored(Mg))
                 {
-                    return; // 不消耗魔力的攻击（普攻/技艺）不算魔法
+                    return; // 不消耗魔力的攻击（普攻/未被蓄力强化的技艺）不算魔法
                 }
                 if ((__result & HITTYPE.HITTED_EN) == HITTYPE.NONE)
                 {
@@ -438,6 +438,42 @@ namespace KnightInCradle.CharmUi
             try
             {
                 return MKind.getReduceMp(kind) > 0 || kind == MGKIND.PR_SHOTGUN;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// "魔法霰弹 / 霰弹变种"判据（萨满之石 / 灵魂捕手 / 噬魂者共用）：
+        /// 诺艾尔**蓄力后释放的战斗挥击**——魔法霰弹本身，以及
+        /// 旋风斩击 / 彗星俯冲 / 突进冲击 / 凌空横斩 / 会心重击 / 轮舞斩击
+        /// 在魔法蓄力状态下释放的"霰弹变种"（`PR.STATE.*_SHOTGUN`）。
+        ///
+        /// 这些变种**招牌仍是自己的技艺 kind**（`M2PrSkill.cs:2610-2674`：WHEEL_SHOTGUN → PR_WHEEL、
+        /// COMET_SHOTGUN → PR_COMET…），所以只看 kind 识别不出它们；但它们的伤害一定经过
+        /// `MDAT.initShotGun` 结算，而后者会把 `MgShot.reduce_mp` 从 0 改成这次蓄力的耗魔
+        /// （`MDAT.cs:1162`）——普通挥击的 `reduce_mp` 恒为 0（`MagicItem.init`，`:46`）,
+        /// 而法术类的 `reduce_mp` 由 kind 表给出、不是 `NORMAL_ATTACK`，
+        /// 因此 `is_normal_attack && reduce_mp > 0` 正好圈定"霰弹（含变种）"。
+        /// 蓄力刚开始就释放时 `reduce_mp` 会被取整成 0，此时用"施法者仍在 `*_SHOTGUN` 状态"
+        /// （`PR.isShotgunState()`，`PR.cs:6006/6019-6029`）兜底。
+        /// </summary>
+        private static bool IsNoelShotgunFlavored(MagicItem Mg)
+        {
+            try
+            {
+                if (Mg == null || !Mg.is_normal_attack)
+                {
+                    return false; // 法术不是 NORMAL_ATTACK（它已由 IsPlayerMagicKind 覆盖）
+                }
+                if (Mg.reduce_mp > 0f)
+                {
+                    return true;
+                }
+                PRNoel pr = Mg.Caster as PRNoel;
+                return pr != null && pr.isShotgunState();
             }
             catch (Exception)
             {
@@ -1973,8 +2009,11 @@ namespace KnightInCradle.CharmUi
         /// <summary>
         /// 坚固力量覆盖的招式（按 `MGKIND` 判定）：
         /// PR_PUNCH（轻攻击 Punch，凌空横斩 Airpunch 走的也是这个 kind）、
-        /// PR_SHOTGUN（魔法霰弹）、PR_WHEEL（旋风斩击 / 轮舞斩击）、PR_COMET（彗星俯冲）、
-        /// PR_DASHPUNCH（突进冲击）、PR_SMASH（会心重击）。
+        /// PR_SHOTGUN（魔法霰弹）、PR_WHEEL（旋风斩击）、PR_COMET（彗星俯冲）、
+        /// PR_DASHPUNCH（突进冲击）、PR_SMASH（会心重击）、
+        /// PR_EVADECOUNTER（轮舞斩击：`SkillManager` 里叫 `evade_dancing`，
+        /// 弹开敌人攻击后 ←/→ + z 触发，`M2PrSkill.cs:2017-2021` → `PR.STATE.EVADECOUNTER`，
+        /// 蓄力时为 `EVADECOUNTER_SHOTGUN` 但 kind 仍是 PR_EVADECOUNTER）。
         /// </summary>
         private static bool IsPowerBoostKind(MGKIND kind)
         {
@@ -1986,6 +2025,7 @@ namespace KnightInCradle.CharmUi
                 case MGKIND.PR_COMET:
                 case MGKIND.PR_DASHPUNCH:
                 case MGKIND.PR_SMASH:
+                case MGKIND.PR_EVADECOUNTER:
                     return true;
                 default:
                     return false;
@@ -2450,9 +2490,11 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                // 萨满之石（法术）与坚固力量（骨钉系技能）都抬高这一发的基准伤害，两者同时满足就连乘
+                // 萨满之石（法术 + 魔法霰弹及其变种）与坚固力量（骨钉系技能）都抬高这一发的基准伤害，
+                // 两者同时满足就连乘 —— 于是"装了萨满之石的魔法霰弹及其变种" = ×1.25 ×1.25
                 float mult = 1f;
-                if (IsEquipped(CharmOwner.Noel, ShamanId) && IsPlayerMagicKind(Mg.kind))
+                if (IsEquipped(CharmOwner.Noel, ShamanId) &&
+                    (IsPlayerMagicKind(Mg.kind) || IsNoelShotgunFlavored(Mg)))
                 {
                     mult *= ShamanDamageMult;
                 }
