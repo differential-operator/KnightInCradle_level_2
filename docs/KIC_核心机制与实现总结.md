@@ -3151,3 +3151,54 @@ Mg.is_normal_attack && Mg.reduce_mp > 0f
 蓄力释放的挥击同样算魔法，命中即回 MP（此前只有魔法霰弹本身算）。
 
 验证：`build=2026-09-23.13`，DLL SHA256 `1C3E1D52C83E3A25…`（两份安装已同步；只覆盖 DLL）。
+
+---
+
+## 32. 蓄力剑气贴图：魔法霰弹及其变种改用 `slash_effect_magic`（2026-09-23，build=2026-09-23.14）
+
+**需求**：诺艾尔为法杖蓄力后（魔法霰弹及其变种），蜕变挽歌、修长之钉、骄傲印记渲染出的剑气
+贴图换成 `assets/hk/sheets/slash_effect/slash_effect_magic.png`。
+
+**"蓄力释放"的判据**沿用第 31 节新增的 `IsNoelShotgunFlavored(Mg)`（`is_normal_attack && reduce_mp > 0`，
+兜底 `isShotgunState()`），因此三处渲染共用同一条口径。
+
+### 32.1 三处渲染的改法
+
+| 护符 | 原贴图 | 蓄力时 | 说明 |
+|---|---|---|---|
+| 10 蜕变挽歌 | `slashes_effect0001` | `slash_effect_magic` | 剑气框仍按**原贴图**尺寸算（magic 那张是 1280×832，直接按它算会放大 8 倍） |
+| 18 修长之钉 | `mantis_slash_left0001/0002`（两帧交替） | `slash_effect_magic`（单帧） | 框高仍按所选贴图宽高比算，所以 magic 图自带的比例会生效 |
+| 19 骄傲印记 | 同上 | 同上 | 与 18 共用一条弧带绘制，`Magic` 标记记在弧带上 |
+
+弧带结构 `NoelLongNailArc` 增加 `Magic` 字段；同一帧同一 kind/朝向的多段判定合并弧带时
+`Magic = 旧 || 新`，避免"一蓄力一普通"混在一起画两套图。
+
+### 32.2 蜕变挽歌在蓄力时也会发射剑气
+
+原来挽歌只认 `MGKIND.PR_PUNCH`（= 不蓄力的轻攻击）。蓄力后轻攻击的 kind 变成 `PR_SHOTGUN`
+（`M2PrSkill.cs:2705`）、技艺变种更是各自 kind，于是**蓄力时挽歌根本不发剑气**，
+"换贴图"也就无从谈起。因此新增判据：`PR_PUNCH`（原样）**或** `IsNoelShotgunFlavored`
+（= 蓄力释放的轻攻击/技艺）都发射剑气，后者用 magic 贴图。
+
+这一条是**行为**变化（不只是观感），已做成开关：`[Charm10] ElegyOnChargedAttack`（默认开），
+关掉就退回"只有不蓄力的轻攻击发射剑气"。
+
+### 32.3 新增配置
+
+| 分组 | 键 | 默认 | 含义 |
+|---|---|---|---|
+| `MagicSlash` | `OnChargedAttack` | true | 蓄力释放时是否换 magic 贴图（关掉则三处一律用原贴图） |
+| `MagicSlash` | `Scale` | 1 | magic 剑气整体渲染大小倍率（宽高等比，只影响蓄力时那张图） |
+| `MagicSlash` | `HeightRatio` | 1 | magic 剑气渲染高度倍率（只改高度） |
+| `Charm10` | `ElegyOnChargedAttack` | true | 蓄力释放时是否也发射挽歌剑气 |
+
+### 32.4 素材部署
+
+`assets/hk/` 在 `.gitignore` 里（HK 素材不入库），所以**部署 DLL 之外还要拷素材**：
+`assets/hk/sheets/slash_effect/slash_effect_magic.png` → 两份安装的
+`BepInEx/plugins/KnightInCradle/assets/hk/sheets/slash_effect/`（两份都已拷）。
+加载器会先找 `sheets/slash_effect/`，再找 `sprites/`；缺素材时只记一条警告日志并回退原贴图
+（判定与伤害不受影响）。
+
+验证：`build=2026-09-23.14`，DLL SHA256 `D61CF42F7C34FCB0…`，
+素材 SHA256 `98C2B059794A4AD6…`（两份安装已同步：DLL + 新素材）。

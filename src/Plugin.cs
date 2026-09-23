@@ -97,6 +97,25 @@ namespace KnightInCradle
         internal static float PrideAlpha =>
             PrideAlphaConfig != null ? Mathf.Clamp(PrideAlphaConfig.Value, 0.05f, 3f) : 1f;
 
+        // ---- 蓄力剑气贴图：魔法霰弹及其变种（蜕变挽歌 / 修长之钉 / 骄傲印记共用）----
+        /// <summary>蓄力释放时是否把剑气贴图换成 `slash_effect_magic`（默认开）。</summary>
+        internal static ConfigEntry<bool> MagicSlashOnChargedConfig;
+        /// <summary>magic 剑气的整体渲染大小倍率（宽高等比，只影响蓄力时那张图）。</summary>
+        internal static ConfigEntry<float> MagicSlashScaleConfig;
+        /// <summary>magic 剑气的渲染高度倍率（只改高度）。</summary>
+        internal static ConfigEntry<float> MagicSlashHeightConfig;
+        /// <summary>护符10 蜕变挽歌：蓄力释放时是否也发射剑气（默认开）。</summary>
+        internal static ConfigEntry<bool> ElegyChargedAttackConfig;
+
+        internal static bool MagicSlashOnCharged =>
+            MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
+        internal static float MagicSlashScale =>
+            MagicSlashScaleConfig != null ? Mathf.Clamp(MagicSlashScaleConfig.Value, 0.1f, 4f) : 1f;
+        internal static float MagicSlashHeightRatio =>
+            MagicSlashHeightConfig != null ? Mathf.Clamp(MagicSlashHeightConfig.Value, 0.1f, 4f) : 1f;
+        internal static bool ElegyOnChargedAttack =>
+            ElegyChargedAttackConfig == null || ElegyChargedAttackConfig.Value;
+
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
         /// 联机服务器/收包端会对玩家伤害做压缩，这里预乘抵消；默认 2（即假设被打五折）。
@@ -267,6 +286,17 @@ namespace KnightInCradle
                 "骄傲印记剑气亮度倍率（默认 1）。");
             LongNailArcAlphaConfig = Config.Bind("Charm18", "LongNailArcAlpha", 1f,
                 "修长之钉弧带的亮度倍率（默认 1）。小于 1 更淡，大于 1 更亮。");
+            // 蓄力剑气：魔法霰弹及其变种改用 slash_effect_magic 贴图（三个护符共用同一张）
+            MagicSlashOnChargedConfig = Config.Bind("MagicSlash", "OnChargedAttack", true,
+                "诺艾尔蓄力释放（魔法霰弹及其变种）时，蜕变挽歌/修长之钉/骄傲印记的剑气贴图" +
+                "换成 slash_effect_magic（默认开）。关掉则一律用原来的贴图。");
+            MagicSlashScaleConfig = Config.Bind("MagicSlash", "Scale", 1f,
+                "magic 剑气的整体渲染大小倍率（宽高等比，默认 1；只影响蓄力释放的那张图）。");
+            MagicSlashHeightConfig = Config.Bind("MagicSlash", "HeightRatio", 1f,
+                "magic 剑气的渲染高度倍率（只改高度、不改长度，默认 1）。");
+            ElegyChargedAttackConfig = Config.Bind("Charm10", "ElegyOnChargedAttack", true,
+                "蜕变挽歌：蓄力释放（魔法霰弹及其变种）时是否也发射剑气（默认开）。" +
+                "关掉则只有不蓄力的轻攻击会发射剑气。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

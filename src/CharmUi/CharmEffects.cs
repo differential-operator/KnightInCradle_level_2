@@ -594,6 +594,11 @@ namespace KnightInCradle.CharmUi
         public const int ElegyDamage = 18;
         /// <summary>剑气贴图（与小骑士同款）。</summary>
         public const string ElegySprite = "slashes_effect0001";
+        /// <summary>
+        /// 蓄力释放（魔法霰弹及其变种）时替换的剑气贴图：
+        /// `assets/hk/sheets/slash_effect/slash_effect_magic.png`（HK 魔法斩样式，单帧大图）。
+        /// </summary>
+        public const string MagicSlashSprite = "slash_effect_magic";
         /// <summary>剑气渲染尺寸系数（取小骑士 `SlashFxScale` 的同一数值，保证"大小一致"）。</summary>
         public const float ElegyFxScale = 1.5f;
 
@@ -603,6 +608,8 @@ namespace KnightInCradle.CharmUi
             public float Y;
             public float Dir;
             public float Traveled;
+            /// <summary>这一道剑气是不是"蓄力释放"（魔法霰弹及其变种）发出来的——贴图用 magic 版。</summary>
+            public bool Magic;
             public readonly HashSet<NelEnemy> Hits = new HashSet<NelEnemy>();
         }
 
@@ -629,7 +636,18 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                if (__result == null || __result.kind != MGKIND.PR_PUNCH)
+                if (__result == null)
+                {
+                    return;
+                }
+                // 轻攻击（PR_PUNCH）照旧；蓄力释放（魔法霰弹及其变种）时诺艾尔的"轻攻击/技艺"
+                // 招牌 kind 变成了 PR_SHOTGUN / PR_WHEEL…，这里用"霰弹判据"把它们也认成同一招。
+                bool charged = IsNoelShotgunFlavored(__result);
+                if (__result.kind != MGKIND.PR_PUNCH && !charged)
+                {
+                    return;
+                }
+                if (charged && !KnightInCradlePlugin.ElegyOnChargedAttack)
                 {
                     return;
                 }
@@ -645,6 +663,7 @@ namespace KnightInCradle.CharmUi
                     Y = pr.y - 0.5f,         // 判定/渲染整体上移 0.5 格（与小骑士一致）
                     Dir = dir,
                     Traveled = 0f,
+                    Magic = charged,
                 });
                 try
                 {
@@ -800,6 +819,10 @@ namespace KnightInCradle.CharmUi
             {
                 _noelElegyTex = LoadNoelElegyTexture();
             }
+            if (KnightInCradlePlugin.MagicSlashOnCharged)
+            {
+                GetMagicSlashTexture(); // 预热（缺素材时只找一次，不每帧读盘）
+            }
             if (_noelElegyTex == null)
             {
                 return; // 素材缺失：判定照常，只是不显示
@@ -865,8 +888,11 @@ namespace KnightInCradle.CharmUi
                 return true;
             }
             float scale = KnightInCradlePlugin.ScaleConfig != null ? KnightInCradlePlugin.ScaleConfig.Value : 0.325f;
+            // 剑气的框按**原贴图**尺寸算：蓄力时只换贴图，大小不变（magic 那张是 1280×832 的大图，
+            // 直接按它的尺寸画会放大 8 倍），再叠 MagicSlash* 两个配置给用户自己调。
             float w = _noelElegyTex.width * scale * ElegyFxScale;
             float h = _noelElegyTex.height * scale * ElegyFxScale;
+            Texture2D magicTex = KnightInCradlePlugin.MagicSlashOnCharged ? GetMagicSlashTexture() : null;
             float mx = mp.pixel2ux(pr.x * mp.CLEN);
             float my = mp.pixel2uy(pr.y * mp.CLEN);
             Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
@@ -874,10 +900,19 @@ namespace KnightInCradle.CharmUi
             for (int i = 0; i < _noelElegyBlades.Count; i++)
             {
                 NoelElegyBlade b = _noelElegyBlades[i];
+                bool useMagic = b.Magic && magicTex != null;
+                Texture2D tex = useMagic ? magicTex : _noelElegyTex;
+                float bw = w;
+                float bh = h;
+                if (useMagic)
+                {
+                    bw *= KnightInCradlePlugin.MagicSlashScale;
+                    bh *= KnightInCradlePlugin.MagicSlashScale * KnightInCradlePlugin.MagicSlashHeightRatio;
+                }
                 float dx = (b.X + 1f - pr.x) * mp.CLEN;
                 float dy = -(b.Y - 0.5f - pr.y) * mp.CLEN;
                 _noelElegyMesh.Col = MTRX.ColWhite;
-                _noelElegyMesh.initForImgAndTexture(_noelElegyTex);
+                _noelElegyMesh.initForImgAndTexture(tex);
                 _noelElegyMesh.uv_top = 0f;
                 _noelElegyMesh.uv_height = 1f;
                 if (b.Dir > 0f)
@@ -890,7 +925,7 @@ namespace KnightInCradle.CharmUi
                     _noelElegyMesh.uv_left = 0f;
                     _noelElegyMesh.uv_width = 1f;
                 }
-                _noelElegyMesh.Rect(dx - w * 0.5f, dy - h * 0.5f, w, h, false);
+                _noelElegyMesh.Rect(dx - bw * 0.5f, dy - bh * 0.5f, bw, bh, false);
             }
             MdOut = _noelElegyMesh;
             return true;
@@ -920,6 +955,60 @@ namespace KnightInCradle.CharmUi
             {
                 return null;
             }
+        }
+
+        // ---- 蓄力剑气贴图（魔法霰弹及其变种）：蜕变挽歌 / 修长之钉 / 骄傲印记共用同一张 ----
+        private static Texture2D _noelMagicSlashTex;
+        private static bool _noelMagicSlashTried;
+
+        /// <summary>
+        /// 蓄力释放（魔法霰弹及其变种）时替换的剑气贴图 `slash_effect_magic.png`。
+        /// 素材在仓库里的位置是 `assets/hk/sheets/slash_effect/`（sheets 是原始素材目录），
+        /// 所以两个路径都找一遍；找不到就返回 null（调用方回退到原贴图，只是观感不变）。
+        /// </summary>
+        private static Texture2D GetMagicSlashTexture()
+        {
+            if (_noelMagicSlashTex != null)
+            {
+                return _noelMagicSlashTex;
+            }
+            if (_noelMagicSlashTried)
+            {
+                return null; // 缺素材时只找一次，别每帧读磁盘
+            }
+            _noelMagicSlashTried = true;
+            try
+            {
+                string root = System.IO.Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "assets", "hk");
+                string[] candidates =
+                {
+                    System.IO.Path.Combine(root, "sheets", "slash_effect", MagicSlashSprite + ".png"),
+                    System.IO.Path.Combine(root, "sprites", MagicSlashSprite + ".png"),
+                };
+                for (int i = 0; i < candidates.Length; i++)
+                {
+                    if (!System.IO.File.Exists(candidates[i]))
+                    {
+                        continue;
+                    }
+                    var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                    if (ImageConversion.LoadImage(tex, System.IO.File.ReadAllBytes(candidates[i])))
+                    {
+                        tex.filterMode = FilterMode.Point;
+                        tex.wrapMode = TextureWrapMode.Clamp;
+                        _noelMagicSlashTex = tex;
+                        KnightInCradlePlugin.PluginLog?.LogInfo("[KIC][magic剑气] 已加载 " + candidates[i]);
+                        return tex;
+                    }
+                    UnityEngine.Object.Destroy(tex);
+                }
+                KnightInCradlePlugin.PluginLog?.LogWarning(
+                    "[KIC][magic剑气] 没找到 " + MagicSlashSprite + ".png，蓄力时继续用原贴图");
+            }
+            catch (Exception)
+            {
+            }
+            return null;
         }
 
         // ================= 护符9 幼虫之歌（诺艾尔侧） =================
@@ -1338,6 +1427,8 @@ namespace KnightInCradle.CharmUi
             public float T;
             public int Frame;         // 生成帧（同一次挥击的多个攻击包合并成一条弧带）
             public MGKIND Kind;
+            /// <summary>这一刀是不是"蓄力释放"（魔法霰弹及其变种）——贴图用 magic 版。</summary>
+            public bool Magic;
         }
 
         private static readonly List<NoelLongNailArc> _noelLongNailArcs = new List<NoelLongNailArc>();
@@ -1517,6 +1608,7 @@ namespace KnightInCradle.CharmUi
                 }
                 // 一次挥击会连续生成多个攻击包（id=0 主判定 + id=1 长距离补判定），
                 // 它们属于同一刀 —— 合并成一条弧带（取最小内半径 / 最大外半径），否则会画出两道弧。
+                bool magic = IsNoelShotgunFlavored(__result);
                 int frame = Time.frameCount;
                 for (int i = 0; i < _noelLongNailArcs.Count; i++)
                 {
@@ -1526,6 +1618,7 @@ namespace KnightInCradle.CharmUi
                         ex.ReachFrom = Mathf.Min(ex.ReachFrom, baseReach);
                         ex.ReachTo = Mathf.Max(ex.ReachTo, reach);
                         ex.T = 0f;
+                        ex.Magic = ex.Magic || magic;
                         return;
                     }
                 }
@@ -1539,6 +1632,7 @@ namespace KnightInCradle.CharmUi
                     T = 0f,
                     Frame = frame,
                     Kind = __result.kind,
+                    Magic = magic,
                 });
                 if (_longNailArcLogCount < 12)
                 {
@@ -1595,6 +1689,10 @@ namespace KnightInCradle.CharmUi
             {
                 _noelLongNailSlashTex = LoadLongNailSlashTextures();
             }
+            if (KnightInCradlePlugin.MagicSlashOnCharged)
+            {
+                GetMagicSlashTexture(); // 预热（缺素材时只找一次，不每帧读盘）
+            }
             if (_noelLongNailSlashTex == null)
             {
                 return; // 素材缺失：判定照常，只是不显示
@@ -1649,11 +1747,16 @@ namespace KnightInCradle.CharmUi
                 lenRatio = KnightInCradlePlugin.PrideSlashLengthRatio;
                 sizeK = KnightInCradlePlugin.PrideSlashScale;
             }
+            Texture2D magicTex = KnightInCradlePlugin.MagicSlashOnCharged ? GetMagicSlashTexture() : null;
             for (int i = 0; i < _noelLongNailArcs.Count; i++)
             {
                 NoelLongNailArc arc = _noelLongNailArcs[i];
                 float progress = Mathf.Clamp01(arc.T / LongNailArcLife);
-                Texture2D tex = _noelLongNailSlashTex[progress < 0.5f ? 0 : _noelLongNailSlashTex.Length - 1];
+                // 蓄力释放（魔法霰弹及其变种）→ 换成 slash_effect_magic 单帧图；否则用长钉样式两帧交替
+                bool useMagic = arc.Magic && magicTex != null;
+                Texture2D tex = useMagic
+                    ? magicTex
+                    : _noelLongNailSlashTex[progress < 0.5f ? 0 : _noelLongNailSlashTex.Length - 1];
                 if (tex == null)
                 {
                     continue;
@@ -1665,12 +1768,17 @@ namespace KnightInCradle.CharmUi
                               ? KnightInCradlePlugin.PrideSlashHeightRatio
                               : KnightInCradlePlugin.LongNailSlashHeightRatio);
                 w *= sizeK;
+                if (useMagic)
+                {
+                    w *= KnightInCradlePlugin.MagicSlashScale;
+                    h *= KnightInCradlePlugin.MagicSlashScale * KnightInCradlePlugin.MagicSlashHeightRatio;
+                }
                 if (w <= 0f || h <= 0f)
                 {
                     continue;
                 }
                 // 剑气中心放在"诺艾尔中心 → 判定末端"的中点，向攻击方向镜像
-                float dx = arc.Dir * (arc.ReachTo * lenRatio * sizeK * 0.5f) * mp.CLEN;
+                float dx = arc.Dir * w * 0.5f;
                 _noelLongNailArcMesh.Col = new Color(1f, 1f, 1f, alphaK * (1f - progress));
                 _noelLongNailArcMesh.initForImgAndTexture(tex);
                 _noelLongNailArcMesh.uv_top = 0f;
