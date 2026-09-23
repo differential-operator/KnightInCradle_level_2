@@ -4011,3 +4011,32 @@ HP 已满时不再转化（不浪费魔力）。
 | `Charm27` | `NextDamageMult` | 1.25 | 蓄力完成后下一次伤害倍率（+25%） |
 
 验证：`build=2026-09-24.1`，DLL SHA256 `C56316EFC344EBE2…`（两份安装已同步；只覆盖 DLL）。
+
+### 42.9 【2026-09-24 修正】回血改成"随蓄力动态回复" + 修好"下一击 +25% 不生效"
+
+**用户实测**：
+① MP 是**动态消耗**的，HP 也应该动态回复；② 蓄力完成后**没有**加伤害。
+
+#### ① 回血改动态（原实现按"释放时一次性"是错的）
+
+错误认识：以为魔力是在**释放那一下**才扣的（`explodeMagic` → `applyMpDamage`）。
+实际玩家看到的是 AIC 咏唱时魔力**渐进累积**（`getHoldingMp` 随读条增长，魔力条上表现为暗色蓄力段，
+`PR.getCastableMp()` = `mp - getHoldingMp(false)` 也跟着下降）。
+
+现用做法（每帧 tick）：跟踪 `Skill.getHoldingMp(true)` 的**增量**，增量多少就回多少 HP（1:1），
+于是"读条 → HP 随读条一起涨"；松开/取消时它归零，我们只重置基准、**不倒扣**。
+（原来 `explodeMagic` 前缀 + `PR.applyMpDamage` 后缀那两个补丁已删除，避免双重回血。）
+
+#### ② "下一击 +25%"不生效的原因
+
+`ShamanCircleCastPrefix`（诺艾尔最终伤害乘区的唯一入口）开头有一道早退：
+
+```csharp
+if (IsKnightMode || !(IsEquipped(ShamanId) || IsEquipped(PowerId) || IsEquipped(HeavyBlowId))) return;
+```
+
+只戴深度聚集时（没有萨满之石/坚固力量/沉重之击）它会**直接早退**，
+所以挂在同一个乘区里的"下一击 +25%"永远不会执行。
+现在把 `IsEquipped(DeepGatherId)` 也加进这道放行条件。
+
+验证：`build=2026-09-24.2`，DLL SHA256 `A024242D8F210283…`（两份安装已同步；只覆盖 DLL）。
