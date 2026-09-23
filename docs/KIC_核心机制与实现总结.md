@@ -3855,3 +3855,27 @@ if (skill == null || !ReferenceEquals(skill.getCurMagic(), Mg)) return;   // 只
 | `Charm27` | `MpPerSecond` | 20 | 回血时的 MP 消耗速度（MP/秒，1 MP = 1 HP） |
 
 验证：`build=2026-09-23.35`，DLL SHA256 `0AE686D8A9FEE3F4…`（两份安装已同步；只覆盖 DLL）。
+
+### 42.4 【2026-09-23 修正】只掐画面、不掐逻辑（否则咏唱动画不出现）
+
+**用户实测**：长按法术键**还会进选择界面**（一闪而过），而且**咏唱动画根本不播**。
+
+**原因**：42.1 里把 `ActiveSelector.selectInit` 拦掉了——那是选择界面的**注册入口**，
+但原版靠选择器的"当前选中法术"来决定这次咏唱哪一发：
+`M2PrSkill.runMagicCheck` 在 `magic_t >= MAGIC_CHANT_DELAY` 时取
+`mgkind = CurMg?.kind ?? MagicSel.GetCurent(false)`，为 `NONE` 就 `magic_t = -1`（不咏唱）。
+选择器被掐掉 → `GetCurent` 永远 NONE → **咏唱动画永远不开始**；
+而 `slowInit()` 里 `result = true` 与 `prepareTx()` 仍会执行 → 界面文字**闪一下就消失**。
+
+**修正**：选择器的**逻辑照走**，只掐**画面**：
+
+| 掐什么 | 挂点 | 效果 |
+|---|---|---|
+| 选择环/法术图标 | `MagicSelector.drawEd` 前缀返回 false | 不绘制选择环 |
+| 选择界面文字 | `MagicSelector.prepareTx` 前缀返回 false | 不生成标签 |
+
+另外补一条配套：0.5 秒时我们清掉咏唱（结束动画），但法术键还按着，原版会立刻重新"选择→咏唱"，
+动画就会反复闪——因此**回血期间拦掉 `M2PrSkill.reawakeMagic`**（开始咏唱的唯一入口），
+让回血期间保持干净的正常站姿。
+
+验证：`build=2026-09-23.36`，DLL SHA256 `200F0092D3E6AFFF…`（两份安装已同步；只覆盖 DLL）。

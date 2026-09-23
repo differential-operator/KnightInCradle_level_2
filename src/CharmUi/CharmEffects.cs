@@ -1902,26 +1902,88 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        /// <summary>
-        /// 护符27 深度聚集（效果②）：不弹**法术选择界面**。
-        /// 拦 `ActiveSelector.selectInit`（选择界面的注册入口）——只对诺艾尔自己的 `MagicSel` 生效，
-        /// `slowInit()` 会因为返回 false 走"没有界面"的那条分支（不画选择环、也不进入选择慢动作）。
-        /// </summary>
-        private static bool DeepGatherSelectInitPrefix(ActiveSelector __instance)
+        /// <summary>这个选择器是不是诺艾尔自己的法术选择器（且深度聚集正在生效）。</summary>
+        private static bool IsDeepGatherMagicSelector(object selector)
         {
             try
             {
                 if (IsKnightMode || !IsEquipped(CharmOwner.Noel, DeepGatherId))
                 {
-                    return true;
+                    return false;
                 }
                 PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
                 M2PrSkill skill = pr != null ? pr.Skill : null;
-                if (skill == null || !ReferenceEquals(__instance, skill.MagicSel))
+                return skill != null && ReferenceEquals(selector, skill.MagicSel);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 护符27 深度聚集（效果②）：**不弹法术选择界面**。
+        ///
+        /// 关键：选择器的**逻辑**不能掐（原版靠它决定"这次咏唱哪一发"，
+        /// `M2PrSkill.runMagicCheck` 里 `MagicSel.GetCurent(false)` 为 NONE 就不会开始咏唱），
+        /// 所以这里只掐**画面**：
+        /// ① `MagicSelector.drawEd` —— 选择环/法术图标（本方法返回 false 即不画）；
+        /// ② `MagicSelector.prepareTx` —— 选择界面的文字标签。
+        /// 效果是"只有咏唱动画、看不到选择界面"，与需求一致。
+        /// </summary>
+        private static bool DeepGatherDrawEdPrefix(object __instance, ref bool __result)
+        {
+            try
+            {
+                if (!IsDeepGatherMagicSelector(__instance))
                 {
                     return true;
                 }
-                return false; // 不注册选择界面
+                __result = false;
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>护符27 深度聚集：选择界面的文字标签也不生成（配套 drawEd 的隐藏）。</summary>
+        private static bool DeepGatherPrepareTxPrefix(object __instance)
+        {
+            try
+            {
+                return !IsDeepGatherMagicSelector(__instance);
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// 护符27 深度聚集（效果③的配套）：**回血期间不再开始新的咏唱**。
+        ///
+        /// 0.5 秒时我们已经把这一发咏唱清掉了（=结束咏唱动画），但法术键还按着，
+        /// 原版会立刻重新走一遍"选择→咏唱"，于是动画会反复闪。
+        /// 拦 `M2PrSkill.reawakeMagic`（开始咏唱的唯一入口）就能让回血期间保持干净的正常站姿。
+        /// </summary>
+        private static bool DeepGatherReawakeMagicPrefix(M2PrSkill __instance, ref bool __result)
+        {
+            try
+            {
+                if (!_noelDeepGatherHealing || IsKnightMode ||
+                    !IsEquipped(CharmOwner.Noel, DeepGatherId))
+                {
+                    return true;
+                }
+                PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+                if (pr == null || !ReferenceEquals(__instance, pr.Skill))
+                {
+                    return true;
+                }
+                __result = false;
+                return false;
             }
             catch (Exception)
             {
@@ -6258,16 +6320,28 @@ namespace KnightInCradle.CharmUi
                         typeof(CharmEffects).GetMethod(nameof(DeepGatherExplodeMagicPrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
-                // 护符27 深度聚集（诺艾尔侧）：② 不弹法术选择界面（拦选择界面的注册入口）
-                MethodInfo selectInit = AccessTools.Method(typeof(ActiveSelector), "selectInit",
-                    new[]
-                    {
-                        typeof(M2DrawBinder), typeof(float), typeof(float), typeof(float),
-                    });
-                if (selectInit != null)
+                // 护符27 深度聚集（诺艾尔侧）：② 不弹法术选择界面（只掐画面，逻辑照走，
+                // 否则原版拿不到"这次咏唱哪一发"，咏唱动画根本不会开始）
+                MethodInfo magDrawEd = AccessTools.Method(typeof(MagicSelector), "drawEd");
+                if (magDrawEd != null)
                 {
-                    harmony.Patch(selectInit, prefix: new HarmonyMethod(
-                        typeof(CharmEffects).GetMethod(nameof(DeepGatherSelectInitPrefix),
+                    harmony.Patch(magDrawEd, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(DeepGatherDrawEdPrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                MethodInfo magPrepareTx = AccessTools.Method(typeof(MagicSelector), "prepareTx");
+                if (magPrepareTx != null)
+                {
+                    harmony.Patch(magPrepareTx, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(DeepGatherPrepareTxPrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符27 深度聚集（诺艾尔侧）：③ 配套——回血期间不再重新开始咏唱（否则动画会反复闪）
+                MethodInfo reawakeMagic = AccessTools.Method(typeof(M2PrSkill), "reawakeMagic");
+                if (reawakeMagic != null)
+                {
+                    harmony.Patch(reawakeMagic, prefix: new HarmonyMethod(
+                        typeof(CharmEffects).GetMethod(nameof(DeepGatherReawakeMagicPrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 // 护符23 吸虫之巢（诺艾尔侧）：纯白之箭 / 聚能火球改成喷吸虫。
