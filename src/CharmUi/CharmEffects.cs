@@ -826,10 +826,13 @@ namespace KnightInCradle.CharmUi
                 {
                     // 护符5/13/16 的最终伤害乘区（与 CircleCast 那条路同一个函数）
                     float mult = NoelFinalDamageMult(b.CarriedKind, b.Magic);
+                    if (b.Magic)
+                    {
+                        // 需求（2026-09-23）：蓄力释放的剑气削弱到"魔法霰弹伤害"的 30%
+                        mult *= KnightInCradlePlugin.ElegyChargedDamageRatio;
+                    }
                     int baseDmg = src.hpdmg0;
-                    int dmg = (baseDmg > 0 && mult > 1f)
-                        ? Mathf.FloorToInt(baseDmg * mult + 0.5f)
-                        : baseDmg;
+                    int dmg = baseDmg > 0 ? Mathf.FloorToInt(baseDmg * mult + 0.5f) : baseDmg;
                     var atk = new NelAttackInfo(src);
                     atk.Caster = pr;
                     atk.hpdmg0 = dmg;

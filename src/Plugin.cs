@@ -108,6 +108,8 @@ namespace KnightInCradle
         internal static ConfigEntry<bool> ElegyChargedAttackConfig;
         /// <summary>护符10 蜕变挽歌：蓄力释放的剑气命中时是否结算一次"魔法霰弹击中"（默认开）。</summary>
         internal static ConfigEntry<bool> ElegyShotgunOnHitConfig;
+        /// <summary>护符10 蜕变挽歌：蓄力释放的剑气伤害 = 魔法霰弹伤害 × 这个比例（默认 0.3）。</summary>
+        internal static ConfigEntry<float> ElegyChargedDamageRatioConfig;
 
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
@@ -119,6 +121,10 @@ namespace KnightInCradle
             ElegyChargedAttackConfig == null || ElegyChargedAttackConfig.Value;
         internal static bool ElegyShotgunOnHit =>
             ElegyShotgunOnHitConfig == null || ElegyShotgunOnHitConfig.Value;
+        internal static float ElegyChargedDamageRatio =>
+            ElegyChargedDamageRatioConfig != null
+                ? Mathf.Clamp(ElegyChargedDamageRatioConfig.Value, 0.05f, 2f)
+                : 0.3f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -305,6 +311,9 @@ namespace KnightInCradle
                 "蜕变挽歌：蓄力释放的剑气命中敌人时，是否补上原版魔法霰弹的击中动画/音效" +
                 "并清掉自己的蓄力（默认开）。剑气伤害不受这个开关影响：" +
                 "未蓄力=诺艾尔轻攻击的伤害，已蓄力=魔法霰弹的伤害。");
+            ElegyChargedDamageRatioConfig = Config.Bind("Charm10", "ElegyChargedDamageRatio", 0.3f,
+                "蜕变挽歌：**蓄力释放**的剑气伤害倍率（默认 0.3 = 只造成魔法霰弹伤害的 30%）。" +
+                "未蓄力的剑气不受影响（那一路就是轻攻击的伤害）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();
