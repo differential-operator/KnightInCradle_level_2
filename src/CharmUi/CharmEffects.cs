@@ -481,58 +481,98 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        // ================= 护符11 坚固心脏（诺艾尔侧：生命上限 +120） =================
-        /// <summary>佩戴后提升的生命上限。</summary>
+        // ================= 生命上限修正：护符11 坚固心脏 / 28 生命血之心 / 29 生命血核心 =================
+        /// <summary>护符11 坚固心脏：佩戴后提升的生命上限。</summary>
         public const int HeartMaxHpBonus = 120;
-        /// <summary>基础上限寄存键（COOK SF，随存档序列化）：用来区分"存档里已经带上 +120 了"。</summary>
+        /// <summary>护符28 生命血之心：生命上限 -50、魔力上限 +50。</summary>
+        public const int BlueHeart1HpDelta = -50;
+        public const int BlueHeart1MpDelta = 50;
+        /// <summary>护符29 生命血核心：生命上限 -100、魔力上限 +100。</summary>
+        public const int BlueHeart2HpDelta = -100;
+        public const int BlueHeart2MpDelta = 100;
+
+        /// <summary>基础上限寄存键（COOK SF，随存档序列化）：用来区分"存档里已经带上加成了"。</summary>
         private const string HeartBaseMaxHpKey = "kic_noel_heart_base";
+        private const string HeartBaseMaxMpKey = "kic_noel_heart_base_mp";
+
+        /// <summary>魔力上限字段（`M2Attackable.maxmp`，protected）。</summary>
+        private static readonly FieldInfo PrMaxMpField = AccessTools.Field(typeof(M2Attackable), "maxmp");
+        /// <summary>当前魔力字段（`M2Attackable.mp`，protected）。</summary>
+        private static readonly FieldInfo PrMpField = AccessTools.Field(typeof(M2Attackable), "mp");
 
         private static bool _noelHeartActive;
         private static int _noelHeartBaseMaxHp = -1;
+        private static int _noelHeartBaseMaxMp = -1;
 
         /// <summary>读档/换存档后重置会话状态（SF 里的基础上限保留，下一次 tick 会据此重新激活）。</summary>
         public static void ResetNoelHeartOnLoad()
         {
             _noelHeartActive = false;
             _noelHeartBaseMaxHp = -1;
+            _noelHeartBaseMaxMp = -1;
         }
 
         /// <summary>
-        /// 每帧维护（诺艾尔模式）：佩戴坚固心脏时生命上限 = 基础上限 + 120。
-        /// 佩戴瞬间把新增的 120 直接补成当前血量（同 HK 佩戴该护符的观感）；
-        /// 卸下时把上限还原并把当前血量钳回去。
-        /// 读档后靠 SF 里的"基础上限"判断存档是否已经带上加成，避免重复 +120。
+        /// 每帧维护（诺艾尔模式）：把**生命/魔力上限**统一算成
+        /// "基础上限 + 各护符修正"，避免三个护符各自写字段互相覆盖：
+        ///
+        /// ```
+        /// maxhp = max(1, base_hp + 坚固心脏(+120) + 生命血之心(-50) + 生命血核心(-100))
+        /// maxmp = base_mp + 生命血之心(+50) + 生命血核心(+100)
+        /// ```
+        ///
+        /// 佩戴时把基础上限寄存在 SF（读档回来据此重新激活，不会重复叠加），
+        /// 首次佩戴时把坚固心脏新增的 +120 直接补成当前血量（同 HK 的观感）；
+        /// 上限下降时把当前 HP/MP 钳回上限，生命上限最低为 **1**。
         /// </summary>
         public static void TickNoelHeartCharm(PRNoel pr)
         {
             try
             {
-                if (pr == null || PrMaxHpField == null || PrHpField == null)
+                if (pr == null || PrMaxHpField == null || PrHpField == null || PrMaxMpField == null)
                 {
                     return;
                 }
-                bool want = !IsKnightMode && IsEquipped(CharmOwner.Noel, HeartId);
+                bool heart = !IsKnightMode && IsEquipped(CharmOwner.Noel, HeartId);
+                bool blue1 = !IsKnightMode && IsEquipped(CharmOwner.Noel, BlueHeart1Id);
+                bool blue2 = !IsKnightMode && IsEquipped(CharmOwner.Noel, BlueHeart2Id);
+                bool want = heart || blue1 || blue2;
                 if (want && !_noelHeartActive)
                 {
-                    ActivateNoelHeart(pr);
+                    ActivateNoelHeart(pr, heart);
                 }
                 else if (!want && _noelHeartActive)
                 {
                     DeactivateNoelHeart(pr);
+                    return;
                 }
-                else if (want)
+                if (!want || !_noelHeartActive)
                 {
-                    int target = _noelHeartBaseMaxHp + HeartMaxHpBonus;
-                    if ((int)PrMaxHpField.GetValue(pr) != target)
-                    {
-                        PrMaxHpField.SetValue(pr, target);
-                        RefreshNoelHudHp();
-                    }
-                    if ((int)PrHpField.GetValue(pr) > target)
-                    {
-                        PrHpField.SetValue(pr, target);
-                        RefreshNoelHudHp();
-                    }
+                    return;
+                }
+                int hpDelta = (heart ? HeartMaxHpBonus : 0) + (blue1 ? BlueHeart1HpDelta : 0) +
+                              (blue2 ? BlueHeart2HpDelta : 0);
+                int mpDelta = (blue1 ? BlueHeart1MpDelta : 0) + (blue2 ? BlueHeart2MpDelta : 0);
+                int targetHp = Mathf.Max(1, _noelHeartBaseMaxHp + hpDelta);
+                int targetMp = Mathf.Max(1, _noelHeartBaseMaxMp + mpDelta);
+                int nowHpMax = (int)PrMaxHpField.GetValue(pr);
+                int nowMpMax = (int)PrMaxMpField.GetValue(pr);
+                if (nowHpMax != targetHp || nowMpMax != targetMp)
+                {
+                    PrMaxHpField.SetValue(pr, targetHp);
+                    PrMaxMpField.SetValue(pr, targetMp);
+                    RefreshNoelHudHp();
+                    RefreshNoelHudMp();
+                }
+                if ((int)PrHpField.GetValue(pr) > targetHp)
+                {
+                    PrHpField.SetValue(pr, targetHp);
+                    RefreshNoelHudHp();
+                }
+                if (PrMpField != null && (int)PrMpField.GetValue(pr) > targetMp)
+                {
+                    PrMpField.SetValue(pr, targetMp);
+                    RefreshNoelHudMp();
                 }
             }
             catch (Exception)
@@ -540,46 +580,64 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        private static void ActivateNoelHeart(PRNoel pr)
+        /// <summary>首次佩戴（坚固心脏 / 生命血之心 / 生命血核心 任一）：寄存基础上限并立刻生效。</summary>
+        private static void ActivateNoelHeart(PRNoel pr, bool heart)
         {
-            int saved = COOK.getSF(HeartBaseMaxHpKey);
-            int baseMax;
-            if (saved > 0)
+            int savedHp = COOK.getSF(HeartBaseMaxHpKey);
+            int savedMp = COOK.getSF(HeartBaseMaxMpKey);
+            if (savedHp > 0 && savedMp > 0)
             {
-                baseMax = saved; // 读档回到"已佩戴"：基础上限记在 SF 里
+                _noelHeartBaseMaxHp = savedHp; // 读档回到"已佩戴"：基础上限记在 SF 里
+                _noelHeartBaseMaxMp = savedMp;
             }
             else
             {
-                baseMax = (int)PrMaxHpField.GetValue(pr);
-                if (baseMax <= 0)
+                int baseHp = (int)PrMaxHpField.GetValue(pr);
+                int baseMp = (int)PrMaxMpField.GetValue(pr);
+                if (baseHp <= 0)
                 {
                     return;
                 }
-                COOK.setSF(HeartBaseMaxHpKey, Mathf.Clamp(baseMax, 0, 255));
-                int hp = (int)PrHpField.GetValue(pr);
-                PrHpField.SetValue(pr, hp + HeartMaxHpBonus); // 新增的上限直接补满
+                _noelHeartBaseMaxHp = baseHp;
+                _noelHeartBaseMaxMp = Mathf.Max(1, baseMp);
+                COOK.setSF(HeartBaseMaxHpKey, Mathf.Clamp(baseHp, 0, 255));
+                COOK.setSF(HeartBaseMaxMpKey, Mathf.Clamp(baseMp, 0, 255));
+                if (heart)
+                {
+                    int hp = (int)PrHpField.GetValue(pr);
+                    PrHpField.SetValue(pr, hp + HeartMaxHpBonus); // 坚固心脏新增的上限直接补满
+                }
             }
-            _noelHeartBaseMaxHp = baseMax;
-            PrMaxHpField.SetValue(pr, baseMax + HeartMaxHpBonus);
             _noelHeartActive = true;
             RefreshNoelHudHp();
         }
 
+        /// <summary>三个护符全卸下：上限还原（并把当前 HP/MP 钳回去）。</summary>
         private static void DeactivateNoelHeart(PRNoel pr)
         {
-            int baseMax = _noelHeartBaseMaxHp > 0
+            int baseHp = _noelHeartBaseMaxHp > 0
                 ? _noelHeartBaseMaxHp
-                : Mathf.Max(1, (int)PrMaxHpField.GetValue(pr) - HeartMaxHpBonus);
-            PrMaxHpField.SetValue(pr, baseMax);
-            int hp = (int)PrHpField.GetValue(pr);
-            if (hp > baseMax)
+                : Mathf.Max(1, (int)PrMaxHpField.GetValue(pr));
+            int baseMp = _noelHeartBaseMaxMp > 0
+                ? _noelHeartBaseMaxMp
+                : Mathf.Max(1, (int)PrMaxMpField.GetValue(pr));
+            PrMaxHpField.SetValue(pr, baseHp);
+            PrMaxMpField.SetValue(pr, baseMp);
+            if ((int)PrHpField.GetValue(pr) > baseHp)
             {
-                PrHpField.SetValue(pr, baseMax);
+                PrHpField.SetValue(pr, baseHp);
+            }
+            if (PrMpField != null && (int)PrMpField.GetValue(pr) > baseMp)
+            {
+                PrMpField.SetValue(pr, baseMp);
             }
             COOK.setSF(HeartBaseMaxHpKey, 0);
+            COOK.setSF(HeartBaseMaxMpKey, 0);
             _noelHeartActive = false;
             _noelHeartBaseMaxHp = -1;
+            _noelHeartBaseMaxMp = -1;
             RefreshNoelHudHp();
+            RefreshNoelHudMp();
         }
 
         // ================= 护符10 蜕变挽歌（诺艾尔侧） =================
