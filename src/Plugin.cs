@@ -142,6 +142,8 @@ namespace KnightInCradle
         internal static ConfigEntry<int> NestFlukeDamageConfig;
         /// <summary>同时佩戴萨满之石时每只吸虫的伤害（需求：9）。</summary>
         internal static ConfigEntry<int> NestFlukeDamageShamanConfig;
+        /// <summary>吸虫发射初速度倍率（需求：1.25）。</summary>
+        internal static ConfigEntry<float> NestFlukeSpeedMultConfig;
 
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
@@ -185,6 +187,8 @@ namespace KnightInCradle
             NestFlukeDamageConfig != null ? Mathf.Clamp(NestFlukeDamageConfig.Value, 1, 999) : 7;
         internal static int NestFlukeDamageWithShaman =>
             NestFlukeDamageShamanConfig != null ? Mathf.Clamp(NestFlukeDamageShamanConfig.Value, 1, 999) : 9;
+        internal static float NestFlukeSpeedMult =>
+            NestFlukeSpeedMultConfig != null ? Mathf.Clamp(NestFlukeSpeedMultConfig.Value, 0.1f, 5f) : 1.25f;
 
         /// <summary>
         /// 小骑士攻击“远端玩家（诺艾尔/另一名小骑士）”时，发包前的伤害倍率。
@@ -404,6 +408,9 @@ namespace KnightInCradle
                 "吸虫之巢：每只吸虫的伤害（真伤，默认 7）。");
             NestFlukeDamageShamanConfig = Config.Bind("Charm23", "FlukeDamageWithShaman", 9,
                 "吸虫之巢：同时佩戴萨满之石时每只吸虫的伤害（默认 9）。");
+            NestFlukeSpeedMultConfig = Config.Bind("Charm23", "FlukeSpeedMult", 1.25f,
+                "吸虫之巢：吸虫**发射初速度**的倍率（默认 1.25 = 小骑士原速的 1.25 倍）。" +
+                "只影响发射瞬间的水平/垂直初速，落地弹跳速度不变。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

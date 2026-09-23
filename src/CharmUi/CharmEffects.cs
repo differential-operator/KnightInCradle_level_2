@@ -1828,13 +1828,15 @@ namespace KnightInCradle.CharmUi
                 }
                 for (int i = 0; i < count; i++)
                 {
+                    float speedMult = KnightInCradlePlugin.NestFlukeSpeedMult;
                     var fl = new NoelFluke
                     {
                         Dir = dir,
                         X = pr.x + dir * UnityEngine.Random.Range(0.3f, 1.3f),
                         Y = pr.y + UnityEngine.Random.Range(-0.3f, 0.7f),
-                        Vx = dir * UnityEngine.Random.Range(12f, 16f),
-                        Vy = UnityEngine.Random.Range(-8f, 1f),
+                        // 发射初速度（需求：整体 ×1.25，落地弹跳速度不受影响）
+                        Vx = dir * UnityEngine.Random.Range(12f, 16f) * speedMult,
+                        Vy = UnityEngine.Random.Range(-8f, 1f) * speedMult,
                         Life = UnityEngine.Random.Range(NestFlukeLifeMin, NestFlukeLifeMax),
                         AnimTime = UnityEngine.Random.Range(0f, 1f), // 错开动画相位
                     };
