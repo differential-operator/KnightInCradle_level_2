@@ -20,7 +20,7 @@ namespace KnightInCradle
         /// 构建标记：每次部署时手动更新，日志 `[KIC][补丁] build=…` 会打印；
         /// 配合后面的 `dll=路径 (文件时间)` 可以立刻确认游戏实际加载的是哪一份 DLL。
         /// </summary>
-        internal const string SelfBuildTag = "2026-09-25.3";
+        internal const string SelfBuildTag = "2026-09-25.4";
 
         private static bool _harmonyApplied;
         private static bool _seriousInitApplied; // 启动时是否已应用过一次布局（防止残留居中布局）
@@ -931,6 +931,11 @@ namespace KnightInCradle
             }
             catch (Exception)
             {
+            }
+            // 护符33 冲刺段（诺艾尔本体隐藏、正被图片带着飞）期间禁用换人键
+            if (CharmEffects.NoelShadowDashActive)
+            {
+                return;
             }
 
             _knightMode = !_knightMode;

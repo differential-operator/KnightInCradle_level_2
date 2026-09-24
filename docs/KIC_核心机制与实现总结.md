@@ -4799,3 +4799,18 @@ Shrink(0.1s) ──► Burst(0.5s) ──► None
 
 验证：`build=2026-09-25.3`，DLL SHA256 `794CB957C2E428CB…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 51.3 【补充】冲刺期间：本体跟着图片走 / 免疫伤害与负面效果 / 锁换人键
+
+需求：隐藏期间诺艾尔会**每帧移动到图片后**（同小骑士），且**不受伤害与负面效果**，
+因此**冲刺期间要锁住换人键**。
+
+| 项 | 实现 |
+|---|---|
+| 本体跟随 | Burst 每帧 `pr.setTo(图片X − 朝向×DashBurstBackOffset, 触发时的中心Y)` —— 用 `pr.setTo` 硬定位（与切人时把诺艾尔摆到骑士脚下同一套 API），偏移默认 0.5 格（配置 `DashBurstBackOffset`）。这样冲刺结束时她就停在图片飞到的位置 |
+| 免疫伤害 | ① 每帧 `pr.addNoDamage(NDMG._ALL, 0.2f)`（滚动无敌帧，覆盖普攻/地图伤害等所有键值判定）；② 在 `M2PrADmg.applyDamage` 前缀里（`JoniSturdyLockDamagePrefix`）加一条"冲刺中 → 整次受击作废"，作为最外层兜底 |
+| 免疫负面状态 | 新前缀 `NoelDashSerAddPrefix` 挂在 `M2Ser.Add(SER,int,int,bool)`：冲刺中直接 `__result = null` 拒绝注入（与骑士模式那条免疫状态的做法相同，两者互不冲突） |
+| 锁换人键 | `TryToggle` 里新增 `if (CharmEffects.NoelShadowDashActive) return;`（`NoelShadowDashActive` = 阶段 != None，即"缩小中 + 发射中"都锁） |
+
+验证：`build=2026-09-25.4`，DLL SHA256 `4E9D43BEFF301763…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

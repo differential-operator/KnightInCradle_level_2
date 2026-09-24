@@ -211,6 +211,8 @@ namespace KnightInCradle
         internal static ConfigEntry<float> ShadowDashBurstScaleConfig;
         /// <summary>发射图片名（assets/hk/sprites 下，默认 dash_burst0000）。</summary>
         internal static ConfigEntry<string> ShadowDashBurstSpriteConfig;
+        /// <summary>诺艾尔跟随时相对发射图片的"身后"距离（格，默认 0.5）。</summary>
+        internal static ConfigEntry<float> ShadowDashBurstBackOffsetConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -302,6 +304,10 @@ namespace KnightInCradle
             ShadowDashBurstSpriteConfig != null && !string.IsNullOrEmpty(ShadowDashBurstSpriteConfig.Value)
                 ? ShadowDashBurstSpriteConfig.Value
                 : "dash_burst0000";
+        internal static float ShadowDashBurstBackOffset =>
+            ShadowDashBurstBackOffsetConfig != null
+                ? Mathf.Clamp(ShadowDashBurstBackOffsetConfig.Value, 0f, 8f)
+                : 0.5f;
 
         /// <summary>护符33 粒子的 RGB（从十六进制字符串 `RRGGBB` 解析，默认 FFF200）。</summary>
         internal static Color32 ShadowChantParticleColor
@@ -669,6 +675,8 @@ namespace KnightInCradle
                 "锋利之影·冲刺：发射图片的缩放倍率（默认 1）。");
             ShadowDashBurstSpriteConfig = Config.Bind("Charm33", "DashBurstSprite", "dash_burst0000",
                 "锋利之影·冲刺：发射用的图片名（assets/hk/sprites 下的 png，不带扩展名）。");
+            ShadowDashBurstBackOffsetConfig = Config.Bind("Charm33", "DashBurstBackOffset", 0.5f,
+                "锋利之影·冲刺：诺艾尔隐藏期间「跟在图片后」的距离（格，默认 0.5）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");

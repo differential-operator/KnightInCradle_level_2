@@ -1886,6 +1886,12 @@ namespace KnightInCradle.CharmUi
                 }
                 if (!IsJoniSturdyMpLocked(noel))
                 {
+                    // 护符33 冲刺段（隐藏本体期间）：整次受击也直接作废
+                    if (NoelShadowDashActive)
+                    {
+                        __result = 0;
+                        return false;
+                    }
                     return true;
                 }
                 __result = 0; // 锁蓝中：这一次受击整个不结算
@@ -6707,6 +6713,15 @@ namespace KnightInCradle.CharmUi
                             typeof(CharmEffects).GetMethod(nameof(NoelShadowChantPosePrefix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
                     }
+                    // 护符33 冲刺段：隐藏本体期间拒绝一切状态注入（中毒/麻痹/束缚…）
+                    MethodInfo serAdd = AccessTools.Method(typeof(M2Ser), "Add",
+                        new[] { typeof(SER), typeof(int), typeof(int), typeof(bool) });
+                    if (serAdd != null)
+                    {
+                        harmony.Patch(serAdd, prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(NoelDashSerAddPrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -7600,6 +7615,11 @@ namespace KnightInCradle.CharmUi
                         SetNoelBodyVisible(pr, false); // 每帧压住（游戏的淡入会把 alpha 拉回来）
                     }
                     _shadowDashBurstX += _shadowDashBurstDir * KnightInCradlePlugin.ShadowDashBurstSpeed * dt;
+                    // 诺艾尔本体每帧跟到图片**后面**（同小骑士：本体跟着冲刺特效走）
+                    pr.setTo(_shadowDashBurstX - _shadowDashBurstDir * KnightInCradlePlugin.ShadowDashBurstBackOffset,
+                        _shadowDashBurstY);
+                    // 隐藏期间免疫伤害与负面状态
+                    ApplyNoelDashImmunity(pr);
                 }
                 if (_shadowDashPhaseTimer >= KnightInCradlePlugin.ShadowDashBurstSeconds)
                 {
@@ -7678,6 +7698,41 @@ namespace KnightInCradle.CharmUi
             }
             catch (Exception)
             {
+            }
+        }
+
+        /// <summary>
+        /// 冲刺隐藏期间：让诺艾尔**免疫伤害与负面状态**。
+        /// - 免疫帧：`addNoDamage(NDMG._ALL, …)`（覆盖普攻/地图伤害/各类键值判定）；
+        /// - 状态：`M2Ser.Add` 前缀直接拒绝（见 `NoelDashSerAddPrefix`）；
+        /// - 伤害总闸门：`M2PrADmg.applyDamage` 前缀里再挡一次（见 `JoniSturdyLockDamagePrefix`）。
+        /// </summary>
+        private static void ApplyNoelDashImmunity(PRNoel pr)
+        {
+            try
+            {
+                pr.addNoDamage(NDMG._ALL, 0.2f);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>冲刺隐藏期间拒绝一切状态注入（中毒/麻痹/束缚/睡眠…）。</summary>
+        private static bool NoelDashSerAddPrefix(M2Ser __instance, ref M2SerItem __result)
+        {
+            try
+            {
+                if (!NoelShadowDashActive || !(__instance.Mv is PRNoel) || IsKnightMode)
+                {
+                    return true;
+                }
+                __result = null;
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
             }
         }
 
