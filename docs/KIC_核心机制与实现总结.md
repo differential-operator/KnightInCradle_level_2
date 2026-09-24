@@ -4368,3 +4368,57 @@ if (joni) {
 死亡（`!pr.is_alive`）时不结算；长时间未推进（过图/暂停）后不补算。
 
 验证：`build=2026-09-24.18`，DLL SHA256 `4E601B4E7A88E6B7…`（两份安装已同步；只覆盖 DLL）。
+
+## 46. 护符 32 蘑菇孢子（诺艾尔侧，2026-09-24，build=2026-09-24.19）
+
+需求（两条）：
+
+1. 蘑菇类的魔物不攻击诺艾尔，且**诺艾尔免疫蘑菇释放出的雾气**；
+2. 诺艾尔攻击（任何类型）蘑菇时，获得 1 个**满级**物品「黑棉孢子」。
+
+### 46.1 效果1-a「蘑菇不攻击」
+
+小骑士侧早有这套（`MushroomPassive`），只有一处门控需要改：原来是 `IsKnightMode && ...`，
+现在改成 **`IsEquippedForCurrentPlayer(MushroomId)`**（当前操控角色是谁就看谁的护符集合），
+于是同一个被动在诺艾尔模式也生效，挂在原有两个补丁上：
+`NAI.awakeInit` 前缀（不让它苏醒 → 不会主动攻击）、`NAI.AimPr` setter 前缀（不让它锁定诺艾尔）。
+
+> 顺带补了和蜂巢中立同源的坑：**雷雨转化的候选（`WillThunderOverdrive`）必须先苏醒**，
+> 否则永远不转化（蜂巢那边吃过这个 bug），这次一起加在蘑菇分支上。
+
+### 46.2 效果1-b「免疫蘑菇雾气」
+
+雾的伤害汇聚点是 `PR.applyGasDamage` 的两个重载（SER / HP / MP / Ep 都在里面）：
+
+```csharp
+public int  applyGasDamage(MistManager.MistKind Mist, float level01);        // 1 参
+public void applyGasDamage(MistManager.MistKind K, MistAttackInfo Atk);      // 带攻击包
+```
+
+`CombatGuard` 已经挂了这两个（小骑士模式整条免疫），诺艾尔侧由 `CharmEffects` 再挂一层前缀。
+判"是不是蘑菇雾"用两条：
+
+- **属性** `MGATTR.ACME`（蘑菇孢子的专属属性，`NelNMush.cs:1686/1712`；蘑菇 boss 的
+  `NelNBoss_Nusi.MkBigRun` 也是同一个属性）；
+- 或**雾种本身**属于 `NelNMush.AMistKind`（蘑菇会喷的睡眠/混乱/麻痹/冰冻/孢子全套，
+  `protected static`，用反射取）+ `MkAcmeS`。
+
+> 注意：这些雾种是和别的魔物共用的（例如 Primula 的睡眠雾也是 `MkSleep`），
+> 所以"戴着护符时"诺艾尔对这些同款雾也免疫 —— 属于可接受的上位覆盖，先按此实现。
+
+### 46.3 效果2「攻击蘑菇 → 满级黑棉孢子」
+
+- 物品键：`mtr_essence_mush`（`zh-cn_tx_item.txt:701` = **黑棉孢子**，"蘑菇类魔族的孢子团块"）。
+- 发放：`NelM2DBase.IMNG.getItem(itm, 1, NelItem.GRADE_MAX - 1, true)`（**grade 4 = 满级**，
+  与小骑士侧"满级物品"口径一致；和 32 号农场动物掉肉/蛋用的是同一套 API）。
+- 触发点：`NelNMush.applyDamage(NelAttackInfo, ref HITTYPE, bool)` 的**后缀**——
+  它是蘑菇的虚方法 **override**（`NelNMush.cs:1469`），而 `NelEnemy.applyDamage(Atk, force)`
+  二参重载只是转发到它，所以**任何攻击类型**打到蘑菇都会经过；
+  用后缀的理由：`__result > 0` 才算真的打中（被防御/无敌帧挡下不给道具）。
+  只认 `Atk.Caster` / `Atk.AttackFrom` 是诺艾尔（含小骑士模式隔离）。
+
+判定"蘑菇一族"沿用 `en is NelNMush`（AIC 自己用 `NDAT.typeIs(id, ENEMYID.MUSH_0)`
+即 id ∈ [512,768) 定义蘑菇族，而 `MUSH_*` 全部映射到 `NelNMush`）。
+
+验证：`build=2026-09-24.19`，DLL SHA256 `F245AB9E0FB6047B…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`、无"补丁挂载失败"告警）。

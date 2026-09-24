@@ -6647,6 +6647,44 @@ namespace KnightInCradle.CharmUi
                         typeof(CharmEffects).GetMethod(nameof(EnemyApplyDamagePrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
+                // 护符32 蘑菇孢子（诺艾尔侧）：诺艾尔免疫蘑菇雾气
+                // （CombatGuard 那两个只在骑士模式拦，诺艾尔模式归这里管）
+                try
+                {
+                    MethodInfo gasLevel = AccessTools.Method(typeof(PR), "applyGasDamage",
+                        new[] { typeof(MistManager.MistKind), typeof(float) });
+                    if (gasLevel != null)
+                    {
+                        harmony.Patch(gasLevel, prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(NoelMushroomMistLevelPrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    MethodInfo gasAtk = AccessTools.Method(typeof(PR), "applyGasDamage",
+                        new[] { typeof(MistManager.MistKind), typeof(MistAttackInfo) });
+                    if (gasAtk != null)
+                    {
+                        harmony.Patch(gasAtk, prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(NoelMushroomMistAtkPrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    // 护符32 效果2：诺艾尔打到蘑菇 → 给 1 个满级黑棉孢子（挂蘑菇自己的 override）
+                    MethodInfo mushDmg = AccessTools.Method(typeof(NelNMush), "applyDamage",
+                        new[]
+                        {
+                            typeof(NelAttackInfo), typeof(HITTYPE).MakeByRefType(), typeof(bool),
+                        });
+                    if (mushDmg != null)
+                    {
+                        harmony.Patch(mushDmg, postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(MushroomApplyDamagePostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    KnightInCradlePlugin.PluginLog?.LogWarning(
+                        "[KIC][蘑菇孢子] 补丁挂载失败：" + ex.Message);
+                }
                 // 护符3 坚硬外壳（诺艾尔专属）：次数血 + 掉血后 2 秒免掉。
                 // 与 CombatGuard 的 HpDamagePrefix 挂在同一个方法上互不冲突：
                 // 那个只在骑士模式拦截（返回 false），诺艾尔模式下返回 true 让这里生效。
@@ -7405,7 +7443,144 @@ namespace KnightInCradle.CharmUi
         /// <summary>蘑菇孢子：蘑菇一族不攻击持有者（被攻击也不反击）。</summary>
         public static bool MushroomPassive(NelEnemy en)
         {
-            return IsKnightMode && IsEquipped(MushroomId) && IsMushroomFamily(en);
+            // 小骑士侧一直存在；第二部分起诺艾尔侧同样生效（按"当前操控角色"的护符集合判断）
+            return IsEquippedForCurrentPlayer(MushroomId) && IsMushroomFamily(en);
+        }
+
+        // ================= 护符32 蘑菇孢子（诺艾尔侧：免疫蘑菇雾气 + 攻击蘑菇获得道具） =====
+        /// <summary>「黑棉孢子」的物品键（蘑菇类魔族的孢子团块，见 `zh-cn_tx_item.txt`）。</summary>
+        public const string MushroomSporeItemKey = "mtr_essence_mush";
+
+        /// <summary>`NelNMush.AMistKind`（蘑菇会喷的全部孢子雾种类，protected static）。</summary>
+        private static FieldInfo _mushMistKindField;
+
+        private static MistManager.MistKind[] MushroomMistKinds()
+        {
+            try
+            {
+                if (_mushMistKindField == null)
+                {
+                    _mushMistKindField = AccessTools.Field(typeof(NelNMush), "AMistKind");
+                }
+                return _mushMistKindField?.GetValue(null) as MistManager.MistKind[];
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 是否为"蘑菇释放出的雾气"：
+        /// ① 攻击包属性是 `MGATTR.ACME`（蘑菇孢子的专属属性，`NelNMush.cs:1686/1712`，
+        ///    蘑菇 boss 的 `NelNBoss_Nusi.MkBigRun` 也是它）；
+        /// ② 或者雾种就是蘑菇会喷的那几种（`NelNMush.AMistKind`，含睡眠/混乱/麻痹/冰冻/孢子）。
+        /// </summary>
+        private static bool IsMushroomMist(MistManager.MistKind kind, MistAttackInfo atk)
+        {
+            try
+            {
+                if (atk != null && atk.attr == MGATTR.ACME)
+                {
+                    return true;
+                }
+                if (kind == null)
+                {
+                    return false;
+                }
+                if (ReferenceEquals(kind, NelNMush.MkAcme) || ReferenceEquals(kind, NelNMush.MkAcmeS))
+                {
+                    return true;
+                }
+                MistManager.MistKind[] arr = MushroomMistKinds();
+                if (arr == null)
+                {
+                    return false;
+                }
+                for (int i = 0; i < arr.Length; i++)
+                {
+                    if (ReferenceEquals(arr[i], kind))
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>诺艾尔 + 护符32：这次雾是不是可以直接免疫。</summary>
+        private static bool NoelMushroomMistImmune(PR pr, MistManager.MistKind kind, MistAttackInfo atk)
+        {
+            return pr is PRNoel && !IsKnightMode &&
+                   IsEquipped(CharmOwner.Noel, MushroomId) && IsMushroomMist(kind, atk);
+        }
+
+        /// <summary>护符32：诺艾尔免疫蘑菇雾气（`PR.applyGasDamage` 的两个重载各拦一次）。</summary>
+        private static bool NoelMushroomMistLevelPrefix(PR __instance, MistManager.MistKind Mist)
+        {
+            return !NoelMushroomMistImmune(__instance, Mist, null);
+        }
+
+        /// <summary>护符32：同上（带 MistAttackInfo 的重载，属性 ACME 直接判孢子雾）。</summary>
+        private static bool NoelMushroomMistAtkPrefix(PR __instance, MistManager.MistKind K,
+            MistAttackInfo Atk)
+        {
+            return !NoelMushroomMistImmune(__instance, K, Atk);
+        }
+
+        /// <summary>
+        /// 护符32 效果2：诺艾尔攻击（任何类型）蘑菇一族时，获得 1 个**满级**「黑棉孢子」。
+        ///
+        /// 挂 `NelNMush.applyDamage(NelAttackInfo, ref HITTYPE, bool)`：它是蘑菇的虚方法
+        /// **override**（`NelNMush.cs:1469`），而 `NelEnemy.applyDamage(Atk, force)` 那个二参重载
+        /// 本身只是转发到它，所以无论近战、法术还是别的伤害来源，**只要真的打到了蘑菇**都会经过这里。
+        /// 用后缀而不是前缀：`__result > 0` 才算真打中（蘑菇防御/无敌帧挡下时不给道具）。
+        /// </summary>
+        private static void MushroomApplyDamagePostfix(NelNMush __instance, NelAttackInfo Atk,
+            ref int __result)
+        {
+            try
+            {
+                if (__result <= 0 || Atk == null || IsKnightMode ||
+                    !IsEquipped(CharmOwner.Noel, MushroomId))
+                {
+                    return;
+                }
+                if (!(Atk.Caster is PRNoel) && !(Atk.AttackFrom is PRNoel))
+                {
+                    return; // 只算诺艾尔自己的攻击
+                }
+                GrantMushroomSporeItem();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>发放 1 个满级「黑棉孢子」（grade = GRADE_MAX - 1，与小骑士侧"满级"口径一致）。</summary>
+        private static void GrantMushroomSporeItem()
+        {
+            try
+            {
+                NelM2DBase nM2D = M2DBase.Instance as NelM2DBase;
+                if (nM2D == null || nM2D.IMNG == null)
+                {
+                    return;
+                }
+                NelItem itm = NelItem.GetById(MushroomSporeItemKey, true);
+                if (itm == null)
+                {
+                    return;
+                }
+                nM2D.IMNG.getItem(itm, 1, NelItem.GRADE_MAX - 1, true);
+            }
+            catch (Exception)
+            {
+            }
         }
 
         /// <summary>
@@ -7430,6 +7605,12 @@ namespace KnightInCradle.CharmUi
             }
             if (MushroomPassive(__instance.En))
             {
+                // 与蜂巢中立同一条教训：雷雨转化的候选必须放它苏醒，
+                // 否则它永远不会变成汚染体（也就不会被玩家"打醒"）。
+                if (WillThunderOverdrive(__instance.En))
+                {
+                    return true;
+                }
                 return false;
             }
             return true;
