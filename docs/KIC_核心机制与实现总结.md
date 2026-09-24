@@ -4339,3 +4339,32 @@ if (joni) {
 上限变化会走 44.5 那条路：坐在长椅上装卸 → HP/MP 一并回满。
 
 验证：`build=2026-09-24.17`，DLL SHA256 `20B9EEBBA86FE5D4…`（两份安装已同步；只覆盖 DLL）。
+
+## 45. 护符 31 蜂巢之血（诺艾尔侧，2026-09-24，build=2026-09-24.18）
+
+需求（三条）：
+
+1. 诺艾尔的 HP 渲染成橙色 `#FF7F27`；
+2. 每 **10 秒**回复 **10** HP；
+3. 蜂巢中的魔物不会攻击诺艾尔（同蜂群集结）。
+
+**注意**：与护符30 乔尼的祝福同时携带时，HP 条与 MP 条**仍是蓝色**（只有单戴蜂巢之血才是橙色），
+此时蜂巢之血**回复 MP**。
+
+实现（`src/CharmUi/CharmEffects.cs` + `KnightInCradleBehaviour.TickNoelCharmEffects`）：
+
+| 效果 | 做法 |
+|---|---|
+| 1 HP 条橙色 | 复用护符30 那套 HUD 染色：`UIStatus.redrawAll` 后缀 `JoniRedrawAllPostfix` 里按**优先级**选色——**乔尼（蓝 `#46B2FF`，HP+MP 两条）＞ 蜂巢之血（橙 `#FF7F27`，只 HP 条）**，与小骑士侧注释里"蓝色 > 橙色 > 黑色"一致。工具函数由 `TintJoniGauge` 泛化成 `TintGauge(ui, field, rgb, empty)` |
+| 2 每 10 秒回 10 | 新增每帧 tick `TickNoelHiveBloodCharm`（挂进 `TickNoelCharmEffects`，用 `Time.deltaTime` 累计，和护符25 发光子宫同一套写法）。回血**直接调 AIC 原生 `PR.cureHp(10)`**：它自己更新 HUD / 走 GSaver |
+| 3 蜂巢魔物不攻击 | **已存在**：`HiveNeutralActive()` 本来就写成"蜂群集结 **或** 蜂巢之血"，所以装上即生效（蜂巢房间内中立、每帧清 `AimPr`） |
+
+**为什么效果2 不用写"乔尼分支"**：护符30 效果4 的 `JoniCureHpPrefix` 挂在 `PR.cureHp` 上，
+戴着乔尼时**任何** `cureHp` 都会被改写成 `cureMp`。于是"此时蜂巢之血回复 MP、HP 条不动"
+自动成立，不需要在蜂巢之血里判断。
+（反过来说：施法/受击等其它路径与它无关，见 44.9。）
+
+常量：`HiveBloodIntervalSeconds = 10f`、`HiveBloodHealAmount = 10`；
+死亡（`!pr.is_alive`）时不结算；长时间未推进（过图/暂停）后不补算。
+
+验证：`build=2026-09-24.18`，DLL SHA256 `4E601B4E7A88E6B7…`（两份安装已同步；只覆盖 DLL）。

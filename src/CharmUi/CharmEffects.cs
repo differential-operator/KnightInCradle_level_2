@@ -611,7 +611,13 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (__instance == null || IsKnightMode || !IsEquipped(CharmOwner.Noel, JohnnyId))
+                if (__instance == null || IsKnightMode)
+                {
+                    return;
+                }
+                bool joni = IsEquipped(CharmOwner.Noel, JohnnyId);
+                bool hive = IsEquipped(CharmOwner.Noel, HiveId);
+                if (!joni && !hive)
                 {
                     return;
                 }
@@ -623,34 +629,51 @@ namespace KnightInCradle.CharmUi
                 {
                     _joniMdMField = AccessTools.Field(typeof(UIStatus), "MdM");
                 }
-                // HP 条：染 #46B2FF。
-                TintJoniGauge(__instance, _joniMdHField, false);
-                // MP 条（追加需求 2026-09-24）：同样染 #46B2FF ——
-                // 佩戴乔尼后 MP 条本身就是血条，两条同色才是"一条池子"的观感。
-                // 与原版一致：MP 为 0 时原版不画填充段（前 4 顶点是空条背景），
-                // 此时不能染色，否则会出现一条假的满格条，改为只把填充段置透明。
-                bool mpEmpty = true;
-                try
+                if (joni)
                 {
-                    PRNoel prNow = KnightInCradleBehaviour.GetPrPublic();
-                    mpEmpty = prNow == null || PrMpField == null ||
-                              (int)PrMpField.GetValue(prNow) <= 0;
+                    // 乔尼的祝福优先级最高：HP / MP 两条都染 #46B2FF
+                    //（此时 MP 条本身就是血条，两条同色才是"一条池子"的观感）。
+                    // 与原版一致：MP 为 0 时原版不画填充段（前 4 顶点是空条背景），
+                    // 此时不能染色，否则会出现一条假的满格条，改为只把填充段置透明。
+                    bool mpEmpty = true;
+                    try
+                    {
+                        PRNoel prNow = KnightInCradleBehaviour.GetPrPublic();
+                        mpEmpty = prNow == null || PrMpField == null ||
+                                  (int)PrMpField.GetValue(prNow) <= 0;
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    // HP 条：染 #46B2FF。
+                    TintGauge(__instance, _joniMdHField, JoniHpRgb, false);
+                    // MP 条（追加需求 2026-09-24）：同样染 #46B2FF。
+                    TintGauge(__instance, _joniMdMField, JoniHpRgb, mpEmpty);
                 }
-                catch (Exception)
+                else
                 {
+                    // 护符31 蜂巢之血（且没戴乔尼）：只把 HP 条染成橙色 #FF7F27。
+                    // 与小骑士那侧"蓝色（生命血/乔尼）> 橙色（蜂巢之血）> 黑色（默认）"
+                    // 的优先级一致。
+                    TintGauge(__instance, _joniMdHField, HiveHpRgb, false);
                 }
-                TintJoniGauge(__instance, _joniMdMField, mpEmpty);
             }
             catch (Exception)
             {
             }
         }
 
+        /// <summary>护符30 乔尼的祝福：HUD 血条颜色 `#46B2FF`。</summary>
+        private const uint JoniHpRgb = 0x46B2FFU;
+        /// <summary>护符31 蜂巢之血：HUD 血条颜色 `#FF7F27`。</summary>
+        private const uint HiveHpRgb = 0xFF7F27U;
+
         /// <summary>
-        /// 把 HUD 网格的**填充段（前 4 个顶点）**染成 `#46B2FF`；`empty = true` 时改为置透明。
+        /// 把 HUD 网格的**填充段（前 4 个顶点）**染成指定 RGB（uint 0xRRGGBB）；
+        /// `empty = true` 时改为置透明。
         /// 其余顶点（背景 / 虚血 / cushion / hold 段）一概不动，保持原版观感。
         /// </summary>
-        private static void TintJoniGauge(UIStatus ui, FieldInfo field, bool empty)
+        private static void TintGauge(UIStatus ui, FieldInfo field, uint rgb, bool empty)
         {
             if (ui == null || field == null)
             {
@@ -666,9 +689,9 @@ namespace KnightInCradle.CharmUi
             {
                 return;
             }
-            const byte r = 0x46;
-            const byte g = 0xB2;
-            const byte b = 0xFF;
+            byte r = (byte)(rgb >> 16);
+            byte g = (byte)(rgb >> 8);
+            byte b = (byte)rgb;
             int keep = Mathf.Min(4, cols.Length);
             for (int i = 0; i < keep; i++)
             {
@@ -1883,6 +1906,59 @@ namespace KnightInCradle.CharmUi
 
         /// <summary>临时诊断计数（锁蓝拦截日志，10 条封顶；验证后删）。</summary>
         private static int _joniLockDiag;
+
+        // ================= 护符31 蜂巢之血（诺艾尔侧） =================
+        /// <summary>蜂巢之血：回复间隔（秒）。</summary>
+        public const float HiveBloodIntervalSeconds = 10f;
+        /// <summary>蜂巢之血：每次回复量（HP；佩戴乔尼时同一数值改成回 MP）。</summary>
+        public const int HiveBloodHealAmount = 10;
+        private static float _noelHiveBloodTimer;
+
+        /// <summary>
+        /// 护符31 蜂巢之血（诺艾尔侧）效果2：**每 10 秒回复 10**。
+        ///
+        /// 回血走 AIC 原生的 `PR.cureHp(int)`：它自己会更新 HUD、并走 GSaver。
+        /// 佩戴乔尼的祝福时不用另写分支——`JoniCureHpPrefix`（护符30 效果4）本来就把
+        /// `cureHp` 改写成 `cureMp`，于是"此时蜂巢之血回复 MP"自动成立，HP 条也不动。
+        ///
+        /// 效果1（HP 条染橙 `#FF7F27`）在 `JoniRedrawAllPostfix` 里；
+        /// 效果3（蜂巢魔物不攻击）与护符2 蜂群集结共用 `HiveNeutralActive()`。
+        /// </summary>
+        public static void TickNoelHiveBloodCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    return;
+                }
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, HiveId))
+                {
+                    _noelHiveBloodTimer = 0f;
+                    return;
+                }
+                if (!pr.is_alive)
+                {
+                    return;
+                }
+                _noelHiveBloodTimer += Time.deltaTime;
+                if (_noelHiveBloodTimer < HiveBloodIntervalSeconds)
+                {
+                    return;
+                }
+                _noelHiveBloodTimer -= HiveBloodIntervalSeconds;
+                if (_noelHiveBloodTimer > HiveBloodIntervalSeconds)
+                {
+                    _noelHiveBloodTimer = 0f; // 长时间没推进（过图/暂停）时不补算
+                }
+                pr.cureHp(HiveBloodHealAmount);
+                RefreshNoelHudHp();
+                RefreshNoelHudMp();
+            }
+            catch (Exception)
+            {
+            }
+        }
 
         /// <summary>
         /// 组合（乔尼 + 硬壳）是否正处于"锁魔力池"窗口内：两种护符都戴着，且还在 2 秒窗口里。
