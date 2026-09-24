@@ -184,6 +184,10 @@ namespace KnightInCradle
         internal static ConfigEntry<float> ShadowChantHoldSecondsConfig;
         /// <summary>咏唱姿势名（默认 magic_hold = 诺艾尔咏唱时的持杖姿势）。</summary>
         internal static ConfigEntry<string> ShadowChantPoseConfig;
+        /// <summary>长按到一定秒数后切换的"咏唱完成"姿势名（默认 chant_finished）。</summary>
+        internal static ConfigEntry<string> ShadowChantFinishedPoseConfig;
+        /// <summary>切换到"咏唱完成"姿势所需的长按秒数（默认 0.8）。</summary>
+        internal static ConfigEntry<float> ShadowChantFinishedSecondsConfig;
         /// <summary>每帧生成的粒子数（同小骑士蓄力：2）。</summary>
         internal static ConfigEntry<int> ShadowChantParticlesPerFrameConfig;
         /// <summary>粒子向中心收敛速度倍率（默认 1）。</summary>
@@ -223,7 +227,15 @@ namespace KnightInCradle
         internal static string ShadowChantPose =>
             ShadowChantPoseConfig != null && !string.IsNullOrEmpty(ShadowChantPoseConfig.Value)
                 ? ShadowChantPoseConfig.Value
-                : "magic_init";
+                : "chant";
+        internal static string ShadowChantFinishedPose =>
+            ShadowChantFinishedPoseConfig != null && !string.IsNullOrEmpty(ShadowChantFinishedPoseConfig.Value)
+                ? ShadowChantFinishedPoseConfig.Value
+                : "chant_finished";
+        internal static float ShadowChantFinishedSeconds =>
+            ShadowChantFinishedSecondsConfig != null
+                ? Mathf.Clamp(ShadowChantFinishedSecondsConfig.Value, 0f, 10f)
+                : 0.8f;
         internal static int ShadowChantParticlesPerFrame =>
             ShadowChantParticlesPerFrameConfig != null
                 ? Mathf.Clamp(ShadowChantParticlesPerFrameConfig.Value, 0, 20)
@@ -544,9 +556,12 @@ namespace KnightInCradle
             // 护符33 锋利之影（诺艾尔侧）效果2：长按护盾键 → 咏唱姿势 + 金色粒子
             ShadowChantHoldSecondsConfig = Config.Bind("Charm33", "ChantHoldSeconds", 0.25f,
                 "锋利之影：长按**护盾键**多少秒后开始播放咏唱姿势与金色粒子（默认 0.25）。");
-            ShadowChantPoseConfig = Config.Bind("Charm33", "ChantPose", "magic_init",
-                "锋利之影：长按护盾键时播放的姿势名（默认 magic_init = 诺艾尔**魔法蓄力阶段**的动作，" +
-                "同 `M2PrSkill.runMagExplodePrepare`；想让蓄力完成后那种持握姿势改用 magic_hold）。");
+            ShadowChantPoseConfig = Config.Bind("Charm33", "ChantPose", "chant",
+                "锋利之影：长按护盾键时播放的姿势名（默认 chant）。");
+            ShadowChantFinishedPoseConfig = Config.Bind("Charm33", "ChantFinishedPose", "chant_finished",
+                "锋利之影：长按超过 ChantFinishedSeconds 后切换播放的姿势名（默认 chant_finished）。");
+            ShadowChantFinishedSecondsConfig = Config.Bind("Charm33", "ChantFinishedSeconds", 0.8f,
+                "锋利之影：长按护盾键多少秒后从 ChantPose 切到 ChantFinishedPose（默认 0.8）。");
             ShadowChantParticlesPerFrameConfig = Config.Bind("Charm33", "ParticlesPerFrame", 2,
                 "锋利之影：每帧生成的金色圆形粒子数（默认 2，同小骑士骨钉技艺蓄力）。0 = 不生成粒子。");
             ShadowChantParticleSpeedScaleConfig = Config.Bind("Charm33", "ParticleSpeedScale", 1f,

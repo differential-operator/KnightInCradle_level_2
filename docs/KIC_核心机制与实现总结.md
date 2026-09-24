@@ -4605,3 +4605,32 @@ if (idle) title = KnightInCradlePlugin.ShadowChantPose;
 
 验证：`build=2026-09-24.26`，DLL SHA256 `0FB3288A2DB7981A…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 49.1 【定案】护符33 的姿势名：`chant` → 长按 0.8 秒 → `chant_finished`
+
+用姿势浏览器（第 49 节）翻出真名后，需求定为：
+
+- 长按护盾键（超过 `ChantHoldSeconds`，默认 0.25 秒）→ 播放 **`chant`**；
+- 继续长按累计到 **0.8 秒** → 切到 **`chant_finished`**；
+- 松开：两个计时与姿势一起复位（下次长按从 `chant` 重新开始）。
+
+配置（`[Charm33]`）：
+
+| 键 | 默认 | 含义 |
+|---|---|---|
+| `ChantHoldSeconds` | 0.25 | 按多久算"长按"（开始摆 `ChantPose`） |
+| `ChantPose` | `chant` | 起手姿势名 |
+| `ChantFinishedSeconds` | 0.8 | 按多久切到完成姿势 |
+| `ChantFinishedPose` | `chant_finished` | 完成姿势名 |
+
+实现：`_noelShadowHoldTimer` 一路累计，`_noelShadowChanting`（≥ChantHoldSeconds）与
+`_noelShadowChantFinished`（≥ChantFinishedSeconds）两个标志决定用哪个名字；
+姿势仍由 `PrAnimator.setPose` 前缀统一改写（`NoelShadowChantPoseName()` 取当前阶段的名字），
+粒子逻辑不变。
+
+**顺手处理老 cfg**：两份安装的 `BepInEx/config/dev.KnightInCradle.cfg` 里
+`ChantPose = magic_init` 已手改成 `chant`（BepInEx 不会用代码默认值覆盖已有键）；
+新增的 `ChantFinishedPose` / `ChantFinishedSeconds` 会在下次启动时由 BepInEx 自动写入。
+
+验证：`build=2026-09-24.27`，DLL SHA256 `4D7771BF62612B50…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

@@ -7503,6 +7503,8 @@ namespace KnightInCradle.CharmUi
             new List<ShadowChantParticle>();
         private static float _noelShadowHoldTimer;
         private static bool _noelShadowChanting;
+        /// <summary>长按是否已经进入"蓄力完成"阶段（决定用哪个姿势名）。</summary>
+        private static bool _noelShadowChantFinished;
         private static MeshDrawer _noelShadowMesh;
         private static Material _noelShadowMat;
         private static M2RenderTicket _noelShadowTicket;
@@ -7547,11 +7549,19 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                title = KnightInCradlePlugin.ShadowChantPose;
+                title = NoelShadowChantPoseName();
             }
             catch (Exception)
             {
             }
+        }
+
+        /// <summary>当前该摆哪个姿势：长按未到阈值 → `chant`；超过 → `chant_finished`。</summary>
+        private static string NoelShadowChantPoseName()
+        {
+            return _noelShadowChantFinished
+                ? KnightInCradlePlugin.ShadowChantFinishedPose
+                : KnightInCradlePlugin.ShadowChantPose;
         }
 
         /// <summary>
@@ -7600,16 +7610,21 @@ namespace KnightInCradle.CharmUi
                     {
                         _noelShadowChanting = true;
                     }
+                    // 再长按到 ChantFinishedSeconds（默认 0.8 秒）→ 换成 chant_finished
+                    _noelShadowChantFinished =
+                        _noelShadowChanting &&
+                        _noelShadowHoldTimer >= KnightInCradlePlugin.ShadowChantFinishedSeconds;
                 }
                 else
                 {
                     _noelShadowHoldTimer = 0f;
                     _noelShadowChanting = false;
+                    _noelShadowChantFinished = false;
                 }
                 if (_noelShadowChanting)
                 {
                     // 只摆姿势：咏唱动作而已，与真正的施法无关
-                    pr.SpSetPose(KnightInCradlePlugin.ShadowChantPose, -1, null, false);
+                    pr.SpSetPose(NoelShadowChantPoseName(), -1, null, false);
                     SpawnNoelShadowParticles(KnightInCradlePlugin.ShadowChantParticlesPerFrame);
                 }
                 UpdateNoelShadowParticles(pr);
