@@ -4633,4 +4633,18 @@ if (idle) title = KnightInCradlePlugin.ShadowChantPose;
 新增的 `ChantFinishedPose` / `ChantFinishedSeconds` 会在下次启动时由 BepInEx 自动写入。
 
 验证：`build=2026-09-24.27`，DLL SHA256 `4D7771BF62612B50…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。**（下面 49.2 已把这一段的两段式回退掉）**
+
+### 49.2 【回退】去掉 `chant_finished`，只保留 `chant`
+
+用户定案：**只用 `chant`**，不要 `chant_finished`。于是把 49.1 的两段式整体撤掉：
+
+- `Plugin.cs`：删掉 `ChantFinishedPose` / `ChantFinishedSeconds` 两个配置键与访问器
+  （`ChantPose` 默认保持 `chant`，`ChantHoldSeconds` 仍是"长按多少秒算长按"，默认 0.25）；
+- `CharmEffects.cs`：删掉 `_noelShadowChantFinished` 标志与 `NoelShadowChantPoseName()`，
+  姿势名直接用 `ShadowChantPose`；
+- 两份安装的 `dev.KnightInCradle.cfg`：把这 4 行（2 个键 + 2 条说明）**物理删掉**，
+  避免残留在配置里看着以为还有效。
+
+验证：`build=2026-09-24.28`，DLL SHA256 `4AA8D0B436BBD6FF…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
