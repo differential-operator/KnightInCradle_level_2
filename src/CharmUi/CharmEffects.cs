@@ -8043,11 +8043,17 @@ namespace KnightInCradle.CharmUi
                 return true;
             }
             float scale = KnightInCradlePlugin.ScaleConfig != null ? KnightInCradlePlugin.ScaleConfig.Value : 0.325f;
-            float w = _shadowDashBurstTex.width * scale * KnightInCradlePlugin.ShadowDashBurstScale;
-            float h = _shadowDashBurstTex.height * scale * KnightInCradlePlugin.ShadowDashBurstScale;
+            // 渲染大小：ScaleConfig × DashBurstScale × 宽/高各自的额外倍率（可分别调）
+            float w = _shadowDashBurstTex.width * scale * KnightInCradlePlugin.ShadowDashBurstScale *
+                      KnightInCradlePlugin.ShadowDashBurstWidthRatio;
+            float h = _shadowDashBurstTex.height * scale * KnightInCradlePlugin.ShadowDashBurstScale *
+                      KnightInCradlePlugin.ShadowDashBurstHeightRatio;
+            // 位置：锚点 = 发射路径当前位置；再按配置偏移（X 正值 = 前方，Y 正值 = 下移）
+            float px = _shadowDashBurstX + _shadowDashBurstDir * KnightInCradlePlugin.ShadowDashBurstOffsetX;
+            float py = _shadowDashBurstY + KnightInCradlePlugin.ShadowDashBurstOffsetY;
             Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
-                        Matrix4x4.Translate(new Vector3(mp.pixel2ux(_shadowDashBurstX * mp.CLEN),
-                            mp.pixel2uy(_shadowDashBurstY * mp.CLEN), 0f));
+                        Matrix4x4.Translate(new Vector3(mp.pixel2ux(px * mp.CLEN),
+                            mp.pixel2uy(py * mp.CLEN), 0f));
             _shadowDashBurstMesh.Col = MTRX.ColWhite;
             _shadowDashBurstMesh.initForImgAndTexture(_shadowDashBurstTex);
             _shadowDashBurstMesh.uv_top = 0f;

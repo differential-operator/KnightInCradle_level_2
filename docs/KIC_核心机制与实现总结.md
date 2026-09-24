@@ -4838,3 +4838,26 @@ tick 里那次调用保留作为同帧即时生效。
 
 验证：`build=2026-09-25.5`，DLL SHA256 `824003B0C6016D53…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 51.5 【调整】发射图的大小/速度/位置做成配置项
+
+`[Charm33]` 里与冲刺发射图有关的可调项（都是在下次启动游戏后写进 cfg）：
+
+| 配置 | 默认 | 作用 |
+|---|---|---|
+| `DashBurstScale` | 1 | 整体缩放（与全局 `ScaleConfig` 相乘） |
+| `DashBurstWidthRatio` | 1 | **只调宽度**的额外倍率（叠加在 `DashBurstScale` 上） |
+| `DashBurstHeightRatio` | 1 | **只调高度**的额外倍率 |
+| `DashBurstSpeed` | 8 | 发射速度（格/秒） |
+| `DashBurstSeconds` | 0.5 | 发射持续（秒） |
+| `DashBurstOffsetX` | 0 | 位置偏移：正值 = **朝前方**（格，会自动乘朝向，左右对称） |
+| `DashBurstOffsetY` | 0 | 位置偏移：y 向下为正，负值 = 上移（格） |
+| `DashBurstBackOffset` | 0.5 | 诺艾尔本体跟在图片后方的距离（格） |
+| `DashBurstSprite` | dash_burst0000 | 换素材用 |
+
+落点：`PrepareNoelShadowDashBurstMesh` 里
+`w = tex.width × ScaleConfig × DashBurstScale × DashBurstWidthRatio`（高度同理），
+锚点 = 发射路径当前位置 + 朝向×`DashBurstOffsetX` + `DashBurstOffsetY`。
+
+验证：`build=2026-09-25.6`，DLL SHA256 `4892B0282AB28F6E…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`、`[Charm33]` 段已写入上述键）。
