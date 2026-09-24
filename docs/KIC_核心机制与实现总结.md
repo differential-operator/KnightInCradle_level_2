@@ -4550,3 +4550,22 @@ if (idle) title = KnightInCradlePlugin.ShadowChantPose;
 
 验证：`build=2026-09-24.24`，DLL SHA256 `6F015DB9C57BD946…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 48.4 【修正】姿势名改成**蓄力阶段**的 `magic_init`
+
+反馈：`.24` 虽然姿势终于切过去了，但"动作调用错了，应该是诺艾尔魔法**蓄力阶段**的动作"。
+
+原因：`magic_hold` 是**蓄力完成后**的持握姿势（原版 `runMagExploded` → `changePoseMagicHold`），
+而**蓄力中**用的是 `magic_init`（原版 `runMagExplodePrepare` 首帧 `SpSetPose("magic_init")`，
+并用 `Anm.timescale = TS * getCastingTimeScale(CurMg) * CaneStat.magic_prepare_speed` 驱动读条）。
+
+所以默认姿势名 `Charm33/ChantPose`：`magic_hold` → **`magic_init`**
+（想要"蓄力完成后"那种持握姿势仍可自己改回 `magic_hold`）。
+
+**两个坑都处理了**：
+1. BepInEx 的 `.cfg` 一旦生成就**不会**被代码里的新默认值覆盖 → 已手动把两份安装
+   `BepInEx/config/dev.KnightInCradle.cfg` 里的 `ChantPose = magic_hold` 改成 `magic_init`
+   （含说明注释），否则代码改了也白改；
+2. 说明文字同步更新，避免下次看 cfg 以为默认还是 magic_hold。
+
+验证：`build=2026-09-24.25`，DLL SHA256 `469E32014C8E3DD7…`（两份安装已同步；只覆盖 DLL）。

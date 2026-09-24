@@ -215,7 +215,7 @@ namespace KnightInCradle
         internal static string ShadowChantPose =>
             ShadowChantPoseConfig != null && !string.IsNullOrEmpty(ShadowChantPoseConfig.Value)
                 ? ShadowChantPoseConfig.Value
-                : "magic_hold";
+                : "magic_init";
         internal static int ShadowChantParticlesPerFrame =>
             ShadowChantParticlesPerFrameConfig != null
                 ? Mathf.Clamp(ShadowChantParticlesPerFrameConfig.Value, 0, 20)
@@ -536,9 +536,9 @@ namespace KnightInCradle
             // 护符33 锋利之影（诺艾尔侧）效果2：长按护盾键 → 咏唱姿势 + 金色粒子
             ShadowChantHoldSecondsConfig = Config.Bind("Charm33", "ChantHoldSeconds", 0.25f,
                 "锋利之影：长按**护盾键**多少秒后开始播放咏唱姿势与金色粒子（默认 0.25）。");
-            ShadowChantPoseConfig = Config.Bind("Charm33", "ChantPose", "magic_hold",
-                "锋利之影：长按护盾键时播放的姿势名（默认 magic_hold = 诺艾尔咏唱时的持杖动作；" +
-                "可自行换成别的姿势名试试）。");
+            ShadowChantPoseConfig = Config.Bind("Charm33", "ChantPose", "magic_init",
+                "锋利之影：长按护盾键时播放的姿势名（默认 magic_init = 诺艾尔**魔法蓄力阶段**的动作，" +
+                "同 `M2PrSkill.runMagExplodePrepare`；想让蓄力完成后那种持握姿势改用 magic_hold）。");
             ShadowChantParticlesPerFrameConfig = Config.Bind("Charm33", "ParticlesPerFrame", 2,
                 "锋利之影：每帧生成的金色圆形粒子数（默认 2，同小骑士骨钉技艺蓄力）。0 = 不生成粒子。");
             ShadowChantParticleSpeedScaleConfig = Config.Bind("Charm33", "ParticleSpeedScale", 1f,
