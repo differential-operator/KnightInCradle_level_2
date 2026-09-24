@@ -7519,8 +7519,167 @@ namespace KnightInCradle.CharmUi
         private static float _noelShadowDashTimer;
         private static bool _noelShadowEssence;
 
+        // ---- 护符33 冲刺段（蓄力完成后松开护盾键触发）----
+        private enum ShadowDashPhase
+        {
+            None,
+            Shrink, // 光圈向中心缩小
+            Burst,  // 隐藏本体 + 发射 dash_burst 图片
+        }
+        private static ShadowDashPhase _shadowDashPhase = ShadowDashPhase.None;
+        private static float _shadowDashPhaseTimer;
+        private static float _shadowDashAuraScale = 1f;
+        private static bool _shadowDashBodyHidden;
+        private static Texture2D _shadowDashBurstTex;
+        private static MeshDrawer _shadowDashBurstMesh;
+        private static Material _shadowDashBurstMat;
+        private static M2RenderTicket _shadowDashBurstTicket;
+        private static Map2d _shadowDashBurstMap;
+        private static float _shadowDashBurstX;
+        private static float _shadowDashBurstY;
+        private static float _shadowDashBurstDir;
+
+        /// <summary>冲刺段是否正在进行（光圈缩小 / 发射中）。</summary>
+        public static bool NoelShadowDashActive => _shadowDashPhase != ShadowDashPhase.None;
+
         /// <summary>此刻是不是"精华"阶段（长按冲刺键够久；供 HUD 白闪与绘制判断）。</summary>
         public static bool NoelShadowEssence => _noelShadowEssence;
+
+        // ==================== 护符33 冲刺段 ====================
+        /// <summary>
+        /// 冲刺段（需求 2026-09-25）：**蓄力完成后松开护盾键** →
+        /// ① 0.1 秒内让 `nail_charge_effect` 光圈向诺艾尔中心缩小；
+        /// ② 缩到最小的瞬间：删掉光圈 + 白屏 0.07 秒；隐藏诺艾尔本体，
+        ///    在她中心把 `dash_burst0000.png` 以 8 格/秒**向前**发射（持续 0.5 秒）；
+        /// ③ 发射结束：再白屏 0.07 秒 + 诺艾尔还原。
+        /// </summary>
+        private static void StartNoelShadowDash(PRNoel pr)
+        {
+            _shadowDashPhase = ShadowDashPhase.Shrink;
+            _shadowDashPhaseTimer = 0f;
+            _shadowDashAuraScale = 1f;
+        }
+
+        private static void TickNoelShadowDash(PRNoel pr)
+        {
+            try
+            {
+                if (_shadowDashPhase == ShadowDashPhase.None)
+                {
+                    if (_shadowDashBodyHidden && pr != null)
+                    {
+                        SetNoelBodyVisible(pr, true);
+                        _shadowDashBodyHidden = false;
+                    }
+                    return;
+                }
+                float dt = Time.deltaTime;
+                _shadowDashPhaseTimer += dt;
+                if (_shadowDashPhase == ShadowDashPhase.Shrink)
+                {
+                    float t = KnightInCradlePlugin.ShadowDashShrinkSeconds > 0f
+                        ? Mathf.Clamp01(_shadowDashPhaseTimer / KnightInCradlePlugin.ShadowDashShrinkSeconds)
+                        : 1f;
+                    _shadowDashAuraScale = 1f - t;
+                    if (t >= 1f)
+                    {
+                        EnterNoelShadowBurst(pr);
+                    }
+                    return;
+                }
+                // Burst：隐藏本体 + 图片向前飞
+                if (pr != null)
+                {
+                    if (!_shadowDashBodyHidden)
+                    {
+                        SetNoelBodyVisible(pr, false);
+                        _shadowDashBodyHidden = true;
+                    }
+                    else
+                    {
+                        SetNoelBodyVisible(pr, false); // 每帧压住（游戏的淡入会把 alpha 拉回来）
+                    }
+                    _shadowDashBurstX += _shadowDashBurstDir * KnightInCradlePlugin.ShadowDashBurstSpeed * dt;
+                }
+                if (_shadowDashPhaseTimer >= KnightInCradlePlugin.ShadowDashBurstSeconds)
+                {
+                    EndNoelShadowDash(pr);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>① 结束（光圈缩到最小）：删光圈 + 白屏 + 隐藏本体 + 开始发射。</summary>
+        private static void EnterNoelShadowBurst(PRNoel pr)
+        {
+            _shadowDashAuraScale = 0f;
+            _shadowDashPhase = ShadowDashPhase.Burst;
+            _shadowDashPhaseTimer = 0f;
+            EnsureNoelChargeAuraTicket(pr, false); // 删去 nail_charge_effect
+            _noelShadowParticles.Clear();          // 一并清掉残留粒子，保持"消失"的干净感
+            if (pr != null)
+            {
+                _shadowDashBurstDir = pr.mpf_is_right >= 0f ? 1f : -1f;
+                _shadowDashBurstX = pr.x;
+                _shadowDashBurstY = NoelBodyCenterY(pr);
+            }
+            SetNoelBodyVisible(pr, false);
+            _shadowDashBodyHidden = true;
+            EnsureNoelShadowDashBurstTicket(pr, true);
+            KnightHudDeco.TriggerScreenWhite(KnightInCradlePlugin.ShadowDashFlashSeconds);
+        }
+
+        /// <summary>② 发射结束：白屏 + 恢复本体，回到无状态。</summary>
+        private static void EndNoelShadowDash(PRNoel pr)
+        {
+            _shadowDashPhase = ShadowDashPhase.None;
+            _shadowDashPhaseTimer = 0f;
+            _shadowDashAuraScale = 1f;
+            EnsureNoelShadowDashBurstTicket(pr, false);
+            SetNoelBodyVisible(pr, true);
+            _shadowDashBodyHidden = false;
+            KnightHudDeco.TriggerScreenWhite(KnightInCradlePlugin.ShadowDashFlashSeconds);
+        }
+
+        /// <summary>隐藏/恢复诺艾尔本体（同骑士模式那套：把身上所有 M2PxlAnimatorRT 的 alpha 压到 0）。</summary>
+        private static void SetNoelBodyVisible(PRNoel pr, bool visible)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    return;
+                }
+                M2PxlAnimatorRT[] anms = pr.GetComponentsInChildren<M2PxlAnimatorRT>(true);
+                for (int i = 0; i < anms.Length; i++)
+                {
+                    if (anms[i] == null)
+                    {
+                        continue;
+                    }
+                    if (!visible)
+                    {
+                        if (anms[i].alpha > 0f)
+                        {
+                            anms[i].alpha = 0f;
+                            anms[i].need_fine = true;
+                            anms[i].fineCurrentFrameMeshManual();
+                        }
+                    }
+                    else if (anms[i].alpha <= 0f)
+                    {
+                        anms[i].alpha = 1f;
+                        anms[i].need_fine = true;
+                        anms[i].fineCurrentFrameMeshManual();
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
 
         /// <summary>诺艾尔此刻是不是"长按护盾键的伪咏唱"状态（护符33 效果2）。</summary>
         public static bool NoelShadowChanting => _noelShadowChanting;
@@ -7595,6 +7754,7 @@ namespace KnightInCradle.CharmUi
                 }
                 bool armed = !IsKnightMode && IsEquipped(CharmOwner.Noel, ShadowId);
                 bool holding = false;
+                bool chargedBefore = _noelShadowEssence; // 本帧之前是否处于"蓄力完成"
                 if (armed && pr.is_alive && NoelPrStateIs(pr, PR.STATE.NORMAL))
                 {
                     try
@@ -7662,7 +7822,14 @@ namespace KnightInCradle.CharmUi
                 {
                     _noelChargeAuraTime = 0f;
                 }
-                EnsureNoelChargeAuraTicket(pr, _noelShadowEssence);
+                // 冲刺段的"缩小中"也要继续画光圈（此时已经松开护盾键，_noelShadowEssence 为 false）
+                EnsureNoelChargeAuraTicket(pr, _noelShadowEssence || _shadowDashPhase == ShadowDashPhase.Shrink);
+                // 冲刺段：蓄力完成状态下**松开护盾键** → 进入缩小 → 发射
+                if (chargedBefore && !holding && armed && _shadowDashPhase == ShadowDashPhase.None)
+                {
+                    StartNoelShadowDash(pr);
+                }
+                TickNoelShadowDash(pr);
             }
             catch (Exception)
             {
@@ -7749,7 +7916,8 @@ namespace KnightInCradle.CharmUi
             }
             _noelChargeAuraMesh.clearSimple();
             PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
-            if (pr == null || _heavyFocusAuraTex == null || !_noelShadowEssence)
+            bool wanted = _noelShadowEssence || _shadowDashPhase == ShadowDashPhase.Shrink;
+            if (pr == null || _heavyFocusAuraTex == null || !wanted || _shadowDashAuraScale <= 0.001f)
             {
                 MdOut = _noelChargeAuraMesh;
                 return true;
@@ -7765,7 +7933,7 @@ namespace KnightInCradle.CharmUi
             Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
                         Matrix4x4.Translate(new Vector3(mp.pixel2ux(pr.x * mp.CLEN), mp.pixel2uy(cy * mp.CLEN), 0f));
             float scale = KnightInCradlePlugin.ScaleConfig != null ? KnightInCradlePlugin.ScaleConfig.Value : 0.325f;
-            float mult = HeavyBlowAuraScale * KnightInCradlePlugin.ShadowChargeAuraScale;
+            float mult = HeavyBlowAuraScale * KnightInCradlePlugin.ShadowChargeAuraScale * _shadowDashAuraScale;
             float w = tex.width * scale * mult;
             float h = tex.height * scale * mult;
             _noelChargeAuraMesh.Col = MTRX.ColWhite;
@@ -7777,6 +7945,144 @@ namespace KnightInCradle.CharmUi
             _noelChargeAuraMesh.Rect(0f, 0f, w, h, false);
             MdOut = _noelChargeAuraMesh;
             return true;
+        }
+
+        /// <summary>冲刺段发射图片（dash_burst0000）的票据：绑当前地图，身后层 PR0。</summary>
+        private static void EnsureNoelShadowDashBurstTicket(PRNoel pr, bool want)
+        {
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null)
+            {
+                return;
+            }
+            if (!want)
+            {
+                ReleaseNoelShadowDashBurstTicket();
+                return;
+            }
+            if (_shadowDashBurstTex == null)
+            {
+                _shadowDashBurstTex = LoadSpriteTexture(KnightInCradlePlugin.ShadowDashBurstSprite);
+            }
+            if (_shadowDashBurstTex == null)
+            {
+                return; // 素材缺失：只是不显示这张图
+            }
+            if (_shadowDashBurstMesh != null && _shadowDashBurstMap == mp && _shadowDashBurstTicket != null)
+            {
+                return;
+            }
+            ReleaseNoelShadowDashBurstTicket();
+            _shadowDashBurstMap = mp;
+            _shadowDashBurstMesh = new MeshDrawer(null, 4 * 4, 6 * 4);
+            _shadowDashBurstMesh.draw_gl_only = true;
+            _shadowDashBurstMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _shadowDashBurstMat.EnableKeyword("NO_PIXELSNAP");
+            _shadowDashBurstMesh.activate("noel_shadow_dash_burst", _shadowDashBurstMat, false, MTRX.ColWhite, null);
+            _shadowDashBurstTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR0, null, PrepareNoelShadowDashBurstMesh, _shadowDashBurstMesh, null, null);
+        }
+
+        private static void ReleaseNoelShadowDashBurstTicket()
+        {
+            try
+            {
+                if (_shadowDashBurstTicket != null && _shadowDashBurstMap != null &&
+                    _shadowDashBurstMap.MovRenderer != null)
+                {
+                    _shadowDashBurstMap.MovRenderer.deassignDrawable(_shadowDashBurstTicket, -1);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (_shadowDashBurstMat != null)
+                {
+                    IN.DestroyOne(_shadowDashBurstMat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _shadowDashBurstTicket = null;
+            _shadowDashBurstMesh = null;
+            _shadowDashBurstMat = null;
+            _shadowDashBurstMap = null;
+        }
+
+        /// <summary>画发射图：锚在"当前发射位置"，朝诺艾尔面朝方向（UV 镜像同修长之钉弧带）。</summary>
+        private static bool PrepareNoelShadowDashBurstMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw,
+            int draw_id, out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _shadowDashBurstMap;
+            if (mp == null || _shadowDashBurstMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _shadowDashBurstMesh.clearSimple();
+            if (_shadowDashBurstTex == null || _shadowDashPhase != ShadowDashPhase.Burst)
+            {
+                MdOut = _shadowDashBurstMesh;
+                return true;
+            }
+            float scale = KnightInCradlePlugin.ScaleConfig != null ? KnightInCradlePlugin.ScaleConfig.Value : 0.325f;
+            float w = _shadowDashBurstTex.width * scale * KnightInCradlePlugin.ShadowDashBurstScale;
+            float h = _shadowDashBurstTex.height * scale * KnightInCradlePlugin.ShadowDashBurstScale;
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mp.pixel2ux(_shadowDashBurstX * mp.CLEN),
+                            mp.pixel2uy(_shadowDashBurstY * mp.CLEN), 0f));
+            _shadowDashBurstMesh.Col = MTRX.ColWhite;
+            _shadowDashBurstMesh.initForImgAndTexture(_shadowDashBurstTex);
+            _shadowDashBurstMesh.uv_top = 0f;
+            _shadowDashBurstMesh.uv_height = 1f;
+            if (_shadowDashBurstDir > 0f)
+            {
+                _shadowDashBurstMesh.uv_left = 1f;
+                _shadowDashBurstMesh.uv_width = -1f;
+            }
+            else
+            {
+                _shadowDashBurstMesh.uv_left = 0f;
+                _shadowDashBurstMesh.uv_width = 1f;
+            }
+            _shadowDashBurstMesh.Rect(0f, 0f, w, h, false);
+            MdOut = _shadowDashBurstMesh;
+            return true;
+        }
+
+        /// <summary>读一张 `assets/hk/sprites/<名>.png`（供冲刺段发射图用）。</summary>
+        private static Texture2D LoadSpriteTexture(string spriteName)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(spriteName))
+                {
+                    return null;
+                }
+                string path = System.IO.Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "assets",
+                    "hk", "sprites", spriteName + ".png");
+                if (!System.IO.File.Exists(path))
+                {
+                    KnightInCradlePlugin.PluginLog?.LogWarning("[KIC][锋利之影] 找不到贴图：" + path);
+                    return null;
+                }
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (!ImageConversion.LoadImage(tex, System.IO.File.ReadAllBytes(path)))
+                {
+                    UnityEngine.Object.Destroy(tex);
+                    return null;
+                }
+                tex.filterMode = FilterMode.Point;
+                tex.wrapMode = TextureWrapMode.Clamp;
+                return tex;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
 

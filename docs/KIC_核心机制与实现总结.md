@@ -4755,3 +4755,47 @@ if (idle) title = KnightInCradlePlugin.ShadowChantPose;
 
 验证：`build=2026-09-25.2`，DLL SHA256 `4F112978B12B3968…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+## 51. 护符 33 冲刺段（2026-09-25，build=2026-09-25.3）
+
+需求（用户逐条描述）：
+
+1. **蓄力完成之后松开护盾键** → 0.1 秒内让 `nail_charge_effect0005~0009` 向诺艾尔中心**缩小**；
+2. 缩到最小的**瞬间**做两件事：① 删掉光圈、**整屏白屏 0.07 秒**；
+   ② **隐藏诺艾尔本体**，在诺艾尔中心把 `dash_burst0000.png` 以 **8 格/秒向前**发射，持续 **0.5 秒**；
+3. 发射完成后：**再白屏 0.07 秒** + 诺艾尔还原。
+
+### 51.1 状态机
+
+```
+Shrink(0.1s) ──► Burst(0.5s) ──► None
+ 光圈 scale 1→0    隐藏本体 + 图片向前飞(8格/秒)     恢复本体
+                 └ 白屏0.07s（进入时）              └ 白屏0.07s（结束时）
+```
+
+触发点：主 tick 里记录"本帧之前是否处于蓄力完成"（`chargedBefore`），
+当 `chargedBefore && !holding`（护盾键松开）时进入 `Shrink`；
+`Shrink` 结束的瞬间进 `Burst`（同帧白屏 + 隐藏本体 + 生成发射图 + 清掉残留粒子）；
+`Burst` 计时到 0.5 秒收尾（白屏 + 还原）。
+
+### 51.2 关键实现
+
+- **光圈缩小**：复用蓄力完成那套 `_noelChargeAuraMesh`，只多乘一个 `_shadowDashAuraScale`
+  （Shrink 期间 1→0）；`want` 条件改成 `_noelShadowEssence || 阶段==Shrink`，
+  缩到 0 时直接释放票据（= "删去 nail_charge_effect"）。
+- **隐藏本体**：照抄骑士模式那套做法 —— 遍历诺艾尔身上所有 `M2PxlAnimatorRT`，
+  把 `alpha` 压到 0（`need_fine` + `fineCurrentFrameMeshManual()` 强制重建网格），
+  Burst 期间**每帧压一次**（否则游戏自己的淡入会把 alpha 拉回来），结束时设回 1。
+- **发射图**：独立网格/票据（`dash_burst0000`，240×54），锚点 = 发射位置（世界格坐标，
+  每帧 `x += dir * 8 * dt`），朝诺艾尔面朝方向（`pr.mpf_is_right`），
+  镜像方式与修长之钉弧带一致（朝右时 `uv_left=1, uv_width=-1`）。
+- **白屏**：`KnightHudDeco.TriggerScreenWhite(秒)` + OnGUI 里铺满 `Texture2D.whiteTexture`，
+  计时用 `Time.unscaledDeltaTime`。注意这与之前删掉的"四周径向白闪"不同，是**纯白整屏**。
+
+配置（`[Charm33]`）：`DashShrinkSeconds`(0.1)、`DashFlashSeconds`(0.07)、`DashBurstSeconds`(0.5)、
+`DashBurstSpeed`(8)、`DashBurstScale`(1)、`DashBurstSprite`(`dash_burst0000`)。
+
+> 备注：诺艾尔本体只是**隐藏**，位置没有移动（需求里只说了发射图片）。等下一步再按需求处理位移/伤害。
+
+验证：`build=2026-09-25.3`，DLL SHA256 `794CB957C2E428CB…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

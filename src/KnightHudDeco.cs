@@ -267,6 +267,19 @@ namespace KnightInCradle
 
         private void OnGUI()
         {
+            // 护符33 冲刺段：整屏白屏（与骑士的"四周径向闪光"不同，这里是**铺满全屏的纯白**）
+            if (_screenWhiteLeft > 0f)
+            {
+                _screenWhiteLeft -= Mathf.Max(0f, Time.unscaledDeltaTime);
+                try
+                {
+                    GUI.color = Color.white;
+                    GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
+                }
+                catch (Exception)
+                {
+                }
+            }
             // 护符界面打开时隐藏 HUD 装饰，避免叠在护符 UI 之上
             if (CharmUiController.Instance != null && CharmUiController.Instance.IsOpen)
             {
@@ -380,6 +393,19 @@ namespace KnightInCradle
 
         // ---- 姿势浏览器（调试工具）文本：左上角显示 序号/总数 + 姿势名 ----
         private static GUIStyle _poseBrowserStyle;
+
+        /// <summary>护符33 冲刺段整屏白屏剩余时长（秒）。</summary>
+        private static float _screenWhiteLeft;
+
+        /// <summary>触发一次整屏白屏（护符33 冲刺段用；到时间自动恢复）。</summary>
+        public static void TriggerScreenWhite(float seconds)
+        {
+            if (seconds <= 0f)
+            {
+                return;
+            }
+            _screenWhiteLeft = Mathf.Max(_screenWhiteLeft, seconds);
+        }
 
         private void DrawPoseBrowserText()
         {

@@ -198,6 +198,19 @@ namespace KnightInCradle
         internal static ConfigEntry<string> ShadowEssenceHoldKeyConfig;
         /// <summary>蓄力完成光圈的额外缩放倍率（乘在"沉重之击"同一套基础上）。</summary>
         internal static ConfigEntry<float> ShadowChargeAuraScaleConfig;
+        // ---- 护符33 冲刺段（蓄力完成后松开护盾键）----
+        /// <summary>光圈向中心缩小耗时（秒，默认 0.1）。</summary>
+        internal static ConfigEntry<float> ShadowDashShrinkSecondsConfig;
+        /// <summary>白屏时长（秒，默认 0.07）。</summary>
+        internal static ConfigEntry<float> ShadowDashFlashSecondsConfig;
+        /// <summary>发射持续（秒，默认 0.5）。</summary>
+        internal static ConfigEntry<float> ShadowDashBurstSecondsConfig;
+        /// <summary>发射速度（格/秒，默认 8）。</summary>
+        internal static ConfigEntry<float> ShadowDashBurstSpeedConfig;
+        /// <summary>发射图片缩放倍率（默认 1）。</summary>
+        internal static ConfigEntry<float> ShadowDashBurstScaleConfig;
+        /// <summary>发射图片名（assets/hk/sprites 下，默认 dash_burst0000）。</summary>
+        internal static ConfigEntry<string> ShadowDashBurstSpriteConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -264,6 +277,31 @@ namespace KnightInCradle
             ShadowChargeAuraScaleConfig != null
                 ? Mathf.Clamp(ShadowChargeAuraScaleConfig.Value, 0.05f, 5f)
                 : 1f;
+
+        internal static float ShadowDashShrinkSeconds =>
+            ShadowDashShrinkSecondsConfig != null
+                ? Mathf.Clamp(ShadowDashShrinkSecondsConfig.Value, 0f, 3f)
+                : 0.1f;
+        internal static float ShadowDashFlashSeconds =>
+            ShadowDashFlashSecondsConfig != null
+                ? Mathf.Clamp(ShadowDashFlashSecondsConfig.Value, 0f, 2f)
+                : 0.07f;
+        internal static float ShadowDashBurstSeconds =>
+            ShadowDashBurstSecondsConfig != null
+                ? Mathf.Clamp(ShadowDashBurstSecondsConfig.Value, 0.05f, 5f)
+                : 0.5f;
+        internal static float ShadowDashBurstSpeed =>
+            ShadowDashBurstSpeedConfig != null
+                ? Mathf.Clamp(ShadowDashBurstSpeedConfig.Value, 0.1f, 60f)
+                : 8f;
+        internal static float ShadowDashBurstScale =>
+            ShadowDashBurstScaleConfig != null
+                ? Mathf.Clamp(ShadowDashBurstScaleConfig.Value, 0.05f, 5f)
+                : 1f;
+        internal static string ShadowDashBurstSprite =>
+            ShadowDashBurstSpriteConfig != null && !string.IsNullOrEmpty(ShadowDashBurstSpriteConfig.Value)
+                ? ShadowDashBurstSpriteConfig.Value
+                : "dash_burst0000";
 
         /// <summary>护符33 粒子的 RGB（从十六进制字符串 `RRGGBB` 解析，默认 FFF200）。</summary>
         internal static Color32 ShadowChantParticleColor
@@ -619,6 +657,18 @@ namespace KnightInCradle
                 "锋利之影：触发精华阶段用的键（留空 = 用 Keybinds/Dash 那个键位）。");
             ShadowChargeAuraScaleConfig = Config.Bind("Charm33", "ChargeAuraScale", 1f,
                 "锋利之影：蓄力完成后诺艾尔中心那组光圈（同沉重之击）的额外缩放倍率（默认 1）。");
+            ShadowDashShrinkSecondsConfig = Config.Bind("Charm33", "DashShrinkSeconds", 0.1f,
+                "锋利之影·冲刺：蓄力完成后松开护盾键，光圈向诺艾尔中心缩小的耗时（秒，默认 0.1）。");
+            ShadowDashFlashSecondsConfig = Config.Bind("Charm33", "DashFlashSeconds", 0.07f,
+                "锋利之影·冲刺：两次白屏各自持续的时间（秒，默认 0.07）。");
+            ShadowDashBurstSecondsConfig = Config.Bind("Charm33", "DashBurstSeconds", 0.5f,
+                "锋利之影·冲刺：发射图片的持续时间（秒，默认 0.5）。");
+            ShadowDashBurstSpeedConfig = Config.Bind("Charm33", "DashBurstSpeed", 8f,
+                "锋利之影·冲刺：发射速度（格/秒，默认 8）。");
+            ShadowDashBurstScaleConfig = Config.Bind("Charm33", "DashBurstScale", 1f,
+                "锋利之影·冲刺：发射图片的缩放倍率（默认 1）。");
+            ShadowDashBurstSpriteConfig = Config.Bind("Charm33", "DashBurstSprite", "dash_burst0000",
+                "锋利之影·冲刺：发射用的图片名（assets/hk/sprites 下的 png，不带扩展名）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
