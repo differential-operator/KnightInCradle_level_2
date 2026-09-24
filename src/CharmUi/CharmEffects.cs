@@ -7495,6 +7495,8 @@ namespace KnightInCradle.CharmUi
             public float Life;
             public float Size;
             public float Speed;
+            /// <summary>true = 精华：从中心向四周扩散；false = 黄色圆点：从四周向中心聚集。</summary>
+            public bool Outward;
         }
 
         private static readonly List<ShadowChantParticle> _noelShadowParticles =
@@ -7506,6 +7508,17 @@ namespace KnightInCradle.CharmUi
         private static M2RenderTicket _noelShadowTicket;
         private static Map2d _noelShadowMap;
         private static Texture2D _noelShadowDotTex;
+        // ---- 精华（长按冲刺键 1 秒后的第二阶段）----
+        private static Texture2D _noelEssenceTex;
+        private static MeshDrawer _noelEssenceMesh;
+        private static Material _noelEssenceMat;
+        private static M2RenderTicket _noelEssenceTicket;
+        private static Map2d _noelEssenceMap;
+        private static float _noelShadowDashTimer;
+        private static bool _noelShadowEssence;
+
+        /// <summary>此刻是不是"精华"阶段（长按冲刺键够久；供 HUD 白闪与绘制判断）。</summary>
+        public static bool NoelShadowEssence => _noelShadowEssence;
 
         /// <summary>诺艾尔此刻是不是"长按护盾键的伪咏唱"状态（护符33 效果2）。</summary>
         public static bool NoelShadowChanting => _noelShadowChanting;
@@ -7598,28 +7611,78 @@ namespace KnightInCradle.CharmUi
                     {
                         _noelShadowChanting = true;
                     }
+                    // 长按**冲刺键**到 EssenceHoldSeconds（默认 1 秒）→ 进入"精华"阶段：
+                    // 屏幕四周白闪一次，粒子改为从中心向四周扩散
+                    bool dashHeld = false;
+                    try
+                    {
+                        dashHeld = KeyConfig.GetHeld(KnightInCradlePlugin.ShadowEssenceHoldKey, KeyCode.LeftShift);
+                    }
+                    catch (Exception)
+                    {
+                        dashHeld = false;
+                    }
+                    if (dashHeld)
+                    {
+                        _noelShadowDashTimer += Time.deltaTime;
+                    }
+                    else
+                    {
+                        _noelShadowDashTimer = 0f;
+                    }
+                    bool essence = _noelShadowChanting && dashHeld &&
+                                   _noelShadowDashTimer >= KnightInCradlePlugin.ShadowEssenceHoldSeconds;
+                    if (essence && !_noelShadowEssence)
+                    {
+                        // 进入精华阶段的瞬间：屏幕四周白闪（同小骑士回血）
+                        KnightHudDeco.TriggerWhiteFlash();
+                    }
+                    _noelShadowEssence = essence;
                 }
                 else
                 {
                     _noelShadowHoldTimer = 0f;
                     _noelShadowChanting = false;
+                    _noelShadowDashTimer = 0f;
+                    _noelShadowEssence = false;
                 }
                 if (_noelShadowChanting)
                 {
                     // 只摆姿势：咏唱动作而已，与真正的施法无关
                     pr.SpSetPose(KnightInCradlePlugin.ShadowChantPose, -1, null, false);
-                    SpawnNoelShadowParticles(KnightInCradlePlugin.ShadowChantParticlesPerFrame);
+                    // 精华阶段：黄色圆点**换成**精华（不再生成黄色那批）
+                    SpawnNoelShadowParticles(KnightInCradlePlugin.ShadowChantParticlesPerFrame,
+                        _noelShadowEssence);
                 }
                 UpdateNoelShadowParticles(pr);
-                EnsureNoelShadowTicket(pr, _noelShadowParticles.Count > 0);
+                EnsureNoelShadowTicket(pr, HasNoelShadowParticle(false));
+                EnsureNoelEssenceTicket(pr, HasNoelShadowParticle(true));
             }
             catch (Exception)
             {
             }
         }
 
-        /// <summary>在诺艾尔周围 1~1.8 格的圆环上随机取点生成金色粒子（同小骑士蓄力）。</summary>
-        private static void SpawnNoelShadowParticles(int count)
+        /// <summary>是否还有某类粒子（outward=false 黄色圆点 / true 精华）。</summary>
+        private static bool HasNoelShadowParticle(bool outward)
+        {
+            for (int i = 0; i < _noelShadowParticles.Count; i++)
+            {
+                if (_noelShadowParticles[i].Outward == outward)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 生成粒子：
+        /// - `outward = false`：在诺艾尔周围 1~1.8 格的圆环上随机取点生成**黄色圆点**（同小骑士蓄力）；
+        /// - `outward = true`：在中心附近生成**精华**，之后向四周扩散（2026-09-24 需求）。
+        /// 两者尺寸一致（`ShadowChantSizeMin/Max`）。
+        /// </summary>
+        private static void SpawnNoelShadowParticles(int count, bool outward)
         {
             PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
             if (pr == null || count <= 0)
@@ -7627,7 +7690,7 @@ namespace KnightInCradle.CharmUi
                 return;
             }
             float cx = pr.x;
-            float cy = NoelBodyCenterY(pr);
+            float cy = NoelBodyCenterY(pr) + (outward ? KnightInCradlePlugin.ShadowChantCenterOffsetY : 0f);
             for (int i = 0; i < count; i++)
             {
                 if (_noelShadowParticles.Count >= ShadowChantParticleCap)
@@ -7635,16 +7698,19 @@ namespace KnightInCradle.CharmUi
                     _noelShadowParticles.RemoveAt(0);
                 }
                 float ang = UnityEngine.Random.value * Mathf.PI * 2f;
-                float rad = UnityEngine.Random.Range(ShadowChantSpawnRadMin, ShadowChantSpawnRadMax);
+                float rad = outward
+                    ? UnityEngine.Random.Range(0f, 0.2f)
+                    : UnityEngine.Random.Range(ShadowChantSpawnRadMin, ShadowChantSpawnRadMax);
                 _noelShadowParticles.Add(new ShadowChantParticle
                 {
                     X = cx + Mathf.Cos(ang) * rad,
                     Y = cy + Mathf.Sin(ang) * rad,
                     Age = 0f,
-                    Life = ShadowChantParticleLife,
+                    Life = outward ? ShadowChantParticleLife : ShadowChantParticleLife,
                     Size = UnityEngine.Random.Range(ShadowChantSizeMin, ShadowChantSizeMax),
                     Speed = UnityEngine.Random.Range(ShadowChantSpeedMin, ShadowChantSpeedMax) *
                             KnightInCradlePlugin.ShadowChantParticleSpeedScale,
+                    Outward = outward,
                 });
             }
         }
@@ -7663,6 +7729,28 @@ namespace KnightInCradle.CharmUi
             {
                 ShadowChantParticle p = _noelShadowParticles[i];
                 p.Age += dt;
+                if (p.Outward)
+                {
+                    // 精华：从中心向四周**扩散**（沿"远离中心"的方向匀速前进）
+                    float ox = p.X - pr.x;
+                    float oy = p.Y - ty;
+                    float od = Mathf.Sqrt(ox * ox + oy * oy);
+                    if (od < 0.001f)
+                    {
+                        float ang = UnityEngine.Random.value * Mathf.PI * 2f;
+                        ox = Mathf.Cos(ang);
+                        oy = Mathf.Sin(ang);
+                        od = 1f;
+                    }
+                    float oinv = p.Speed / od;
+                    p.X += ox * oinv * dt;
+                    p.Y += oy * oinv * dt;
+                    if (p.Age >= p.Life)
+                    {
+                        _noelShadowParticles.RemoveAt(i);
+                    }
+                    continue;
+                }
                 float dx = tx - p.X;
                 float dy = ty - p.Y;
                 float dist = Mathf.Sqrt(dx * dx + dy * dy);
@@ -7765,6 +7853,152 @@ namespace KnightInCradle.CharmUi
             _noelShadowMap = null;
         }
 
+        /// <summary>精华票据：独立网格（要绑精华贴图），同样画在诺艾尔身后层 PR0。</summary>
+        private static void EnsureNoelEssenceTicket(PRNoel pr, bool want)
+        {
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null)
+            {
+                return;
+            }
+            if (!want)
+            {
+                ReleaseNoelEssenceTicket();
+                return;
+            }
+            if (_noelEssenceTex == null)
+            {
+                _noelEssenceTex = LoadNoelEssenceTexture(KnightInCradlePlugin.ShadowEssenceSprite);
+            }
+            if (_noelEssenceTex == null)
+            {
+                return; // 贴图缺失：只是不显示精华，黄色粒子与其它效果照常
+            }
+            if (_noelEssenceMesh != null && _noelEssenceMap == mp && _noelEssenceTicket != null)
+            {
+                return;
+            }
+            ReleaseNoelEssenceTicket();
+            _noelEssenceMap = mp;
+            _noelEssenceMesh = new MeshDrawer(null, 4 * ShadowChantParticleCap, 6 * ShadowChantParticleCap);
+            _noelEssenceMesh.draw_gl_only = true;
+            _noelEssenceMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _noelEssenceMat.EnableKeyword("NO_PIXELSNAP");
+            _noelEssenceMesh.activate("noel_shadow_essence", _noelEssenceMat, false, MTRX.ColWhite, null);
+            _noelEssenceTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR0, null, PrepareNoelEssenceMesh, _noelEssenceMesh, null, null);
+        }
+
+        private static void ReleaseNoelEssenceTicket()
+        {
+            try
+            {
+                if (_noelEssenceTicket != null && _noelEssenceMap != null &&
+                    _noelEssenceMap.MovRenderer != null)
+                {
+                    _noelEssenceMap.MovRenderer.deassignDrawable(_noelEssenceTicket, -1);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (_noelEssenceMat != null)
+                {
+                    IN.DestroyOne(_noelEssenceMat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _noelEssenceTicket = null;
+            _noelEssenceMesh = null;
+            _noelEssenceMat = null;
+            _noelEssenceMap = null;
+        }
+
+        /// <summary>读一张 `assets/hk/sprites/<名>.png` 作为精华贴图。</summary>
+        private static Texture2D LoadNoelEssenceTexture(string spriteName)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(spriteName))
+                {
+                    return null;
+                }
+                string path = System.IO.Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "assets",
+                    "hk", "sprites", spriteName + ".png");
+                if (!System.IO.File.Exists(path))
+                {
+                    KnightInCradlePlugin.PluginLog?.LogWarning(
+                        "[KIC][锋利之影] 找不到精华贴图：" + path);
+                    return null;
+                }
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (!ImageConversion.LoadImage(tex, System.IO.File.ReadAllBytes(path)))
+                {
+                    UnityEngine.Object.Destroy(tex);
+                    return null;
+                }
+                tex.filterMode = FilterMode.Point;
+                tex.wrapMode = TextureWrapMode.Clamp;
+                return tex;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>画精华：锚在诺艾尔中心，尺寸与黄色粒子一致（`Rect` 的 (x,y) 是矩形中心）。</summary>
+        private static bool PrepareNoelEssenceMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelEssenceMap;
+            if (mp == null || _noelEssenceMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelEssenceMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || _noelEssenceTex == null || !HasNoelShadowParticle(true))
+            {
+                MdOut = _noelEssenceMesh;
+                return true;
+            }
+            float cx = pr.x;
+            float cy = NoelBodyCenterY(pr);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mp.pixel2ux(cx * mp.CLEN), mp.pixel2uy(cy * mp.CLEN), 0f));
+            _noelEssenceMesh.initForImgAndTexture(_noelEssenceTex);
+            _noelEssenceMesh.uv_top = 0f;
+            _noelEssenceMesh.uv_height = 1f;
+            _noelEssenceMesh.uv_left = 0f;
+            _noelEssenceMesh.uv_width = 1f;
+            for (int i = 0; i < _noelShadowParticles.Count; i++)
+            {
+                ShadowChantParticle p = _noelShadowParticles[i];
+                if (!p.Outward)
+                {
+                    continue;
+                }
+                float alpha = Mathf.Clamp01((p.Life - p.Age) / 0.2f);
+                if (alpha < 0.04f)
+                {
+                    continue;
+                }
+                float size = p.Size * mp.CLEN; // 与黄色粒子同尺寸
+                float dxm = (p.X - cx) * mp.CLEN;
+                float dym = -(p.Y - cy) * mp.CLEN;
+                _noelEssenceMesh.Col = new Color(1f, 1f, 1f, alpha);
+                _noelEssenceMesh.Rect(dxm, dym, size, size, false);
+            }
+            MdOut = _noelEssenceMesh;
+            return true;
+        }
+
         /// <summary>画粒子：锚在诺艾尔中心，逐颗换算成网格像素坐标（金色 `#FFCB00`）。</summary>
         private static bool PrepareNoelShadowMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
             out MeshDrawer MdOut, ref bool color_one_overwrite)
@@ -7790,6 +8024,10 @@ namespace KnightInCradle.CharmUi
             for (int i = 0; i < _noelShadowParticles.Count; i++)
             {
                 ShadowChantParticle p = _noelShadowParticles[i];
+                if (p.Outward)
+                {
+                    continue; // 精华由另一个网格画
+                }
                 float alpha = Mathf.Clamp01((p.Life - p.Age) / 0.2f);
                 if (alpha < 0.04f)
                 {

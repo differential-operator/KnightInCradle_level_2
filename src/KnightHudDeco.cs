@@ -267,6 +267,15 @@ namespace KnightInCradle
 
         private void OnGUI()
         {
+            // 护符33 精华阶段白闪：骑士模式另有自己的闪光管线，这里只管诺艾尔模式
+            if (_whiteFlashAlpha > 0f)
+            {
+                _whiteFlashAlpha = Mathf.Max(0f, _whiteFlashAlpha - Time.unscaledDeltaTime / WhiteFlashTime);
+            }
+            if (!KnightInCradlePlugin.KnightModeActive)
+            {
+                DrawNoelWhiteFlash();
+            }
             // 护符界面打开时隐藏 HUD 装饰，避免叠在护符 UI 之上
             if (CharmUiController.Instance != null && CharmUiController.Instance.IsOpen)
             {
@@ -380,6 +389,34 @@ namespace KnightInCradle
 
         // ---- 姿势浏览器（调试工具）文本：左上角显示 序号/总数 + 姿势名 ----
         private static GUIStyle _poseBrowserStyle;
+
+        // ---- 护符33 精华阶段：屏幕四周白闪（复用骑士回血那套径向白纹理）----
+        private static float _whiteFlashAlpha;
+        private const float WhiteFlashTime = 0.35f;
+
+        /// <summary>触发一次屏幕四周白闪（同小骑士回血闪光；诺艾尔侧用）。</summary>
+        public static void TriggerWhiteFlash()
+        {
+            _whiteFlashAlpha = 1f;
+        }
+
+        private static void DrawNoelWhiteFlash()
+        {
+            if (_whiteFlashAlpha <= 0.01f)
+            {
+                return;
+            }
+            try
+            {
+                GUI.color = new Color(1f, 1f, 1f, _whiteFlashAlpha);
+                GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height),
+                    KnightInCradleBehaviour.GetFlashTexture());
+                GUI.color = Color.white;
+            }
+            catch (Exception)
+            {
+            }
+        }
 
         private void DrawPoseBrowserText()
         {

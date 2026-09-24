@@ -4676,3 +4676,47 @@ if (idle) title = KnightInCradlePlugin.ShadowChantPose;
 > `-0.5` → **`-1`**（相对最初的 `+0.5` 共上移 1.5 格）。两份安装 cfg 里的旧值 `-0.5`
 > 已手改成 `-1`（BepInEx 不会用代码默认值覆盖已有键）。
 > `build=2026-09-24.31`，DLL SHA256 `4343ECABF6079857…`。
+
+## 50. 护符 33 效果2（第二段：精华阶段，2026-09-24，build=2026-09-24.32）
+
+需求：**长按冲刺键 1 秒后** →
+① 屏幕四周白闪（同小骑士回血）；② 黄色粒子**换成精华**（贴图
+`assets/hk/sprites/dreamcatcher_anim_040005.png`，尺寸与黄色粒子相同）；
+黄色粒子是"四周→中心"，精华是"中心→四周"。
+
+### 50.1 触发与两个阶段
+
+在原有"长按护盾键 → `chant` 姿势 + 黄色粒子"的基础上加一层：
+
+| 条件 | 状态 |
+|---|---|
+| 长按护盾键 ≥ `ChantHoldSeconds` | `_noelShadowChanting`：摆 `chant` 姿势 + 生成**黄色圆点**（四周→中心） |
+| 再长按**冲刺键** ≥ `EssenceHoldSeconds`（默认 1 秒） | 进入**精华阶段**：白闪一次 + 粒子改为**精华**（中心→四周），黄色圆点不再生成 |
+
+冲刺键松开或护盾键松开 → 回落到上一阶段/结束（精华阶段不"latch"）。
+
+### 50.2 白闪
+
+复用骑士回血那套径向白纹理：把 `KnightInCradleBehaviour.GetFlashTexture()` 开成
+`internal static`，`KnightHudDeco` 里加 `TriggerWhiteFlash()` + 每帧按 `WhiteFlashTime = 0.35f`
+用 `Time.unscaledDeltaTime` 渐出、`DrawTexture` 铺满屏幕（**只在诺艾尔模式画**，骑士模式有自己的那条管线）。
+
+### 50.3 精华粒子
+
+- 贴图：`assets/hk/sprites/dreamcatcher_anim_040005.png`（用户给的路径 `sprites/dreamcatcher/_anim/_040005.png`
+  实际不存在，仓库里的真名是这个；两份安装里都有）。
+- **独立网格 + 独立票据**（一个网格只能绑一张贴图）：`_noelEssenceMesh/Ticket`，
+  仍画在诺艾尔身后层 PR0，尺寸与黄色粒子一致（`Size` 同一套随机值）。
+- 粒子对象加了 `Outward` 标记：`false` 走"向中心（+偏移）收敛"，`true` 走"沿远离中心的方向匀速扩散"；
+  两个绘制回调各自只画自己那一类。
+- 数值：速度沿用翻倍后的 6~8 格/秒（仍受 `ParticleSpeedScale` 影响），寿命 1.2 秒、末 0.2 秒淡出。
+
+新增配置（`[Charm33]`）：`EssenceHoldSeconds`(1)、`EssenceHoldKey`(空 = 用 `Keybinds/Dash`)、
+`EssenceSprite`(`dreamcatcher_anim_040005`)。
+
+> ⚠ 注意：`EssenceHoldKey` 留空时读的是 `Keybinds/Dash`（默认 `LeftShift`），而 AIC 的护盾键默认也是
+> `LeftShift` —— 也就是说**默认情况下按住护盾键 1 秒就会进入精华阶段**。想分开就把
+> `Charm33/EssenceHoldKey` 改成一个单独的键（或改 `Keybinds/Dash`）。
+
+验证：`build=2026-09-24.32`，DLL SHA256 `04E940636C2AD111…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

@@ -192,6 +192,12 @@ namespace KnightInCradle
         internal static ConfigEntry<string> ShadowChantParticleColorConfig;
         /// <summary>粒子收敛目标相对身体中心的纵向偏移（格；y 向下为正，负值 = 上移）。</summary>
         internal static ConfigEntry<float> ShadowChantCenterOffsetYConfig;
+        /// <summary>长按冲刺键多少秒触发"精华"阶段（白闪 + 精华向外扩散），默认 1.0。</summary>
+        internal static ConfigEntry<float> ShadowEssenceHoldSecondsConfig;
+        /// <summary>冲刺键（留空 = 用 Keybinds/Dash 那个键位），默认空。</summary>
+        internal static ConfigEntry<string> ShadowEssenceHoldKeyConfig;
+        /// <summary>精华贴图名（assets/hk/sprites 下的 png 名，不带扩展名）。</summary>
+        internal static ConfigEntry<string> ShadowEssenceSpriteConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -242,6 +248,22 @@ namespace KnightInCradle
             ShadowChantCenterOffsetYConfig != null
                 ? Mathf.Clamp(ShadowChantCenterOffsetYConfig.Value, -5f, 5f)
                 : -1f;
+
+        internal static float ShadowEssenceHoldSeconds =>
+            ShadowEssenceHoldSecondsConfig != null
+                ? Mathf.Clamp(ShadowEssenceHoldSecondsConfig.Value, 0f, 10f)
+                : 1f;
+
+        /// <summary>冲刺键的 ConfigEntry（留空时回落到 `Keybinds/Dash`）。</summary>
+        internal static ConfigEntry<string> ShadowEssenceHoldKey =>
+            ShadowEssenceHoldKeyConfig != null && !string.IsNullOrEmpty(ShadowEssenceHoldKeyConfig.Value)
+                ? ShadowEssenceHoldKeyConfig
+                : DashKey;
+
+        internal static string ShadowEssenceSprite =>
+            ShadowEssenceSpriteConfig != null && !string.IsNullOrEmpty(ShadowEssenceSpriteConfig.Value)
+                ? ShadowEssenceSpriteConfig.Value
+                : "dreamcatcher_anim_040005";
 
         /// <summary>护符33 粒子的 RGB（从十六进制字符串 `RRGGBB` 解析，默认 FFF200）。</summary>
         internal static Color32 ShadowChantParticleColor
@@ -591,6 +613,12 @@ namespace KnightInCradle
             ShadowChantCenterOffsetYConfig = Config.Bind("Charm33", "ParticleCenterOffsetY", -1f,
                 "锋利之影：粒子收敛目标相对诺艾尔身体中心的纵向偏移（格；y 向下为正，" +
                 "负值 = 上移。默认 -1 = 中心上方 1 格）。");
+            ShadowEssenceHoldSecondsConfig = Config.Bind("Charm33", "EssenceHoldSeconds", 1f,
+                "锋利之影：长按**冲刺键**多少秒后触发精华阶段（屏幕四周白闪 + 粒子从中心向外扩散，默认 1）。");
+            ShadowEssenceHoldKeyConfig = Config.Bind("Charm33", "EssenceHoldKey", "",
+                "锋利之影：触发精华阶段用的键（留空 = 用 Keybinds/Dash 那个键位）。");
+            ShadowEssenceSpriteConfig = Config.Bind("Charm33", "EssenceSprite", "dreamcatcher_anim_040005",
+                "锋利之影：精华贴图名（assets/hk/sprites 下的 png 文件名，不带扩展名）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
