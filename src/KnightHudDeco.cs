@@ -272,6 +272,8 @@ namespace KnightInCradle
             {
                 return;
             }
+            // 姿势浏览器（调试工具）：诺艾尔/骑士模式都要显示，故放在骑士模式判断之前
+            DrawPoseBrowserText();
             // 护符30 乔尼的祝福（诺艾尔模式）：自绘蓝色 HP 条（与骑士模式的 deco 互不影响）
             // （HP 条染色改走 UIStatus.redrawAll 后缀重染网格顶点，见 CharmEffects.JoniRedrawAllPostfix；
             //   诺艾尔模式下这里不需要做任何 HUD 装饰）
@@ -374,6 +376,49 @@ namespace KnightInCradle
             EnsureDreamStyle();
             GUI.color = new Color(1f, 1f, 1f, textAlpha);
             GUI.Label(box, _dreamText, _dreamStyle);
+        }
+
+        // ---- 姿势浏览器（调试工具）文本：左上角显示 序号/总数 + 姿势名 ----
+        private static GUIStyle _poseBrowserStyle;
+
+        private void DrawPoseBrowserText()
+        {
+            try
+            {
+                string text = NoelPoseBrowser.HudText;
+                if (string.IsNullOrEmpty(text))
+                {
+                    return;
+                }
+                float s = Mathf.Max(0.5f, Screen.height / 1080f);
+                EnsurePoseBrowserStyle(Mathf.RoundToInt(30f * s));
+                var box = new Rect(20f * s, 20f * s, 900f * s, 110f * s);
+                GUI.color = new Color(0f, 0f, 0f, 0.55f);
+                GUI.DrawTexture(box, Texture2D.whiteTexture);
+                GUI.color = Color.white;
+                GUI.Label(new Rect(box.x + 12f * s, box.y + 6f * s, box.width - 24f * s, box.height - 12f * s),
+                    text, _poseBrowserStyle);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static void EnsurePoseBrowserStyle(int fontSize)
+        {
+            if (_poseBrowserStyle != null && _poseBrowserStyle.fontSize == fontSize)
+            {
+                return;
+            }
+            Font font = Font.CreateDynamicFontFromOSFont(
+                new[] { "SimSun", "NSimSun", "宋体", "Microsoft YaHei", "Yu Gothic UI" }, fontSize);
+            _poseBrowserStyle = new GUIStyle
+            {
+                alignment = TextAnchor.UpperLeft,
+                font = font,
+                fontSize = fontSize
+            };
+            _poseBrowserStyle.normal.textColor = new Color(1f, 0.85f, 0.2f);
         }
 
         private static void EnsureDreamStyle()

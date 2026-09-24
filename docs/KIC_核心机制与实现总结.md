@@ -4569,3 +4569,39 @@ if (idle) title = KnightInCradlePlugin.ShadowChantPose;
 2. 说明文字同步更新，避免下次看 cfg 以为默认还是 magic_hold。
 
 验证：`build=2026-09-24.25`，DLL SHA256 `469E32014C8E3DD7…`（两份安装已同步；只覆盖 DLL）。
+
+## 49. 诺艾尔**姿势浏览器**（调试工具，2026-09-24，build=2026-09-24.26）
+
+起因：需要"亲眼看到诺艾尔动画的全部素材"来挑护符33 的蓄力动作。
+
+**为什么不在外部软件里看**：诺艾尔动画的"名字"（`PxlPose.title`）只存在于**运行时容器**
+`MTR.PConNoelAnim`；磁盘上的 pxl 资源是压缩的（`PxlNoel/noel_magic.pxls.dat` 里读不出名字，
+只能看到压缩块），要外部查看就得先解包 `.pxls` 再用 **PixelLiner** 编辑器打开——
+成本高、还得额外装软件，而且看到的是"帧"而不是游戏里的姿势名。**直接在游戏里逐个摆出来**最省事。
+
+**用法**（配置段 `PoseBrowser`，键位可改）：
+
+| 键 | 作用 |
+|---|---|
+| `F8` | 下一个姿势 |
+| `F7` | 上一个姿势 |
+| `F9` | 关闭（恢复游戏自己的姿势） |
+
+浏览时屏幕左上角显示 `序号/总数  姿势名`，同时把同一行写进 BepInEx 日志
+（`[KIC][姿势] 37/412 magic_init`），方便直接复制名字。
+
+**实现要点**（`src/NoelPoseBrowser.cs`）：
+
+- 姿势表：`MTR.PConNoelAnim.getWholePoseInfoObject()`（`MTR.cs:343` 建的那一个容器，
+  诺艾尔全部姿势都在里面）；返回类型是 `Better.BDic`（外部程序集），所以**用反射取**再按
+  `System.Collections.IDictionary` 枚举（`BDic` 确实实现了它；与护符2 枚举掉落物同一做法），这样不必引用 better.dll。
+- 每帧 tick（挂在 `TickNoelCharmEffects`）读按键 + `pr.SpSetPose(当前名)`；
+- 同时**复用护符33 的姿势改写**：`PrAnimator.setPose` 前缀里优先问浏览器
+  （`NoelPoseBrowser.TryOverride`），浏览期间游戏每帧请求的姿势都被改写成浏览中的那个，
+  所以不会被待机/移动动画覆盖，也不会出现"两路抢姿势 → 动画冻结"。
+- 一个已核实的副产品：诺艾尔姿势的**序列索引 = 朝向**（`PrAnimator.cs:1714`
+  `CurInfo.APose[0].getSequence((int)Anm.pose_aim)`），所以"一个姿势 = 一段动画（8 个朝向）"，
+  枚举姿势名就等于枚举全部动画，不用再想办法切序列。
+
+验证：`build=2026-09-24.26`，DLL SHA256 `0FB3288A2DB7981A…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

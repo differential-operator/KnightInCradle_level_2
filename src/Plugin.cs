@@ -189,6 +189,14 @@ namespace KnightInCradle
         /// <summary>粒子向中心收敛速度倍率（默认 1）。</summary>
         internal static ConfigEntry<float> ShadowChantParticleSpeedScaleConfig;
 
+        // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
+        /// <summary>下一个姿势（默认 F8）。</summary>
+        internal static ConfigEntry<string> PoseBrowserNextKeyConfig;
+        /// <summary>上一个姿势（默认 F7）。</summary>
+        internal static ConfigEntry<string> PoseBrowserPrevKeyConfig;
+        /// <summary>关闭浏览（默认 F9）。</summary>
+        internal static ConfigEntry<string> PoseBrowserOffKeyConfig;
+
 
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
@@ -543,6 +551,13 @@ namespace KnightInCradle
                 "锋利之影：每帧生成的金色圆形粒子数（默认 2，同小骑士骨钉技艺蓄力）。0 = 不生成粒子。");
             ShadowChantParticleSpeedScaleConfig = Config.Bind("Charm33", "ParticleSpeedScale", 1f,
                 "锋利之影：粒子向诺艾尔中心收敛的速度倍率（默认 1）。");
+            // 诺艾尔姿势浏览器（调试工具）
+            PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
+                "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
+            PoseBrowserPrevKeyConfig = Config.Bind("PoseBrowser", "PrevKey", "F7",
+                "姿势浏览器：切到上一个姿势（默认 F7）。");
+            PoseBrowserOffKeyConfig = Config.Bind("PoseBrowser", "OffKey", "F9",
+                "姿势浏览器：关闭浏览、恢复游戏自己的姿势（默认 F9）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();

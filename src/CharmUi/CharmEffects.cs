@@ -7528,6 +7528,11 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
+                // 姿势浏览器（调试工具）优先：浏览期间所有姿势请求都改成浏览中的那个
+                if (__instance != null && __instance.Pr is PRNoel && NoelPoseBrowser.TryOverride(ref title))
+                {
+                    return;
+                }
                 if (!_noelShadowChanting || IsKnightMode || string.IsNullOrEmpty(title))
                 {
                     return;
