@@ -7649,12 +7649,16 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        /// <summary>推进粒子：恒定速度向"诺艾尔中心 + 0.5 格"收敛，贴身/寿命到即消失。</summary>
+        /// <summary>
+        /// 推进粒子：恒定速度向"诺艾尔身体中心 + 配置偏移"收敛，贴身/寿命到即消失。
+        /// 偏移默认 -0.5（= 中心**上方** 0.5 格，2026-09-24 需求"中心上移 1 格"；
+        /// 原值为 +0.5）。y 向下为正，所以负值是上移。
+        /// </summary>
         private static void UpdateNoelShadowParticles(PRNoel pr)
         {
             float dt = Time.deltaTime;
             float tx = pr.x;
-            float ty = NoelBodyCenterY(pr) + 0.5f;
+            float ty = NoelBodyCenterY(pr) + KnightInCradlePlugin.ShadowChantCenterOffsetY;
             for (int i = _noelShadowParticles.Count - 1; i >= 0; i--)
             {
                 ShadowChantParticle p = _noelShadowParticles[i];

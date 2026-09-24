@@ -190,6 +190,8 @@ namespace KnightInCradle
         internal static ConfigEntry<float> ShadowChantParticleSpeedScaleConfig;
         /// <summary>粒子颜色（十六进制 RRGGBB，默认 FFF200）。</summary>
         internal static ConfigEntry<string> ShadowChantParticleColorConfig;
+        /// <summary>粒子收敛目标相对身体中心的纵向偏移（格；y 向下为正，负值 = 上移）。</summary>
+        internal static ConfigEntry<float> ShadowChantCenterOffsetYConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -234,6 +236,12 @@ namespace KnightInCradle
             ShadowChantParticleSpeedScaleConfig != null
                 ? Mathf.Clamp(ShadowChantParticleSpeedScaleConfig.Value, 0.1f, 10f)
                 : 1f;
+
+        /// <summary>护符33 粒子收敛目标相对身体中心的纵向偏移（负值 = 上移；默认 -0.5）。</summary>
+        internal static float ShadowChantCenterOffsetY =>
+            ShadowChantCenterOffsetYConfig != null
+                ? Mathf.Clamp(ShadowChantCenterOffsetYConfig.Value, -5f, 5f)
+                : -0.5f;
 
         /// <summary>护符33 粒子的 RGB（从十六进制字符串 `RRGGBB` 解析，默认 FFF200）。</summary>
         internal static Color32 ShadowChantParticleColor
@@ -580,6 +588,9 @@ namespace KnightInCradle
                 "锋利之影：粒子向诺艾尔中心收敛的速度倍率（默认 1）。");
             ShadowChantParticleColorConfig = Config.Bind("Charm33", "ParticleColor", "FFF200",
                 "锋利之影：粒子颜色，十六进制 RRGGBB（默认 FFF200）。");
+            ShadowChantCenterOffsetYConfig = Config.Bind("Charm33", "ParticleCenterOffsetY", -0.5f,
+                "锋利之影：粒子收敛目标相对诺艾尔身体中心的纵向偏移（格；y 向下为正，" +
+                "负值 = 上移。默认 -0.5 = 中心上方 0.5 格）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");

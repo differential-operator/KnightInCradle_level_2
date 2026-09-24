@@ -4659,3 +4659,15 @@ if (idle) title = KnightInCradlePlugin.ShadowChantPose;
 
 验证：`build=2026-09-24.29`，DLL SHA256 `699546342D3F9D7F…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 49.4 【调整】粒子收敛中心上移 1 格
+
+原值是"身体中心 **+0.5 格**"（照搬小骑士蓄力），现在改成"身体中心 **-0.5 格**"，
+即整体上移 1 格（游戏坐标 y 向下为正，负值 = 上移）。
+
+做成配置 `Charm33/ParticleCenterOffsetY`（默认 **-0.5**，范围 -5~5）：
+以后要再挪中心直接改这个值即可，不用改代码。落点：`UpdateNoelShadowParticles` 的收敛目标
+`NoelBodyCenterY(pr) + ShadowChantCenterOffsetY`（生成位置与绘制锚点仍在身体中心）。
+
+验证：`build=2026-09-24.30`，DLL SHA256 `B0020A9784726778…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。
