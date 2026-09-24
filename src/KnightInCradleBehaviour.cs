@@ -20,7 +20,7 @@ namespace KnightInCradle
         /// 构建标记：每次部署时手动更新，日志 `[KIC][补丁] build=…` 会打印；
         /// 配合后面的 `dll=路径 (文件时间)` 可以立刻确认游戏实际加载的是哪一份 DLL。
         /// </summary>
-        internal const string SelfBuildTag = "2026-09-25.4";
+        internal const string SelfBuildTag = "2026-09-25.5";
 
         private static bool _harmonyApplied;
         private static bool _seriousInitApplied; // 启动时是否已应用过一次布局（防止残留居中布局）
@@ -600,6 +600,12 @@ namespace KnightInCradle
 
         private void LateUpdate()
         {
+            // 护符33 冲刺段：渲染前强制隐藏诺艾尔本体（游戏 Update 会把 alpha 拉回来，
+            // 这里再压一次，并把渲染票据停掉 —— 早先在 tick 里压 alpha 的做法不生效）
+            if (!_knightMode && CharmEffects.NoelShadowDashHiding)
+            {
+                SetNoelHiddenForDash(GetPr(), true);
+            }
             if (_knightMode)
             {
                 ForceNoelGone();
@@ -1691,6 +1697,82 @@ namespace KnightInCradle
             if (anm != null)
             {
                 anm.alpha = hide ? 0f : 1f;
+            }
+        }
+
+        /// <summary>
+        /// 护符33 冲刺段：隐藏 / 恢复诺艾尔**本体**。
+        /// 隐藏用骑士模式那套最彻底的做法：alpha=0 + **停用渲染票据**（`HideNoelRenderTicket`）+
+        /// 禁用所有 MeshRenderer/SpriteRenderer/SkinnedMeshRenderer（雾/状态效果可能用缓存网格绕过 alpha）；
+        /// 恢复时把票据重建（`HideNoelRenderTicket(false)` → `initRenderTicket`）并把渲染器重新启用。
+        /// 注意必须在**渲染前**（`LateUpdate`）每帧压一次，否则游戏 Update 阶段会把 alpha 拉回来。
+        /// </summary>
+        public static void SetNoelHiddenForDash(PRNoel pr, bool hide)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    return;
+                }
+                M2PxlAnimatorRT[] anms = pr.GetComponentsInChildren<M2PxlAnimatorRT>(true);
+                for (int i = 0; i < anms.Length; i++)
+                {
+                    if (anms[i] == null)
+                    {
+                        continue;
+                    }
+                    anms[i].alpha = hide ? 0f : 1f;
+                    anms[i].need_fine = true;
+                    anms[i].fineCurrentFrameMeshManual();
+                }
+                HideNoelRenderTicket(pr, hide);
+                if (hide)
+                {
+                    DisableNoelRenderers(pr);
+                }
+                else
+                {
+                    RestoreNoelRenderers(pr);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>冲刺结束后把诺艾尔身上被禁用的标准渲染器重新启用。</summary>
+        private static void RestoreNoelRenderers(PRNoel pr)
+        {
+            try
+            {
+                MeshRenderer[] mrs = pr.GetComponentsInChildren<MeshRenderer>(true);
+                for (int i = 0; i < mrs.Length; i++)
+                {
+                    if (mrs[i] != null && !mrs[i].enabled)
+                    {
+                        mrs[i].enabled = true;
+                    }
+                }
+                SpriteRenderer[] srs = pr.GetComponentsInChildren<SpriteRenderer>(true);
+                for (int i = 0; i < srs.Length; i++)
+                {
+                    if (srs[i] != null && !srs[i].enabled)
+                    {
+                        srs[i].enabled = true;
+                    }
+                }
+                SkinnedMeshRenderer[] sms = pr.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+                for (int i = 0; i < sms.Length; i++)
+                {
+                    if (sms[i] != null && !sms[i].enabled)
+                    {
+                        sms[i].enabled = true;
+                    }
+                }
+            }
+            catch (Exception)
+            {
             }
         }
 

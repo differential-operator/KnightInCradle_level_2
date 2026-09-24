@@ -4814,3 +4814,27 @@ Shrink(0.1s) ──► Burst(0.5s) ──► None
 
 验证：`build=2026-09-25.4`，DLL SHA256 `4E9D43BEFF301763…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 51.4 【修正】诺艾尔没被隐藏：改走"停用渲染票据 + LateUpdate 渲染前压一次"
+
+**现象**：`.4` 里本体根本没隐藏。
+
+**原因（两个都踩了）**：
+1. `.4` 是"在 tick 里把所有 `M2PxlAnimatorRT.alpha` 压到 0"。模组的 tick 在
+   **游戏 Update 之前**跑，游戏随后自己的淡入逻辑把 `alpha` 拉回来 → 渲染时又是 1。
+   骑士模式之所以有效，是因为它在 **`LateUpdate`（渲染前）**和
+   `OnBeginCameraRendering` 里各压一次。
+2. 光压 `alpha` 也不够：模组注释里写明"alpha=0 可能被雾/状态效果用**缓存的不透明网格**绕过"，
+   所以骑士模式还会调用 `HideNoelRenderTicket`（把渲染票据 `deassignDrawable`，身体根本不绘制）
+   与 `DisableNoelRenderers`。
+
+**改法**：新增 `KnightInCradleBehaviour.SetNoelHiddenForDash(pr, hide)` —— 把骑士模式那套完整搬过来：
+所有 `M2PxlAnimatorRT.alpha = 0` + `need_fine/fineCurrentFrameMeshManual()`，
+`HideNoelRenderTicket(pr, true)` 停票据，`DisableNoelRenderers(pr)` 禁用 Mesh/Sprite/Skinned 渲染器；
+恢复时 alpha=1、`HideNoelRenderTicket(pr, false)`（内部 `initRenderTicket` 重建）、
+以及新增的 `RestoreNoelRenderers(pr)` 把渲染器重新启用。
+并且**在 `KnightInCradleBehaviour.LateUpdate` 里每帧压一次**（`CharmEffects.NoelShadowDashHiding` 为真时），
+tick 里那次调用保留作为同帧即时生效。
+
+验证：`build=2026-09-25.5`，DLL SHA256 `824003B0C6016D53…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

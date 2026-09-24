@@ -7557,6 +7557,9 @@ namespace KnightInCradle.CharmUi
         /// <summary>冲刺段是否正在进行（光圈缩小 / 发射中）。</summary>
         public static bool NoelShadowDashActive => _shadowDashPhase != ShadowDashPhase.None;
 
+        /// <summary>冲刺段是否处于"本体应被隐藏"的阶段（发射中）。</summary>
+        public static bool NoelShadowDashHiding => _shadowDashPhase == ShadowDashPhase.Burst;
+
         /// <summary>此刻是不是"精华"阶段（长按冲刺键够久；供 HUD 白闪与绘制判断）。</summary>
         public static bool NoelShadowEssence => _noelShadowEssence;
 
@@ -7583,7 +7586,7 @@ namespace KnightInCradle.CharmUi
                 {
                     if (_shadowDashBodyHidden && pr != null)
                     {
-                        SetNoelBodyVisible(pr, true);
+                        KnightInCradleBehaviour.SetNoelHiddenForDash(pr, false);
                         _shadowDashBodyHidden = false;
                     }
                     return;
@@ -7605,15 +7608,9 @@ namespace KnightInCradle.CharmUi
                 // Burst：隐藏本体 + 图片向前飞
                 if (pr != null)
                 {
-                    if (!_shadowDashBodyHidden)
-                    {
-                        SetNoelBodyVisible(pr, false);
-                        _shadowDashBodyHidden = true;
-                    }
-                    else
-                    {
-                        SetNoelBodyVisible(pr, false); // 每帧压住（游戏的淡入会把 alpha 拉回来）
-                    }
+                    // 隐藏本体：真正生效的那一次在 KnightInCradleBehaviour.LateUpdate（渲染前），
+                    // 这里再压一遍保证同帧生效（tick 早于游戏 Update 时会被覆盖，LateUpdate 会补上）
+                    KnightInCradleBehaviour.SetNoelHiddenForDash(pr, true);
                     _shadowDashBurstX += _shadowDashBurstDir * KnightInCradlePlugin.ShadowDashBurstSpeed * dt;
                     // 诺艾尔本体每帧跟到图片**后面**（同小骑士：本体跟着冲刺特效走）
                     pr.setTo(_shadowDashBurstX - _shadowDashBurstDir * KnightInCradlePlugin.ShadowDashBurstBackOffset,
@@ -7645,7 +7642,7 @@ namespace KnightInCradle.CharmUi
                 _shadowDashBurstX = pr.x;
                 _shadowDashBurstY = NoelBodyCenterY(pr);
             }
-            SetNoelBodyVisible(pr, false);
+            KnightInCradleBehaviour.SetNoelHiddenForDash(pr, true);
             _shadowDashBodyHidden = true;
             EnsureNoelShadowDashBurstTicket(pr, true);
             KnightHudDeco.TriggerScreenWhite(KnightInCradlePlugin.ShadowDashFlashSeconds);
@@ -7658,47 +7655,9 @@ namespace KnightInCradle.CharmUi
             _shadowDashPhaseTimer = 0f;
             _shadowDashAuraScale = 1f;
             EnsureNoelShadowDashBurstTicket(pr, false);
-            SetNoelBodyVisible(pr, true);
+            KnightInCradleBehaviour.SetNoelHiddenForDash(pr, false);
             _shadowDashBodyHidden = false;
             KnightHudDeco.TriggerScreenWhite(KnightInCradlePlugin.ShadowDashFlashSeconds);
-        }
-
-        /// <summary>隐藏/恢复诺艾尔本体（同骑士模式那套：把身上所有 M2PxlAnimatorRT 的 alpha 压到 0）。</summary>
-        private static void SetNoelBodyVisible(PRNoel pr, bool visible)
-        {
-            try
-            {
-                if (pr == null)
-                {
-                    return;
-                }
-                M2PxlAnimatorRT[] anms = pr.GetComponentsInChildren<M2PxlAnimatorRT>(true);
-                for (int i = 0; i < anms.Length; i++)
-                {
-                    if (anms[i] == null)
-                    {
-                        continue;
-                    }
-                    if (!visible)
-                    {
-                        if (anms[i].alpha > 0f)
-                        {
-                            anms[i].alpha = 0f;
-                            anms[i].need_fine = true;
-                            anms[i].fineCurrentFrameMeshManual();
-                        }
-                    }
-                    else if (anms[i].alpha <= 0f)
-                    {
-                        anms[i].alpha = 1f;
-                        anms[i].need_fine = true;
-                        anms[i].fineCurrentFrameMeshManual();
-                    }
-                }
-            }
-            catch (Exception)
-            {
-            }
         }
 
         /// <summary>
