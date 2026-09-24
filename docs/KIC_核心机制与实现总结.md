@@ -4470,3 +4470,15 @@ public void applyGasDamage(MistManager.MistKind K, MistAttackInfo Atk);      // 
 
 验证：`build=2026-09-24.21`，DLL SHA256 `B19C8E4E2CA7DBDE…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 47.3 【追加】护盾 `guard` 也一起禁用
+
+实测反馈：戴着锋利之影**仍然能举盾**。原因是 47.1 按字面需求只禁了"护盾冲击/环轨护盾"，
+没禁护盾本身。现在把 `SkillManager.SKILL_TYPE.guard` 也加进 `isEnable` 拦截名单。
+
+连带效果（符合预期）：`skill_on_guard`（`M2PrSkillShieldEvade.cs:1404`）为 false 之后，
+举盾相关的一整套（含原本就被禁的护盾冲击/环轨护盾）都不再成立；
+护盾带来的"防毒气"也不再享受（诺艾尔若同时戴 32 蘑菇孢子，那部分由护符自己负责）。
+
+验证：`build=2026-09-24.22`，DLL SHA256 `27C788FBD5289835…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

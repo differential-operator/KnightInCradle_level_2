@@ -7471,8 +7471,8 @@ namespace KnightInCradle.CharmUi
         /// 护符33 效果1：以下技能对诺艾尔**失效**——
         /// 闪避 `evade`、幻影闪避 `evade_jump_i_arrow` / `evade_jump_i_run`、
         /// 护盾冲击 `guard_bush`、环轨护盾 `guard_lariat`、
-        /// 完美防御 `justguard`、轮舞斩击 `evade_dancing`。
-        /// （护盾 `guard` 本身**保留**：需求只点名这四项。）
+        /// 完美防御 `justguard`、轮舞斩击 `evade_dancing`、
+        /// 以及**护盾 `guard` 本身**（2026-09-24 追加：实测戴护符后还能举盾 → 一并禁用）。
         /// 注：受身术在 AIC 里**不是** `SKILL_TYPE`（枚举里没有它，代码也从没按 key 查过），
         /// 它体现为 `PR.STATE.UKEMI` 这个状态，所以单独由下面 `NoelShadowUkemiBlockPrefix` 拦。
         /// </summary>
@@ -7480,6 +7480,7 @@ namespace KnightInCradle.CharmUi
         {
             switch (type)
             {
+                case SkillManager.SKILL_TYPE.guard:
                 case SkillManager.SKILL_TYPE.evade:
                 case SkillManager.SKILL_TYPE.evade_jump_i_arrow:
                 case SkillManager.SKILL_TYPE.evade_jump_i_run:
