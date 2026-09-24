@@ -7466,6 +7466,320 @@ namespace KnightInCradle.CharmUi
         }
 
         // ================= 护符32 蘑菇孢子（诺艾尔侧：免疫蘑菇雾气 + 攻击蘑菇获得道具） =====
+        // ================= 护符33 效果2：长按护盾键 → 咏唱姿势 + 金色粒子 =================
+        /// <summary>金色粒子颜色 `#FFCB00`（需求指定）。</summary>
+        private static readonly Color32 ShadowChantGold = new Color32(0xFF, 0xCB, 0x00, 0xFF);
+        private const int ShadowChantParticleCap = 256;      // 同时存在的粒子上限（网格容量同值）
+        private const float ShadowChantParticleLife = 1.2f;  // 粒子最长存活（秒，同小骑士蓄力）
+        private const float ShadowChantSpeedMin = 3f;        // 向中心收敛速度下限（格/秒）
+        private const float ShadowChantSpeedMax = 4f;        // 上限
+        private const float ShadowChantSpawnRadMin = 1f;     // 生成半径下限（格）
+        private const float ShadowChantSpawnRadMax = 1.8f;   // 上限
+        private const float ShadowChantSizeMin = 0.1f;       // 粒子直径下限（格）
+        private const float ShadowChantSizeMax = 0.18f;      // 上限
+
+        /// <summary>金色收敛粒子（字段含义同小骑士 `LightDotParticle` 的那几个坐标/速度字段）。</summary>
+        private sealed class ShadowChantParticle
+        {
+            public float X;
+            public float Y;
+            public float Age;
+            public float Life;
+            public float Size;
+            public float Speed;
+        }
+
+        private static readonly List<ShadowChantParticle> _noelShadowParticles =
+            new List<ShadowChantParticle>();
+        private static float _noelShadowHoldTimer;
+        private static bool _noelShadowChanting;
+        private static MeshDrawer _noelShadowMesh;
+        private static Material _noelShadowMat;
+        private static M2RenderTicket _noelShadowTicket;
+        private static Map2d _noelShadowMap;
+        private static Texture2D _noelShadowDotTex;
+
+        /// <summary>诺艾尔此刻是不是"长按护盾键的伪咏唱"状态（护符33 效果2）。</summary>
+        public static bool NoelShadowChanting => _noelShadowChanting;
+
+        /// <summary>
+        /// 护符33 效果2（第一步）：**长按护盾键** → 播放诺艾尔自身的**魔法咏唱姿势**
+        /// （`M2PrSkill` 咏唱时用的 `magic_hold`，见 `M2PrSkill.cs:3814`），
+        /// 同时在她周围生成**金色 `#FFCB00` 圆形粒子**并向中心收敛
+        /// （生成/收敛数值照搬小骑士骨钉技艺蓄力：每帧 2 个、半径 1~1.8 格、
+        /// 速度 3~4 格/秒、寿命 1.2 秒、骑士身后层 PR0）。
+        ///
+        /// **不碰魔法系统**：这里只 `SpSetPose` 一个姿势，没有任何 `M2PrSkill` 状态改动，
+        /// 所以不会弹出法术选择界面、也不会消耗 MP。
+        ///
+        /// 触发条件：诺艾尔模式 + 佩戴护符33 + 按住护盾键（`PR.isEvadeO()`，也就是 AIC 的
+        /// 防御键 = 默认左 Shift）+ **处于 NORMAL 状态**（避免战斗/受击时强行改姿势）。
+        /// 长按阈值见配置 `ShadowChantHoldSeconds`（默认 0.25 秒）。
+        /// </summary>
+        public static void TickNoelShadowChantCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    ReleaseNoelShadowTicket();
+                    _noelShadowParticles.Clear();
+                    _noelShadowHoldTimer = 0f;
+                    _noelShadowChanting = false;
+                    return;
+                }
+                bool armed = !IsKnightMode && IsEquipped(CharmOwner.Noel, ShadowId);
+                bool holding = false;
+                if (armed && pr.is_alive && NoelPrStateIs(pr, PR.STATE.NORMAL))
+                {
+                    try
+                    {
+                        holding = pr.isEvadeO();
+                    }
+                    catch (Exception)
+                    {
+                        holding = false;
+                    }
+                }
+                if (holding)
+                {
+                    _noelShadowHoldTimer += Time.deltaTime;
+                    if (_noelShadowHoldTimer >= KnightInCradlePlugin.ShadowChantHoldSeconds)
+                    {
+                        _noelShadowChanting = true;
+                    }
+                }
+                else
+                {
+                    _noelShadowHoldTimer = 0f;
+                    _noelShadowChanting = false;
+                }
+                if (_noelShadowChanting)
+                {
+                    // 只摆姿势：咏唱动作而已，与真正的施法无关
+                    pr.SpSetPose(KnightInCradlePlugin.ShadowChantPose, -1, null, false);
+                    SpawnNoelShadowParticles(KnightInCradlePlugin.ShadowChantParticlesPerFrame);
+                }
+                UpdateNoelShadowParticles(pr);
+                EnsureNoelShadowTicket(pr, _noelShadowParticles.Count > 0);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>在诺艾尔周围 1~1.8 格的圆环上随机取点生成金色粒子（同小骑士蓄力）。</summary>
+        private static void SpawnNoelShadowParticles(int count)
+        {
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || count <= 0)
+            {
+                return;
+            }
+            float cx = pr.x;
+            float cy = NoelBodyCenterY(pr);
+            for (int i = 0; i < count; i++)
+            {
+                if (_noelShadowParticles.Count >= ShadowChantParticleCap)
+                {
+                    _noelShadowParticles.RemoveAt(0);
+                }
+                float ang = UnityEngine.Random.value * Mathf.PI * 2f;
+                float rad = UnityEngine.Random.Range(ShadowChantSpawnRadMin, ShadowChantSpawnRadMax);
+                _noelShadowParticles.Add(new ShadowChantParticle
+                {
+                    X = cx + Mathf.Cos(ang) * rad,
+                    Y = cy + Mathf.Sin(ang) * rad,
+                    Age = 0f,
+                    Life = ShadowChantParticleLife,
+                    Size = UnityEngine.Random.Range(ShadowChantSizeMin, ShadowChantSizeMax),
+                    Speed = UnityEngine.Random.Range(ShadowChantSpeedMin, ShadowChantSpeedMax) *
+                            KnightInCradlePlugin.ShadowChantParticleSpeedScale,
+                });
+            }
+        }
+
+        /// <summary>推进粒子：恒定速度向"诺艾尔中心 + 0.5 格"收敛，贴身/寿命到即消失。</summary>
+        private static void UpdateNoelShadowParticles(PRNoel pr)
+        {
+            float dt = Time.deltaTime;
+            float tx = pr.x;
+            float ty = NoelBodyCenterY(pr) + 0.5f;
+            for (int i = _noelShadowParticles.Count - 1; i >= 0; i--)
+            {
+                ShadowChantParticle p = _noelShadowParticles[i];
+                p.Age += dt;
+                float dx = tx - p.X;
+                float dy = ty - p.Y;
+                float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                if (dist < 0.08f || p.Age >= p.Life)
+                {
+                    _noelShadowParticles.RemoveAt(i);
+                    continue;
+                }
+                float inv = p.Speed / dist;
+                p.X += dx * inv * dt;
+                p.Y += dy * inv * dt;
+            }
+        }
+
+        /// <summary>诺艾尔身体中心（脚底 - 身高/2，同"会心"光圈的取法）。</summary>
+        private static float NoelBodyCenterY(PRNoel pr)
+        {
+            return pr.mbottom - pr.sizey * 0.5f;
+        }
+
+        /// <summary>`PR.state` 是 protected 字段，这里复用 5100 行附近那个 FieldRefAccess 读取器。</summary>
+        private static bool NoelPrStateIs(PR pr, PR.STATE state)
+        {
+            try
+            {
+                if (_prStateRef == null)
+                {
+                    _prStateRef = AccessTools.FieldRefAccess<PR, PR.STATE>("state");
+                }
+                return _prStateRef != null && _prStateRef(pr) == state;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>粒子票据：绑当前地图的 MovRenderer，画在诺艾尔身后层（PR0，同小骑士蓄力粒子）。</summary>
+        private static void EnsureNoelShadowTicket(PRNoel pr, bool want)
+        {
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null)
+            {
+                return;
+            }
+            if (!want)
+            {
+                ReleaseNoelShadowTicket();
+                return;
+            }
+            if (_noelShadowDotTex == null)
+            {
+                _noelShadowDotTex = MakeShadowChantDotTexture(32);
+            }
+            if (_noelShadowDotTex == null)
+            {
+                return;
+            }
+            if (_noelShadowMesh != null && _noelShadowMap == mp && _noelShadowTicket != null)
+            {
+                return;
+            }
+            ReleaseNoelShadowTicket();
+            _noelShadowMap = mp;
+            _noelShadowMesh = new MeshDrawer(null, 4 * ShadowChantParticleCap, 6 * ShadowChantParticleCap);
+            _noelShadowMesh.draw_gl_only = true;
+            _noelShadowMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _noelShadowMat.EnableKeyword("NO_PIXELSNAP");
+            _noelShadowMesh.activate("noel_shadow_chant", _noelShadowMat, false, MTRX.ColWhite, null);
+            _noelShadowTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR0, null, PrepareNoelShadowMesh, _noelShadowMesh, null, null);
+        }
+
+        private static void ReleaseNoelShadowTicket()
+        {
+            try
+            {
+                if (_noelShadowTicket != null && _noelShadowMap != null &&
+                    _noelShadowMap.MovRenderer != null)
+                {
+                    _noelShadowMap.MovRenderer.deassignDrawable(_noelShadowTicket, -1);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (_noelShadowMat != null)
+                {
+                    IN.DestroyOne(_noelShadowMat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _noelShadowTicket = null;
+            _noelShadowMesh = null;
+            _noelShadowMat = null;
+            _noelShadowMap = null;
+        }
+
+        /// <summary>画粒子：锚在诺艾尔中心，逐颗换算成网格像素坐标（金色 `#FFCB00`）。</summary>
+        private static bool PrepareNoelShadowMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelShadowMap;
+            if (mp == null || _noelShadowMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelShadowMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || _noelShadowDotTex == null || _noelShadowParticles.Count == 0)
+            {
+                MdOut = _noelShadowMesh;
+                return true;
+            }
+            float cx = pr.x;
+            float cy = NoelBodyCenterY(pr);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mp.pixel2ux(cx * mp.CLEN), mp.pixel2uy(cy * mp.CLEN), 0f));
+            _noelShadowMesh.initForImgAndTexture(_noelShadowDotTex);
+            for (int i = 0; i < _noelShadowParticles.Count; i++)
+            {
+                ShadowChantParticle p = _noelShadowParticles[i];
+                float alpha = Mathf.Clamp01((p.Life - p.Age) / 0.2f);
+                if (alpha < 0.04f)
+                {
+                    continue;
+                }
+                float size = p.Size * mp.CLEN;
+                float dxm = (p.X - cx) * mp.CLEN;
+                float dym = -(p.Y - cy) * mp.CLEN;
+                _noelShadowMesh.Col = new Color(ShadowChantGold.r / 255f, ShadowChantGold.g / 255f,
+                    ShadowChantGold.b / 255f, alpha);
+                _noelShadowMesh.Rect(dxm, dym, size, size, false);
+            }
+            MdOut = _noelShadowMesh;
+            return true;
+        }
+
+        /// <summary>程序化生成白色圆形光点（同小骑士 `MakeDotDotTexture`，金色由绘制时的 Col 乘上去）。</summary>
+        private static Texture2D MakeShadowChantDotTexture(int size)
+        {
+            try
+            {
+                var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+                float r = size * 0.38f;
+                Vector2 c = new Vector2(size * 0.5f, size * 0.5f);
+                for (int y = 0; y < size; y++)
+                {
+                    for (int x = 0; x < size; x++)
+                    {
+                        float d = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), c);
+                        float a = Mathf.Clamp01((r - d) / (r * 0.35f));
+                        tex.SetPixel(x, y, new Color(1f, 1f, 1f, a * 0.9f));
+                    }
+                }
+                tex.filterMode = FilterMode.Point;
+                tex.wrapMode = TextureWrapMode.Clamp;
+                tex.Apply();
+                return tex;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         // ================= 护符33 锋利之影（诺艾尔侧） =================
         /// <summary>
         /// 护符33 效果1：以下技能对诺艾尔**失效**——

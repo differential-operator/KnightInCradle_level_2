@@ -4482,3 +4482,36 @@ public void applyGasDamage(MistManager.MistKind K, MistAttackInfo Atk);      // 
 
 验证：`build=2026-09-24.22`，DLL SHA256 `27C788FBD5289835…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+## 48. 护符 33 效果2（分步，第一步：咏唱姿势 + 金色粒子）
+
+需求：**长按护盾键** →
+① 播放诺艾尔自身的**魔法咏唱动作**（只摆姿势，**不弹法术选择界面**）；
+② 诺艾尔周围出现**金色 `#FFCB00` 圆形粒子**并向其中心收敛（逻辑同小骑士"骨钉技艺蓄力"粒子）。
+
+### 48.1 触发与姿势
+
+- 长按判定：`PR.isEvadeO()`（AIC 的**防御键**，默认左 Shift；`M2MoverPr.cs:2842`）
+  按住的时间 ≥ `Charm33/ChantHoldSeconds`（默认 0.25 秒）才算数。
+- 姿势：`pr.SpSetPose("magic_hold", …)` —— `magic_hold` 就是 `M2PrSkill` 里真正的咏唱姿势
+  （`M2PrSkill.cs:3814`）。**完全不碰魔法系统**：没有 `M2PrSkill` 状态改动，也不会扣魔，
+  所以不会弹出选择界面、也不会真的发动魔法（姿势名可在配置里改，方便换别的动作试）。
+- 门槛：诺艾尔模式 + 佩戴护符33 + 存活 + **处于 `NORMAL` 状态**（战斗/受击/施法中不抢姿势）。
+
+### 48.2 粒子（照搬小骑士蓄力）
+
+| 参数 | 值（同小骑士 `SpawnNailArtChargeParticles`） |
+|---|---|
+| 生成 | 每帧 2 个（配置可改；0 = 不生成） |
+| 生成位置 | 以诺艾尔**身体中心**为圆心，半径 1~1.8 格随机角度 |
+| 收敛 | 恒定速度 3~4 格/秒（配置可乘倍率）向"中心 + 0.5 格"（同小骑士的下偏 0.5 格） |
+| 寿命/淡出 | 1.2 秒 + 最后 0.2 秒线性淡出；离中心 < 0.08 格即消失 |
+| 直径 | 0.1~0.18 格 |
+| 渲染 | 程序化白色圆点贴图（同 `MakeDotDotTexture`）× 金色 `#FFCB00`；绘制在**诺艾尔身后层 PR0** |
+
+代码都在 `src/CharmUi/CharmEffects.cs` 的"护符33 效果2"段（`TickNoelShadowChantCharm` 挂进
+`TickNoelCharmEffects`），票据/网格写法照抄"会心"光圈那一套（绑当前地图 MovRenderer，换图重建）。
+新增配置：`Charm33/ChantHoldSeconds`、`ChantPose`、`ParticlesPerFrame`、`ParticleSpeedScale`。
+
+验证：`build=2026-09-24.23`，DLL SHA256 `C35F1A2E2A9CC5E7…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

@@ -179,6 +179,16 @@ namespace KnightInCradle
         /// <summary>蓄力完成后"下一次伤害"的倍率（需求：1.25 = +25%）。</summary>
         internal static ConfigEntry<float> DeepGatherNextDamageConfig;
 
+        // ---- 护符33 锋利之影（诺艾尔侧：效果2 长按护盾键的咏唱姿势 + 金色粒子）----
+        /// <summary>长按多久算"长按"（秒，默认 0.25）。</summary>
+        internal static ConfigEntry<float> ShadowChantHoldSecondsConfig;
+        /// <summary>咏唱姿势名（默认 magic_hold = 诺艾尔咏唱时的持杖姿势）。</summary>
+        internal static ConfigEntry<string> ShadowChantPoseConfig;
+        /// <summary>每帧生成的粒子数（同小骑士蓄力：2）。</summary>
+        internal static ConfigEntry<int> ShadowChantParticlesPerFrameConfig;
+        /// <summary>粒子向中心收敛速度倍率（默认 1）。</summary>
+        internal static ConfigEntry<float> ShadowChantParticleSpeedScaleConfig;
+
 
         internal static bool MagicSlashOnCharged =>
             MagicSlashOnChargedConfig == null || MagicSlashOnChargedConfig.Value;
@@ -198,6 +208,22 @@ namespace KnightInCradle
             ThornsDamageMultConfig != null ? Mathf.Clamp(ThornsDamageMultConfig.Value, 0.1f, 10f) : 2f;
         internal static float ThornsRadius =>
             ThornsRadiusConfig != null ? Mathf.Clamp(ThornsRadiusConfig.Value, 0.5f, 12f) : 3f;
+        internal static float ShadowChantHoldSeconds =>
+            ShadowChantHoldSecondsConfig != null
+                ? Mathf.Clamp(ShadowChantHoldSecondsConfig.Value, 0f, 5f)
+                : 0.25f;
+        internal static string ShadowChantPose =>
+            ShadowChantPoseConfig != null && !string.IsNullOrEmpty(ShadowChantPoseConfig.Value)
+                ? ShadowChantPoseConfig.Value
+                : "magic_hold";
+        internal static int ShadowChantParticlesPerFrame =>
+            ShadowChantParticlesPerFrameConfig != null
+                ? Mathf.Clamp(ShadowChantParticlesPerFrameConfig.Value, 0, 20)
+                : 2;
+        internal static float ShadowChantParticleSpeedScale =>
+            ShadowChantParticleSpeedScaleConfig != null
+                ? Mathf.Clamp(ShadowChantParticleSpeedScaleConfig.Value, 0.1f, 10f)
+                : 1f;
         internal static float BaldurShellScale =>
             BaldurShellScaleConfig != null ? Mathf.Clamp(BaldurShellScaleConfig.Value, 0.05f, 5f) : 1f;
         internal static float BaldurShellWidthRatio =>
@@ -507,6 +533,16 @@ namespace KnightInCradle
             DeepGatherNextDamageConfig = Config.Bind("Charm27", "NextDamageMult", 1.25f,
                 "深度聚集：**蓄力完成后**，下一次造成伤害的倍率（默认 1.25 = +25%）。" +
                 "作用于法术、魔法霰弹及其变种；命中一次后即消耗。");
+            // 护符33 锋利之影（诺艾尔侧）效果2：长按护盾键 → 咏唱姿势 + 金色粒子
+            ShadowChantHoldSecondsConfig = Config.Bind("Charm33", "ChantHoldSeconds", 0.25f,
+                "锋利之影：长按**护盾键**多少秒后开始播放咏唱姿势与金色粒子（默认 0.25）。");
+            ShadowChantPoseConfig = Config.Bind("Charm33", "ChantPose", "magic_hold",
+                "锋利之影：长按护盾键时播放的姿势名（默认 magic_hold = 诺艾尔咏唱时的持杖动作；" +
+                "可自行换成别的姿势名试试）。");
+            ShadowChantParticlesPerFrameConfig = Config.Bind("Charm33", "ParticlesPerFrame", 2,
+                "锋利之影：每帧生成的金色圆形粒子数（默认 2，同小骑士骨钉技艺蓄力）。0 = 不生成粒子。");
+            ShadowChantParticleSpeedScaleConfig = Config.Bind("Charm33", "ParticleSpeedScale", 1f,
+                "锋利之影：粒子向诺艾尔中心收敛的速度倍率（默认 1）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();
