@@ -6679,11 +6679,20 @@ namespace KnightInCradle.CharmUi
                             typeof(CharmEffects).GetMethod(nameof(MushroomApplyDamagePostfix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
                     }
+                    // 护符33 锋利之影（诺艾尔侧）效果1：闪避/幻影闪避/护盾冲击/环轨护盾失效
+                    MethodInfo skillEnable = AccessTools.Method(typeof(M2PrSkill), "isEnable",
+                        new[] { typeof(SkillManager.SKILL_TYPE) });
+                    if (skillEnable != null)
+                    {
+                        harmony.Patch(skillEnable, prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(NoelShadowSkillDisablePrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
                 }
                 catch (Exception ex)
                 {
                     KnightInCradlePlugin.PluginLog?.LogWarning(
-                        "[KIC][蘑菇孢子] 补丁挂载失败：" + ex.Message);
+                        "[KIC][护符32/33] 补丁挂载失败：" + ex.Message);
                 }
                 // 护符3 坚硬外壳（诺艾尔专属）：次数血 + 掉血后 2 秒免掉。
                 // 与 CombatGuard 的 HpDamagePrefix 挂在同一个方法上互不冲突：
@@ -7448,6 +7457,56 @@ namespace KnightInCradle.CharmUi
         }
 
         // ================= 护符32 蘑菇孢子（诺艾尔侧：免疫蘑菇雾气 + 攻击蘑菇获得道具） =====
+        // ================= 护符33 锋利之影（诺艾尔侧） =================
+        /// <summary>
+        /// 护符33 效果1：以下技能对诺艾尔**失效**——
+        /// 闪避 `evade`、幻影闪避 `evade_jump_i_arrow` / `evade_jump_i_run`、
+        /// 护盾冲击 `guard_bush`、环轨护盾 `guard_lariat`。
+        /// （护盾 `guard` 本身**保留**：需求只点名这四项。）
+        /// </summary>
+        private static bool IsNoelShadowDisabledSkill(SkillManager.SKILL_TYPE type)
+        {
+            switch (type)
+            {
+                case SkillManager.SKILL_TYPE.evade:
+                case SkillManager.SKILL_TYPE.evade_jump_i_arrow:
+                case SkillManager.SKILL_TYPE.evade_jump_i_run:
+                case SkillManager.SKILL_TYPE.guard_bush:
+                case SkillManager.SKILL_TYPE.guard_lariat:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// 护符33 效果1 的实现：挂在 `M2PrSkill.isEnable(SKILL_TYPE)` 上——它是 AIC 自己的
+        /// "这个技能能不能用"总闸门（`M2PrSkill.cs:5089`，`enable_skill_bits` 位掩码）。
+        /// 拦截点核实过：`guard_bush`/`guard_lariat` 在
+        /// `M2PrSkillShieldEvade.getPunchVariation`（:200-201）用来决定"举盾时的一击"变不变招；
+        /// `evade` 在 `skill_on_evade`（:1414）门控 `PR.STATE.EVADE` 的进入；
+        /// `evade_jump_i_*` 在 :355/:377 门控闪避后的幻影派生。
+        /// 都没动原版数据，只是让这一次查询返回 false（卸下护符立刻恢复）。
+        /// </summary>
+        private static bool NoelShadowSkillDisablePrefix(M2PrSkill __instance,
+            SkillManager.SKILL_TYPE type, ref bool __result)
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, ShadowId) ||
+                    !IsNoelShadowDisabledSkill(type))
+                {
+                    return true;
+                }
+                __result = false;
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
         /// <summary>「黑棉孢子」的物品键（蘑菇类魔族的孢子团块，见 `zh-cn_tx_item.txt`）。</summary>
         public const string MushroomSporeItemKey = "mtr_essence_mush";
 

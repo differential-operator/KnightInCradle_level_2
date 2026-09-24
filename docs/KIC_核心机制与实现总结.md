@@ -4422,3 +4422,35 @@ public void applyGasDamage(MistManager.MistKind K, MistAttackInfo Atk);      // 
 
 验证：`build=2026-09-24.19`，DLL SHA256 `F245AB9E0FB6047B…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`、无"补丁挂载失败"告警）。
+
+## 47. 护符 33 锋利之影（诺艾尔侧，分步做，build=2026-09-24.20）
+
+### 47.1 效果1（本轮）：四个技能对诺艾尔失效
+
+需求：诺艾尔无法使用 **闪避 Dodge / 幻影闪避 Meta-dodge / 护盾冲击 Shield Bash /
+环轨护盾 Orbital Shield**。
+
+对应 AIC 的技能枚举（`SkillManager.SKILL_TYPE`，中文名见 `zh-cn_tx_skill.txt`）：
+
+| 需求 | `SKILL_TYPE` |
+|---|---|
+| 闪避 Dodge | `evade` |
+| 幻影闪避 Meta-dodge | `evade_jump_i_arrow` + `evade_jump_i_run` |
+| 护盾冲击 Shield Bash | `guard_bush` |
+| 环轨护盾 Orbital Shield | `guard_lariat` |
+
+**实现**：挂在 `M2PrSkill.isEnable(SkillManager.SKILL_TYPE)` 上（`M2PrSkill.cs:5089`）——
+它是 AIC 自己的"这个技能能不能用"总闸门（内部就是 `enable_skill_bits` 位掩码），
+是纯查询，**不改存档数据**，所以卸下护符立刻恢复。拦截返回 `false` 只针对上面 5 个类型。
+
+挂点核实（都读过源码）：
+
+- `guard_bush` / `guard_lariat`：`M2PrSkillShieldEvade.getPunchVariation`（`:200-201`）用它决定
+  "举盾时的一击"要不要变招成护盾冲击/环轨护盾 → 关掉后不再变招；
+- `evade`：`skill_on_evade`（`:1414`）门控 `PR.STATE.EVADE` 的进入（`:1036/:1118`）；
+- `evade_jump_i_arrow` / `evade_jump_i_run`：`:355/:377` 门控闪避后的幻影派生。
+
+**保留项**：护盾 `guard` 本身、受身术 `ukemi`、轮舞斩击 `evade_dancing` 都不在需求里，未动。
+
+验证：`build=2026-09-24.20`，DLL SHA256 `29BB48CDAC7E6CE0…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。
