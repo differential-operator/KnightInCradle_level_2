@@ -7497,6 +7497,8 @@ namespace KnightInCradle.CharmUi
             public float Speed;
             /// <summary>true = 精华：从中心向四周扩散；false = 黄色圆点：从四周向中心聚集。</summary>
             public bool Outward;
+            /// <summary>精华向外扩散的**最远距离**（格）：与黄色粒子的生成半径同一套随机值。</summary>
+            public float TargetDist;
         }
 
         private static readonly List<ShadowChantParticle> _noelShadowParticles =
@@ -7711,6 +7713,10 @@ namespace KnightInCradle.CharmUi
                     Speed = UnityEngine.Random.Range(ShadowChantSpeedMin, ShadowChantSpeedMax) *
                             KnightInCradlePlugin.ShadowChantParticleSpeedScale,
                     Outward = outward,
+                    // 精华向外扩散到 1~1.8 格就消散 —— 与黄色粒子的生成半径（也就是它的"范围"）一致
+                    TargetDist = outward
+                        ? UnityEngine.Random.Range(ShadowChantSpawnRadMin, ShadowChantSpawnRadMax)
+                        : 0f,
                 });
             }
         }
@@ -7731,7 +7737,7 @@ namespace KnightInCradle.CharmUi
                 p.Age += dt;
                 if (p.Outward)
                 {
-                    // 精华：从中心向四周**扩散**（沿"远离中心"的方向匀速前进）
+                    // 精华：从中心向四周**扩散**，扩散到 TargetDist（1~1.8 格，与黄色粒子同一范围）即消散
                     float ox = p.X - pr.x;
                     float oy = p.Y - ty;
                     float od = Mathf.Sqrt(ox * ox + oy * oy);
@@ -7742,13 +7748,14 @@ namespace KnightInCradle.CharmUi
                         oy = Mathf.Sin(ang);
                         od = 1f;
                     }
+                    if (od >= p.TargetDist || p.Age >= p.Life)
+                    {
+                        _noelShadowParticles.RemoveAt(i);
+                        continue;
+                    }
                     float oinv = p.Speed / od;
                     p.X += ox * oinv * dt;
                     p.Y += oy * oinv * dt;
-                    if (p.Age >= p.Life)
-                    {
-                        _noelShadowParticles.RemoveAt(i);
-                    }
                     continue;
                 }
                 float dx = tx - p.X;
@@ -7984,7 +7991,12 @@ namespace KnightInCradle.CharmUi
                 {
                     continue;
                 }
-                float alpha = Mathf.Clamp01((p.Life - p.Age) / 0.2f);
+                // 精华：快速淡入，接近最远距离（1~1.8 格）时淡出
+                float ox = p.X - cx;
+                float oy = p.Y - NoelBodyCenterY(pr);
+                float od = Mathf.Sqrt(ox * ox + oy * oy);
+                float alpha = Mathf.Clamp01(p.Age / 0.05f) *
+                              Mathf.Clamp01((p.TargetDist - od) / 0.4f);
                 if (alpha < 0.04f)
                 {
                     continue;
