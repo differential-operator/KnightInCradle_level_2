@@ -4648,3 +4648,14 @@ if (idle) title = KnightInCradlePlugin.ShadowChantPose;
 
 验证：`build=2026-09-24.28`，DLL SHA256 `4AA8D0B436BBD6FF…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 49.3 【数值调整】粒子：颜色 `#FFF200`、速度翻倍、数量减半
+
+| 项 | 改动 | 落点 |
+|---|---|---|
+| 颜色 | `#FFCB00` → **`#FFF200`** | 新增配置 `Charm33/ParticleColor`（十六进制 `RRGGBB`，默认 `FFF200`；解析失败回落 FFF200）。**做成配置**方便以后继续调，不必再改代码 |
+| 速度 | **翻倍**：3~4 格/秒 → **6~8 格/秒** | 直接改基准常量 `ShadowChantSpeedMin/Max`（配置里的 `ParticleSpeedScale` 仍是倍率，默认 1） |
+| 数量 | **减半**：每帧 2 个 → **每帧 1 个** | 代码默认 `ParticlesPerFrame` 2→1，并把两份安装 cfg 里的 `ParticlesPerFrame = 2` 手改成 1（否则旧值覆盖） |
+
+验证：`build=2026-09-24.29`，DLL SHA256 `699546342D3F9D7F…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

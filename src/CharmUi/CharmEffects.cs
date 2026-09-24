@@ -7477,12 +7477,10 @@ namespace KnightInCradle.CharmUi
 
         // ================= 护符32 蘑菇孢子（诺艾尔侧：免疫蘑菇雾气 + 攻击蘑菇获得道具） =====
         // ================= 护符33 效果2：长按护盾键 → 咏唱姿势 + 金色粒子 =================
-        /// <summary>金色粒子颜色 `#FFCB00`（需求指定）。</summary>
-        private static readonly Color32 ShadowChantGold = new Color32(0xFF, 0xCB, 0x00, 0xFF);
         private const int ShadowChantParticleCap = 256;      // 同时存在的粒子上限（网格容量同值）
         private const float ShadowChantParticleLife = 1.2f;  // 粒子最长存活（秒，同小骑士蓄力）
-        private const float ShadowChantSpeedMin = 3f;        // 向中心收敛速度下限（格/秒）
-        private const float ShadowChantSpeedMax = 4f;        // 上限
+        private const float ShadowChantSpeedMin = 6f;        // 向中心收敛速度下限（格/秒；2026-09-24 翻倍：3→6）
+        private const float ShadowChantSpeedMax = 8f;        // 上限（4→8）
         private const float ShadowChantSpawnRadMin = 1f;     // 生成半径下限（格）
         private const float ShadowChantSpawnRadMax = 1.8f;   // 上限
         private const float ShadowChantSizeMin = 0.1f;       // 粒子直径下限（格）
@@ -7796,8 +7794,8 @@ namespace KnightInCradle.CharmUi
                 float size = p.Size * mp.CLEN;
                 float dxm = (p.X - cx) * mp.CLEN;
                 float dym = -(p.Y - cy) * mp.CLEN;
-                _noelShadowMesh.Col = new Color(ShadowChantGold.r / 255f, ShadowChantGold.g / 255f,
-                    ShadowChantGold.b / 255f, alpha);
+                Color32 col = KnightInCradlePlugin.ShadowChantParticleColor;
+                _noelShadowMesh.Col = new Color(col.r / 255f, col.g / 255f, col.b / 255f, alpha);
                 _noelShadowMesh.Rect(dxm, dym, size, size, false);
             }
             MdOut = _noelShadowMesh;

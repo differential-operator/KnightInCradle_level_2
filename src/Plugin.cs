@@ -188,6 +188,8 @@ namespace KnightInCradle
         internal static ConfigEntry<int> ShadowChantParticlesPerFrameConfig;
         /// <summary>粒子向中心收敛速度倍率（默认 1）。</summary>
         internal static ConfigEntry<float> ShadowChantParticleSpeedScaleConfig;
+        /// <summary>粒子颜色（十六进制 RRGGBB，默认 FFF200）。</summary>
+        internal static ConfigEntry<string> ShadowChantParticleColorConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -232,6 +234,32 @@ namespace KnightInCradle
             ShadowChantParticleSpeedScaleConfig != null
                 ? Mathf.Clamp(ShadowChantParticleSpeedScaleConfig.Value, 0.1f, 10f)
                 : 1f;
+
+        /// <summary>护符33 粒子的 RGB（从十六进制字符串 `RRGGBB` 解析，默认 FFF200）。</summary>
+        internal static Color32 ShadowChantParticleColor
+        {
+            get
+            {
+                string s = ShadowChantParticleColorConfig != null
+                    ? ShadowChantParticleColorConfig.Value
+                    : null;
+                if (!string.IsNullOrEmpty(s))
+                {
+                    s = s.Trim().TrimStart('#');
+                    if (s.Length == 6 &&
+                        byte.TryParse(s.Substring(0, 2), System.Globalization.NumberStyles.HexNumber,
+                            System.Globalization.CultureInfo.InvariantCulture, out byte r) &&
+                        byte.TryParse(s.Substring(2, 2), System.Globalization.NumberStyles.HexNumber,
+                            System.Globalization.CultureInfo.InvariantCulture, out byte g) &&
+                        byte.TryParse(s.Substring(4, 2), System.Globalization.NumberStyles.HexNumber,
+                            System.Globalization.CultureInfo.InvariantCulture, out byte b))
+                    {
+                        return new Color32(r, g, b, 255);
+                    }
+                }
+                return new Color32(0xFF, 0xF2, 0x00, 255);
+            }
+        }
         internal static float BaldurShellScale =>
             BaldurShellScaleConfig != null ? Mathf.Clamp(BaldurShellScaleConfig.Value, 0.05f, 5f) : 1f;
         internal static float BaldurShellWidthRatio =>
@@ -546,10 +574,12 @@ namespace KnightInCradle
                 "锋利之影：长按**护盾键**多少秒后开始播放咏唱姿势与金色粒子（默认 0.25）。");
             ShadowChantPoseConfig = Config.Bind("Charm33", "ChantPose", "chant",
                 "锋利之影：长按护盾键时播放的姿势名（默认 chant）。");
-            ShadowChantParticlesPerFrameConfig = Config.Bind("Charm33", "ParticlesPerFrame", 2,
-                "锋利之影：每帧生成的金色圆形粒子数（默认 2，同小骑士骨钉技艺蓄力）。0 = 不生成粒子。");
+            ShadowChantParticlesPerFrameConfig = Config.Bind("Charm33", "ParticlesPerFrame", 1,
+                "锋利之影：每帧生成的圆形粒子数（默认 1）。0 = 不生成粒子。");
             ShadowChantParticleSpeedScaleConfig = Config.Bind("Charm33", "ParticleSpeedScale", 1f,
                 "锋利之影：粒子向诺艾尔中心收敛的速度倍率（默认 1）。");
+            ShadowChantParticleColorConfig = Config.Bind("Charm33", "ParticleColor", "FFF200",
+                "锋利之影：粒子颜色，十六进制 RRGGBB（默认 FFF200）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
