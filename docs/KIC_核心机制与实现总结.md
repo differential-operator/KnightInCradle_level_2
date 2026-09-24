@@ -4454,3 +4454,19 @@ public void applyGasDamage(MistManager.MistKind K, MistAttackInfo Atk);      // 
 
 验证：`build=2026-09-24.20`，DLL SHA256 `29BB48CDAC7E6CE0…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 47.2 【追加】再禁用三项：受身术 / 完美防御 / 轮舞斩击
+
+| 需求 | 实现 |
+|---|---|
+| 完美防御 Justguard | 加进 `isEnable` 拦截名单：`SkillManager.SKILL_TYPE.justguard`（原版在 `M2PrSkillShieldEvade.cs:88` 用它设 `Shield.just_guard_enable`，`:1216` 用它决定是否 `initJustGuard`） |
+| 轮舞斩击 Dancing Slash | 同上：`evade_dancing`（原版 `:961` / `M2PrSkill.cs:2017` 门控"普攻中左右键接轮舞斩击"） |
+| 受身术 Back Step | **不是** `SKILL_TYPE`：`SkillManager.SKILL_TYPE` 枚举里没有 ukemi，全代码也没有按 key 查过它，它只是 `PR.STATE.UKEMI` 这个**状态**（倒地中按攻击/闪避立刻起身）。改为在 `PR.changeState(PR.STATE)` 上加前缀：诺艾尔 + 护符33 时**拦下进入 `UKEMI`**，效果等于"按了没反应"，等倒地时间自然走完起身（原版无输入就是这条路） |
+
+进入 `UKEMI` 的四处入口：`M2PrSkill.runPunchCheck`（`:1954`，倒地时按攻击）、
+`M2PrSkill.initEvade`（`:3080`，倒地时按闪避）、`M2PrSkillShieldEvade.initEvade`（`:1148`，同上）、
+`M2PrADmg.runAbsorbing`（`:808`，`UKEMI_SHOTGUN`）。**只拦 `UKEMI`**：
+`UKEMI_SHOTGUN` 是"被吞下后带霰弹脱身"的吸收释放流程，拦掉会让那条流程每帧提前 return 而卡死，故保留。
+
+验证：`build=2026-09-24.21`，DLL SHA256 `B19C8E4E2CA7DBDE…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

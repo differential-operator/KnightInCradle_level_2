@@ -6688,6 +6688,15 @@ namespace KnightInCradle.CharmUi
                             typeof(CharmEffects).GetMethod(nameof(NoelShadowSkillDisablePrefix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
                     }
+                    // 护符33：受身术（PR.STATE.UKEMI）失效
+                    MethodInfo prChangeStateUkemi = AccessTools.Method(typeof(PR), "changeState",
+                        new[] { typeof(PR.STATE) });
+                    if (prChangeStateUkemi != null)
+                    {
+                        harmony.Patch(prChangeStateUkemi, prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(NoelShadowUkemiBlockPrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -7461,8 +7470,11 @@ namespace KnightInCradle.CharmUi
         /// <summary>
         /// 护符33 效果1：以下技能对诺艾尔**失效**——
         /// 闪避 `evade`、幻影闪避 `evade_jump_i_arrow` / `evade_jump_i_run`、
-        /// 护盾冲击 `guard_bush`、环轨护盾 `guard_lariat`。
+        /// 护盾冲击 `guard_bush`、环轨护盾 `guard_lariat`、
+        /// 完美防御 `justguard`、轮舞斩击 `evade_dancing`。
         /// （护盾 `guard` 本身**保留**：需求只点名这四项。）
+        /// 注：受身术在 AIC 里**不是** `SKILL_TYPE`（枚举里没有它，代码也从没按 key 查过），
+        /// 它体现为 `PR.STATE.UKEMI` 这个状态，所以单独由下面 `NoelShadowUkemiBlockPrefix` 拦。
         /// </summary>
         private static bool IsNoelShadowDisabledSkill(SkillManager.SKILL_TYPE type)
         {
@@ -7473,9 +7485,40 @@ namespace KnightInCradle.CharmUi
                 case SkillManager.SKILL_TYPE.evade_jump_i_run:
                 case SkillManager.SKILL_TYPE.guard_bush:
                 case SkillManager.SKILL_TYPE.guard_lariat:
+                case SkillManager.SKILL_TYPE.justguard:
+                case SkillManager.SKILL_TYPE.evade_dancing:
                     return true;
                 default:
                     return false;
+            }
+        }
+
+        /// <summary>
+        /// 护符33 效果1：**受身术（`PR.STATE.UKEMI`）失效**。
+        ///
+        /// 受身术在 AIC 里不是 `SkillManager.SKILL_TYPE`（枚举里根本没有它），而是"倒地中按攻击键
+        /// 立刻起身"的那个状态：`M2PrSkill.runPunchCheck`（`M2PrSkill.cs:1954`）与
+        /// `initEvade`（`:3080` / `M2PrSkillShieldEvade.cs:1148`）。这里挂在
+        /// `PR.changeState(PR.STATE)` 上拦下"进入 UKEMI"，诺艾尔就会像没按一样继续躺着，
+        /// 等倒地时间自然走完起身（原版无输入就是这条路径）。
+        ///
+        /// 只拦 `UKEMI`、不拦 `UKEMI_SHOTGUN`：后者是"被魔物吞下后带着霰弹脱身"的
+        /// 吸收释放流程（`M2PrADmg.runAbsorbing`，`M2PrADmg.cs:808`），拦住会让那条流程
+        /// 每帧提前 return 而卡死（实测风险，故不动）。
+        /// </summary>
+        private static bool NoelShadowUkemiBlockPrefix(PR __instance, PR.STATE _state)
+        {
+            try
+            {
+                if (_state != PR.STATE.UKEMI || IsKnightMode || !(__instance is PRNoel))
+                {
+                    return true;
+                }
+                return !IsEquipped(CharmOwner.Noel, ShadowId);
+            }
+            catch (Exception)
+            {
+                return true;
             }
         }
 
