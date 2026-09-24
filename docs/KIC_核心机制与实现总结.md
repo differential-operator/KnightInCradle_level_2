@@ -4515,3 +4515,38 @@ public void applyGasDamage(MistManager.MistKind K, MistAttackInfo Atk);      // 
 
 验证：`build=2026-09-24.23`，DLL SHA256 `C35F1A2E2A9CC5E7…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 48.3 【修正】不是自己每帧设姿势，而是**改写游戏请求的姿势**
+
+**现象**（用户实测 .23）：长按护盾键**没有播放咏唱动作**，"只是暂停了诺艾尔当前的动作"。
+
+**原因**：`.23` 是在模组 `Update` 里每帧 `pr.SpSetPose("magic_hold")`，而 AIC 状态机在同一帧
+也会设姿势（NORMAL 下请求 `stand`）→ 一帧内姿势来回切，`PrAnimator.setPose` 每次都当成
+"换了新姿势"（`restart_anim < 0 && flag3 && title == pre_pose_title` 的免重置条件不成立）
+→ 动画被每帧重置，观感就是"冻在当前动作"。
+
+**顺带澄清可行性**（用户提问"调用原版动作是否现实"）：
+
+- 接口公开、模组已在用（`CombatGuard.PlayNoelLightHitPose` 就是 `pr.SpSetPose(...)`）；
+- 诺艾尔所有姿势同在一个容器 `MTR.PConNoelAnim`（`MTR.cs:343`），`magic_hold` 这类名字真实存在；
+- 名字写错也不会静默：`PrAnimator.getPoseInfoInner` 会打 `Noel ポーズが見つかりません` 并退回 `stand`
+  （`.23` 的日志里没有这条 → 名字没问题）；
+- `AnimationShufflerNoel.initSetPoseB` 会用 `getSpecialMagicPose(getCurMagic(), …)` 重写魔法姿势名，
+  而 `CurMg == null` 时它**照样返回 `magic_hold`**（`AnimationShufflerNoel.cs:557-600`），
+  所以"没有真正蓄力"不影响这件事。
+
+**改法**：挂 `PrAnimator.setPose(string, int, bool)` 前缀（`PR.SpSetPose` 最终就是调它；
+`PrBakeAnimator` / `PrNoelAnimator` 的 override 都会 `base.setPose`，所以拦得到），
+伪咏唱期间把**游戏请求的待机姿势**改写成 `magic_hold`：
+
+```csharp
+bool idle = title == "stand" ||
+            (title.StartsWith("stand") && title.IndexOf('2') < 0); // 跳过 stand2sink 这类过渡
+if (idle) title = KnightInCradlePlugin.ShadowChantPose;
+```
+
+即"只留一个写姿势的人"：游戏请求 `stand`，这里把它变成 `magic_hold`，`PrAnimator` 每帧看到的
+都是同一个标题 → 会走免重置分支 → 动画正常播放。模组自己那次 `SpSetPose` 保留（负责首次进入姿势）。
+
+验证：`build=2026-09-24.24`，DLL SHA256 `6F015DB9C57BD946…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

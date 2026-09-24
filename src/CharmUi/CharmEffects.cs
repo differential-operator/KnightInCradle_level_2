@@ -6697,6 +6697,16 @@ namespace KnightInCradle.CharmUi
                             typeof(CharmEffects).GetMethod(nameof(NoelShadowUkemiBlockPrefix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
                     }
+                    // 护符33 效果2：伪咏唱期间把游戏请求的待机姿势改写为咏唱姿势
+                    // （只留一个写姿势的人，避免两路抢导致动画每帧重置）
+                    MethodInfo prAnmSetPose = AccessTools.Method(typeof(PrAnimator), "setPose",
+                        new[] { typeof(string), typeof(int), typeof(bool) });
+                    if (prAnmSetPose != null)
+                    {
+                        harmony.Patch(prAnmSetPose, prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(NoelShadowChantPosePrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -7501,6 +7511,43 @@ namespace KnightInCradle.CharmUi
 
         /// <summary>诺艾尔此刻是不是"长按护盾键的伪咏唱"状态（护符33 效果2）。</summary>
         public static bool NoelShadowChanting => _noelShadowChanting;
+
+        /// <summary>
+        /// 护符33 效果2 的核心：伪咏唱期间，把**游戏自己请求的待机姿势**改写成护符的咏唱姿势。
+        ///
+        /// 为什么不自己每帧 `SpSetPose`：AIC 的状态机每帧也会设姿势（NORMAL 下请求 `stand`），
+        /// 两路各设一次 → 一帧内姿势来回切 → `PrAnimator.setPose` 每帧都当成"新姿势"重置动画，
+        /// 表现就是"当前动作被冻住"。**只留一个写姿势的人**（就是这里）才有动画。
+        ///
+        /// 挂点：`PrAnimator.setPose(string, int, bool)`（`PR.SpSetPose` 最终就是调它；
+        /// `PrBakeAnimator`/`PrNoelAnimator` 的 override 都会 `base.setPose`，所以能拦到）。
+        /// 只改写"待机类"标题：`stand` 及 `stand_*`，并跳过 `stand2xxx` 这类**过渡**姿势
+        /// （如 stand2sink / stand2confused），避免把起身、下蹲插值也换掉。
+        /// </summary>
+        private static void NoelShadowChantPosePrefix(PrAnimator __instance, ref string title)
+        {
+            try
+            {
+                if (!_noelShadowChanting || IsKnightMode || string.IsNullOrEmpty(title))
+                {
+                    return;
+                }
+                if (__instance == null || !(__instance.Pr is PRNoel))
+                {
+                    return;
+                }
+                bool idle = title == "stand" ||
+                            (title.StartsWith("stand", StringComparison.Ordinal) && title.IndexOf('2') < 0);
+                if (!idle)
+                {
+                    return;
+                }
+                title = KnightInCradlePlugin.ShadowChantPose;
+            }
+            catch (Exception)
+            {
+            }
+        }
 
         /// <summary>
         /// 护符33 效果2（第一步）：**长按护盾键** → 播放诺艾尔自身的**魔法咏唱姿势**
