@@ -196,8 +196,8 @@ namespace KnightInCradle
         internal static ConfigEntry<float> ShadowEssenceHoldSecondsConfig;
         /// <summary>冲刺键（留空 = 用 Keybinds/Dash 那个键位），默认空。</summary>
         internal static ConfigEntry<string> ShadowEssenceHoldKeyConfig;
-        /// <summary>精华贴图名（assets/hk/sprites 下的 png 名，不带扩展名）。</summary>
-        internal static ConfigEntry<string> ShadowEssenceSpriteConfig;
+        /// <summary>蓄力完成光圈的额外缩放倍率（乘在"沉重之击"同一套基础上）。</summary>
+        internal static ConfigEntry<float> ShadowChargeAuraScaleConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -260,10 +260,10 @@ namespace KnightInCradle
                 ? ShadowEssenceHoldKeyConfig
                 : DashKey;
 
-        internal static string ShadowEssenceSprite =>
-            ShadowEssenceSpriteConfig != null && !string.IsNullOrEmpty(ShadowEssenceSpriteConfig.Value)
-                ? ShadowEssenceSpriteConfig.Value
-                : "dreamcatcher_anim_040005";
+        internal static float ShadowChargeAuraScale =>
+            ShadowChargeAuraScaleConfig != null
+                ? Mathf.Clamp(ShadowChargeAuraScaleConfig.Value, 0.05f, 5f)
+                : 1f;
 
         /// <summary>护符33 粒子的 RGB（从十六进制字符串 `RRGGBB` 解析，默认 FFF200）。</summary>
         internal static Color32 ShadowChantParticleColor
@@ -617,8 +617,8 @@ namespace KnightInCradle
                 "锋利之影：长按**冲刺键**多少秒后触发精华阶段（屏幕四周白闪 + 粒子从中心向外扩散，默认 1）。");
             ShadowEssenceHoldKeyConfig = Config.Bind("Charm33", "EssenceHoldKey", "",
                 "锋利之影：触发精华阶段用的键（留空 = 用 Keybinds/Dash 那个键位）。");
-            ShadowEssenceSpriteConfig = Config.Bind("Charm33", "EssenceSprite", "dreamcatcher_anim_040005",
-                "锋利之影：精华贴图名（assets/hk/sprites 下的 png 文件名，不带扩展名）。");
+            ShadowChargeAuraScaleConfig = Config.Bind("Charm33", "ChargeAuraScale", 1f,
+                "锋利之影：蓄力完成后诺艾尔中心那组光圈（同沉重之击）的额外缩放倍率（默认 1）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");

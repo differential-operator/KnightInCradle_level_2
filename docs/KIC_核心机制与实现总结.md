@@ -4733,3 +4733,25 @@ if (idle) title = KnightInCradlePlugin.ShadowChantPose;
 
 验证：`build=2026-09-25.1`，DLL SHA256 `6E63636C74FE75BF…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 50.5 【调整】不用精华图了 + 去掉白闪 + 蓄力完成加"沉重之击"那组光圈
+
+三条需求与落点：
+
+1. **不用精华贴图，换回黄色粒子，但方向仍是"由内到外"**
+   —— 删掉精华那套（贴图加载 / 独立网格 / 独立票据 / `PrepareNoelEssenceMesh`，
+   以及配置 `Charm33/EssenceSprite`），两种方向现在**共用**黄色圆点网格：
+   `Outward=false` 走"四周→中心"，`Outward=true` 走"中心→四周（到 1~1.8 格消散、按距离淡出）"。
+2. **删去屏幕四周白闪** —— 去掉 `KnightHudDeco` 里的 `TriggerWhiteFlash/白闪绘制`，
+   `KnightInCradleBehaviour.GetFlashTexture()` 也改回 `private`（不再对外暴露）。
+3. **蓄力完成后在诺艾尔中心渲染"沉重之击"那组光圈**（`nail_charge_effect0005~0009`）
+   —— 新增一套 `_noelChargeAuraMesh/Ticket`，**复用** `_heavyFocusAuraTex`（同一组贴图、
+   同 20fps、同锚点 `身体中心 + HeavyBlowAuraOffY(-1)`、同样 `Rect(0,0,w,h)` 以锚点为中心），
+   只是"是否显示"的判据换成护符33 的蓄力完成标志 `_noelShadowEssence`；
+   额外缩放倍率走新配置 `Charm33/ChargeAuraScale`（默认 1，乘在 `HeavyBlowAuraScale` 之上）。
+
+两份 cfg 里已废弃的 `EssenceSprite` 行已删除；`EssenceHoldSeconds` / `EssenceHoldKey` 保留
+（冲刺键那次长按仍然是"进入蓄力完成段"的扳机）。
+
+验证：`build=2026-09-25.2`，DLL SHA256 `4F112978B12B3968…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

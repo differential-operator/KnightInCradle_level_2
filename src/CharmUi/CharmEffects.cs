@@ -7510,12 +7510,12 @@ namespace KnightInCradle.CharmUi
         private static M2RenderTicket _noelShadowTicket;
         private static Map2d _noelShadowMap;
         private static Texture2D _noelShadowDotTex;
-        // ---- 精华（长按冲刺键 1 秒后的第二阶段）----
-        private static Texture2D _noelEssenceTex;
-        private static MeshDrawer _noelEssenceMesh;
-        private static Material _noelEssenceMat;
-        private static M2RenderTicket _noelEssenceTicket;
-        private static Map2d _noelEssenceMap;
+        // ---- 蓄力完成段（长按冲刺键 1 秒后）：粒子改为向外扩散 + 中心光圈 ----
+        private static MeshDrawer _noelChargeAuraMesh;
+        private static Material _noelChargeAuraMat;
+        private static M2RenderTicket _noelChargeAuraTicket;
+        private static Map2d _noelChargeAuraMap;
+        private static float _noelChargeAuraTime;
         private static float _noelShadowDashTimer;
         private static bool _noelShadowEssence;
 
@@ -7632,14 +7632,8 @@ namespace KnightInCradle.CharmUi
                     {
                         _noelShadowDashTimer = 0f;
                     }
-                    bool essence = _noelShadowChanting && dashHeld &&
-                                   _noelShadowDashTimer >= KnightInCradlePlugin.ShadowEssenceHoldSeconds;
-                    if (essence && !_noelShadowEssence)
-                    {
-                        // 进入精华阶段的瞬间：屏幕四周白闪（同小骑士回血）
-                        KnightHudDeco.TriggerWhiteFlash();
-                    }
-                    _noelShadowEssence = essence;
+                    _noelShadowEssence = _noelShadowChanting && dashHeld &&
+                                         _noelShadowDashTimer >= KnightInCradlePlugin.ShadowEssenceHoldSeconds;
                 }
                 else
                 {
@@ -7652,31 +7646,139 @@ namespace KnightInCradle.CharmUi
                 {
                     // 只摆姿势：咏唱动作而已，与真正的施法无关
                     pr.SpSetPose(KnightInCradlePlugin.ShadowChantPose, -1, null, false);
-                    // 精华阶段：黄色圆点**换成**精华（不再生成黄色那批）
+                    // 蓄力完成段：粒子仍是黄色圆点，但方向改成"由内到外"
                     SpawnNoelShadowParticles(KnightInCradlePlugin.ShadowChantParticlesPerFrame,
                         _noelShadowEssence);
                 }
                 UpdateNoelShadowParticles(pr);
-                EnsureNoelShadowTicket(pr, HasNoelShadowParticle(false));
-                EnsureNoelEssenceTicket(pr, HasNoelShadowParticle(true));
+                // 粒子（两种方向共用同一张黄色圆点贴图，所以共用一个网格）
+                EnsureNoelShadowTicket(pr, _noelShadowParticles.Count > 0);
+                // 蓄力完成：诺艾尔中心渲染"沉重之击"那组光圈图片（nail_charge_effect0005~0009）
+                if (_noelShadowEssence)
+                {
+                    _noelChargeAuraTime += Time.deltaTime;
+                }
+                else
+                {
+                    _noelChargeAuraTime = 0f;
+                }
+                EnsureNoelChargeAuraTicket(pr, _noelShadowEssence);
             }
             catch (Exception)
             {
             }
         }
 
-        /// <summary>是否还有某类粒子（outward=false 黄色圆点 / true 精华）。</summary>
-        private static bool HasNoelShadowParticle(bool outward)
+        /// <summary>
+        /// 蓄力完成段的光圈票据（同"沉重之击"的会心光圈）：
+        /// 用 `nail_charge_effect0005~0009` 那组图，画在诺艾尔中心，身后层 PR0。
+        /// </summary>
+        private static void EnsureNoelChargeAuraTicket(PRNoel pr, bool want)
         {
-            for (int i = 0; i < _noelShadowParticles.Count; i++)
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null)
             {
-                if (_noelShadowParticles[i].Outward == outward)
+                return;
+            }
+            if (!want)
+            {
+                ReleaseNoelChargeAuraTicket();
+                return;
+            }
+            if (_heavyFocusAuraTex == null)
+            {
+                _heavyFocusAuraTex = LoadHeavyFocusAuraTextures();
+            }
+            if (_heavyFocusAuraTex == null)
+            {
+                return; // 素材缺失：只是不显示光圈
+            }
+            if (_noelChargeAuraMesh != null && _noelChargeAuraMap == mp && _noelChargeAuraTicket != null)
+            {
+                return;
+            }
+            ReleaseNoelChargeAuraTicket();
+            _noelChargeAuraMap = mp;
+            _noelChargeAuraMesh = new MeshDrawer(null, 4 * 16, 6 * 16);
+            _noelChargeAuraMesh.draw_gl_only = true;
+            _noelChargeAuraMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _noelChargeAuraMat.EnableKeyword("NO_PIXELSNAP");
+            _noelChargeAuraMesh.activate("noel_shadow_charge_aura", _noelChargeAuraMat, false, MTRX.ColWhite, null);
+            _noelChargeAuraTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR0, null, PrepareNoelChargeAuraMesh, _noelChargeAuraMesh, null, null);
+        }
+
+        private static void ReleaseNoelChargeAuraTicket()
+        {
+            try
+            {
+                if (_noelChargeAuraTicket != null && _noelChargeAuraMap != null &&
+                    _noelChargeAuraMap.MovRenderer != null)
                 {
-                    return true;
+                    _noelChargeAuraMap.MovRenderer.deassignDrawable(_noelChargeAuraTicket, -1);
                 }
             }
-            return false;
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (_noelChargeAuraMat != null)
+                {
+                    IN.DestroyOne(_noelChargeAuraMat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _noelChargeAuraTicket = null;
+            _noelChargeAuraMesh = null;
+            _noelChargeAuraMat = null;
+            _noelChargeAuraMap = null;
         }
+
+        /// <summary>蓄力完成光圈绘制：与"沉重之击"同一套（同贴图、同 20fps、同锚点与偏移）。</summary>
+        private static bool PrepareNoelChargeAuraMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelChargeAuraMap;
+            if (mp == null || _noelChargeAuraMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelChargeAuraMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || _heavyFocusAuraTex == null || !_noelShadowEssence)
+            {
+                MdOut = _noelChargeAuraMesh;
+                return true;
+            }
+            int frame = Mathf.Abs((int)(_noelChargeAuraTime * HeavyBlowAuraFps)) % _heavyFocusAuraTex.Length;
+            Texture2D tex = _heavyFocusAuraTex[frame];
+            if (tex == null)
+            {
+                MdOut = _noelChargeAuraMesh;
+                return true;
+            }
+            float cy = NoelBodyCenterY(pr) + HeavyBlowAuraOffY;
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mp.pixel2ux(pr.x * mp.CLEN), mp.pixel2uy(cy * mp.CLEN), 0f));
+            float scale = KnightInCradlePlugin.ScaleConfig != null ? KnightInCradlePlugin.ScaleConfig.Value : 0.325f;
+            float mult = HeavyBlowAuraScale * KnightInCradlePlugin.ShadowChargeAuraScale;
+            float w = tex.width * scale * mult;
+            float h = tex.height * scale * mult;
+            _noelChargeAuraMesh.Col = MTRX.ColWhite;
+            _noelChargeAuraMesh.initForImgAndTexture(tex);
+            _noelChargeAuraMesh.uv_top = 0f;
+            _noelChargeAuraMesh.uv_height = 1f;
+            _noelChargeAuraMesh.uv_left = 0f;
+            _noelChargeAuraMesh.uv_width = 1f;
+            _noelChargeAuraMesh.Rect(0f, 0f, w, h, false);
+            MdOut = _noelChargeAuraMesh;
+            return true;
+        }
+
 
         /// <summary>
         /// 生成粒子：
@@ -7860,157 +7962,6 @@ namespace KnightInCradle.CharmUi
             _noelShadowMap = null;
         }
 
-        /// <summary>精华票据：独立网格（要绑精华贴图），同样画在诺艾尔身后层 PR0。</summary>
-        private static void EnsureNoelEssenceTicket(PRNoel pr, bool want)
-        {
-            Map2d mp = pr != null ? pr.Mp : null;
-            if (mp == null)
-            {
-                return;
-            }
-            if (!want)
-            {
-                ReleaseNoelEssenceTicket();
-                return;
-            }
-            if (_noelEssenceTex == null)
-            {
-                _noelEssenceTex = LoadNoelEssenceTexture(KnightInCradlePlugin.ShadowEssenceSprite);
-            }
-            if (_noelEssenceTex == null)
-            {
-                return; // 贴图缺失：只是不显示精华，黄色粒子与其它效果照常
-            }
-            if (_noelEssenceMesh != null && _noelEssenceMap == mp && _noelEssenceTicket != null)
-            {
-                return;
-            }
-            ReleaseNoelEssenceTicket();
-            _noelEssenceMap = mp;
-            _noelEssenceMesh = new MeshDrawer(null, 4 * ShadowChantParticleCap, 6 * ShadowChantParticleCap);
-            _noelEssenceMesh.draw_gl_only = true;
-            _noelEssenceMat = MTRX.newMtr(MTRX.ShaderGDT);
-            _noelEssenceMat.EnableKeyword("NO_PIXELSNAP");
-            _noelEssenceMesh.activate("noel_shadow_essence", _noelEssenceMat, false, MTRX.ColWhite, null);
-            _noelEssenceTicket = mp.MovRenderer.assignDrawable(
-                M2Mover.DRAW_ORDER.PR0, null, PrepareNoelEssenceMesh, _noelEssenceMesh, null, null);
-        }
-
-        private static void ReleaseNoelEssenceTicket()
-        {
-            try
-            {
-                if (_noelEssenceTicket != null && _noelEssenceMap != null &&
-                    _noelEssenceMap.MovRenderer != null)
-                {
-                    _noelEssenceMap.MovRenderer.deassignDrawable(_noelEssenceTicket, -1);
-                }
-            }
-            catch (Exception)
-            {
-            }
-            try
-            {
-                if (_noelEssenceMat != null)
-                {
-                    IN.DestroyOne(_noelEssenceMat);
-                }
-            }
-            catch (Exception)
-            {
-            }
-            _noelEssenceTicket = null;
-            _noelEssenceMesh = null;
-            _noelEssenceMat = null;
-            _noelEssenceMap = null;
-        }
-
-        /// <summary>读一张 `assets/hk/sprites/<名>.png` 作为精华贴图。</summary>
-        private static Texture2D LoadNoelEssenceTexture(string spriteName)
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(spriteName))
-                {
-                    return null;
-                }
-                string path = System.IO.Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "assets",
-                    "hk", "sprites", spriteName + ".png");
-                if (!System.IO.File.Exists(path))
-                {
-                    KnightInCradlePlugin.PluginLog?.LogWarning(
-                        "[KIC][锋利之影] 找不到精华贴图：" + path);
-                    return null;
-                }
-                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                if (!ImageConversion.LoadImage(tex, System.IO.File.ReadAllBytes(path)))
-                {
-                    UnityEngine.Object.Destroy(tex);
-                    return null;
-                }
-                tex.filterMode = FilterMode.Point;
-                tex.wrapMode = TextureWrapMode.Clamp;
-                return tex;
-            }
-            catch (Exception)
-            {
-                return null;
-            }
-        }
-
-        /// <summary>画精华：锚在诺艾尔中心，尺寸与黄色粒子一致（`Rect` 的 (x,y) 是矩形中心）。</summary>
-        private static bool PrepareNoelEssenceMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
-            out MeshDrawer MdOut, ref bool color_one_overwrite)
-        {
-            MdOut = null;
-            Map2d mp = _noelEssenceMap;
-            if (mp == null || _noelEssenceMesh == null || draw_id != 0)
-            {
-                return false;
-            }
-            _noelEssenceMesh.clearSimple();
-            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
-            if (pr == null || _noelEssenceTex == null || !HasNoelShadowParticle(true))
-            {
-                MdOut = _noelEssenceMesh;
-                return true;
-            }
-            float cx = pr.x;
-            float cy = NoelBodyCenterY(pr);
-            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
-                        Matrix4x4.Translate(new Vector3(mp.pixel2ux(cx * mp.CLEN), mp.pixel2uy(cy * mp.CLEN), 0f));
-            _noelEssenceMesh.initForImgAndTexture(_noelEssenceTex);
-            _noelEssenceMesh.uv_top = 0f;
-            _noelEssenceMesh.uv_height = 1f;
-            _noelEssenceMesh.uv_left = 0f;
-            _noelEssenceMesh.uv_width = 1f;
-            for (int i = 0; i < _noelShadowParticles.Count; i++)
-            {
-                ShadowChantParticle p = _noelShadowParticles[i];
-                if (!p.Outward)
-                {
-                    continue;
-                }
-                // 精华：快速淡入，接近最远距离（1~1.8 格）时淡出
-                float ox = p.X - cx;
-                float oy = p.Y - NoelBodyCenterY(pr);
-                float od = Mathf.Sqrt(ox * ox + oy * oy);
-                float alpha = Mathf.Clamp01(p.Age / 0.05f) *
-                              Mathf.Clamp01((p.TargetDist - od) / 0.4f);
-                if (alpha < 0.04f)
-                {
-                    continue;
-                }
-                float size = p.Size * mp.CLEN; // 与黄色粒子同尺寸
-                float dxm = (p.X - cx) * mp.CLEN;
-                float dym = -(p.Y - cy) * mp.CLEN;
-                _noelEssenceMesh.Col = new Color(1f, 1f, 1f, alpha);
-                _noelEssenceMesh.Rect(dxm, dym, size, size, false);
-            }
-            MdOut = _noelEssenceMesh;
-            return true;
-        }
-
         /// <summary>画粒子：锚在诺艾尔中心，逐颗换算成网格像素坐标（金色 `#FFCB00`）。</summary>
         private static bool PrepareNoelShadowMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
             out MeshDrawer MdOut, ref bool color_one_overwrite)
@@ -8036,11 +7987,20 @@ namespace KnightInCradle.CharmUi
             for (int i = 0; i < _noelShadowParticles.Count; i++)
             {
                 ShadowChantParticle p = _noelShadowParticles[i];
+                float alpha;
                 if (p.Outward)
                 {
-                    continue; // 精华由另一个网格画
+                    // 向外扩散的那批：快速淡入、接近最远距离时淡出
+                    float ox = p.X - cx;
+                    float oy = p.Y - cy;
+                    float od = Mathf.Sqrt(ox * ox + oy * oy);
+                    alpha = Mathf.Clamp01(p.Age / 0.05f) *
+                            Mathf.Clamp01((p.TargetDist - od) / 0.4f);
                 }
-                float alpha = Mathf.Clamp01((p.Life - p.Age) / 0.2f);
+                else
+                {
+                    alpha = Mathf.Clamp01((p.Life - p.Age) / 0.2f);
+                }
                 if (alpha < 0.04f)
                 {
                     continue;
