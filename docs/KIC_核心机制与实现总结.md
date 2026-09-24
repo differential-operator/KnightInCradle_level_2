@@ -4671,3 +4671,8 @@ if (idle) title = KnightInCradlePlugin.ShadowChantPose;
 
 验证：`build=2026-09-24.30`，DLL SHA256 `B0020A9784726778…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+> 2026-09-24 再调：粒子中心**再上移 0.5 格** → `Charm33/ParticleCenterOffsetY` 默认
+> `-0.5` → **`-1`**（相对最初的 `+0.5` 共上移 1.5 格）。两份安装 cfg 里的旧值 `-0.5`
+> 已手改成 `-1`（BepInEx 不会用代码默认值覆盖已有键）。
+> `build=2026-09-24.31`，DLL SHA256 `4343ECABF6079857…`。
