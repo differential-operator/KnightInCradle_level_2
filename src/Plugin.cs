@@ -252,6 +252,8 @@ namespace KnightInCradle
         internal static ConfigEntry<string> NailMasterSpinPoseIntroConfig;
         internal static ConfigEntry<string> NailMasterSpinPoseLoopConfig;
         internal static ConfigEntry<string> NailMasterSpinPoseOutroConfig;
+        /// <summary>攻击键按住不超过这个时长算"点按"（会补发凌空横斩/突进冲击），默认 0.18 秒。</summary>
+        internal static ConfigEntry<float> NailMasterTapSecondsConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -411,6 +413,10 @@ namespace KnightInCradle
         internal static string NailMasterSpinPoseIntro => PoseName(NailMasterSpinPoseIntroConfig, "attack_air1");
         internal static string NailMasterSpinPoseLoop => PoseName(NailMasterSpinPoseLoopConfig, "attack_air2");
         internal static string NailMasterSpinPoseOutro => PoseName(NailMasterSpinPoseOutroConfig, "attack_air3");
+        internal static float NailMasterTapSeconds =>
+            NailMasterTapSecondsConfig != null
+                ? Mathf.Clamp(NailMasterTapSecondsConfig.Value, 0.02f, 1f)
+                : 0.18f;
 
         private static string PoseName(ConfigEntry<string> cfg, string fallback)
         {
@@ -826,6 +832,9 @@ namespace KnightInCradle
                 "骨钉大师的荣耀：循环动作名（默认 attack_air2）。");
             NailMasterSpinPoseOutroConfig = Config.Bind("Charm35", "SpinPoseOutro", "attack_air3",
                 "骨钉大师的荣耀：收尾动作名（默认 attack_air3）。");
+            NailMasterTapSecondsConfig = Config.Bind("Charm35", "TapSeconds", 0.18f,
+                "骨钉大师的荣耀：攻击键按住不超过这个秒数算「点按」——点按时会**补发**凌空横斩/突进冲击，" +
+                "超过则视为长按（走蓄力）。默认 0.18。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");

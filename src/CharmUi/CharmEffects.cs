@@ -4377,6 +4377,12 @@ namespace KnightInCradle.CharmUi
         private static float _nmTimer;
         /// <summary>旋风斩期间锁重力的 key。</summary>
         private static readonly object NailMasterGravityKey = new object();
+        // ---- "点按攻击键"识别（护符35 压制了突进冲击/凌空横斩，点按要由模组补发）----
+        private static bool _nmAtkHeldLast;
+        private static bool _nmTapTracking;
+        private static float _nmTapTimer;
+        private static bool _nmTapWasAir;
+        private static bool _nmTapWasRun;
 
         /// <summary>旋风斩（含收尾动作）是否进行中。</summary>
         public static bool NailMasterSpinActive =>
@@ -4408,14 +4414,19 @@ namespace KnightInCradle.CharmUi
                     return;
                 }
                 bool attackHeld = false;
+                bool airborne = false;
+                bool running = false;
                 try
                 {
                     attackHeld = pr.isAtkO(0);
+                    airborne = !pr.hasFoot();
+                    running = pr.run_continue_time >= 22f;
                 }
                 catch (Exception)
                 {
                     attackHeld = false;
                 }
+                TickNailMasterTap(pr, attackHeld, airborne, running);
                 switch (_nmPhase)
                 {
                     case NailMasterPhase.None:
@@ -4454,6 +4465,69 @@ namespace KnightInCradle.CharmUi
                     case NailMasterPhase.SpinOutro:
                         TickNailMasterSpin(pr);
                         break;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 护符35：识别"**点按**攻击键"并在松手那帧**补发**被压制掉的那一招
+        /// （空中 → 凌空横斩 AIRPUNCH；奔跑中 → 突进冲击 DASHPUNCH）。
+        ///
+        /// 为什么需要补发：按下那一帧无法预知会不会长按，所以模组一律先用
+        /// `M2PrSkill.isEnable` 把这两招压掉（让长按走蓄力）；若在 `TapSeconds`（默认 0.18 秒）
+        /// 之内就松手，就判定为点按，由这里按原版规则把状态切过去（原版的状态机自己会结算伤害/动画，
+        /// 与 `getPunchVariation` 里 `CurMg != null ? *_SHOTGUN : *` 的写法一致）。
+        /// </summary>
+        private static void TickNailMasterTap(PRNoel pr, bool attackHeld, bool airborne, bool running)
+        {
+            try
+            {
+                bool pressed = attackHeld && !_nmAtkHeldLast;
+                bool released = !attackHeld && _nmAtkHeldLast;
+                _nmAtkHeldLast = attackHeld;
+                if (pressed)
+                {
+                    _nmTapTracking = airborne || running;
+                    _nmTapTimer = 0f;
+                    _nmTapWasAir = airborne;
+                    _nmTapWasRun = running;
+                }
+                if (_nmTapTracking && attackHeld)
+                {
+                    _nmTapTimer += Time.deltaTime;
+                }
+                if (!released || !_nmTapTracking)
+                {
+                    if (!attackHeld)
+                    {
+                        _nmTapTracking = false;
+                    }
+                    return;
+                }
+                _nmTapTracking = false;
+                if (_nmTapTimer > KnightInCradlePlugin.NailMasterTapSeconds)
+                {
+                    return; // 长按：交给蓄力，不补发
+                }
+                bool shotgun = false;
+                try
+                {
+                    shotgun = pr.Skill != null && pr.Skill.getCurMagic() != null;
+                }
+                catch (Exception)
+                {
+                    shotgun = false;
+                }
+                if (_nmTapWasAir && airborne)
+                {
+                    pr.changeState(shotgun ? PR.STATE.AIRPUNCH_SHOTGUN : PR.STATE.AIRPUNCH);
+                }
+                else if (_nmTapWasRun)
+                {
+                    pr.changeState(shotgun ? PR.STATE.DASHPUNCH_SHOTGUN : PR.STATE.DASHPUNCH);
                 }
             }
             catch (Exception)
