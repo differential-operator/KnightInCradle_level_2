@@ -4955,6 +4955,739 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        // ==================== 护符36 编织者之歌（诺艾尔侧） ====================
+        // 做法与小骑士那套一致：3 只小编织者贴地跟随、随机乱跑、偶尔跳，
+        // 周期性朝附近敌人发射蛛丝（3 真伤）；近身则每 5 秒一次近战（15 真伤）。
+        // 羁绊：**同时携带幼虫之歌**时，小蜘蛛每次命中 → 回复 WeaverGrubsongMp（默认 3）MP。
+        private const int WeaverCount = 3;
+        private const float WeaverRespawnDelay = 3f;     // 过图后等待（秒）再生成
+        private const int WeaverThreadDamage = 3;        // 蛛丝命中伤害
+        private const int WeaverMeleeDamage = 15;        // 近战攻击伤害
+        private const float WeaverMeleeRange = 1.6f;     // 近战攻击距离（格）
+        private const float WeaverMeleeInterval = 5f;    // 近战冷却（秒）
+        private const float WeaverMeleeAnimTime = 0.3f;  // 近战动画时长（秒）
+        private const float WeaverFollowSpeed = 12f;     // 跟随爬行速度（格/秒）
+        private const float WeaverHalfH = 0.25f;         // 渲染半高（格，用于贴地）
+        private const float WeaverMaxRange = 3.2f;       // 离诺艾尔的最大横向距离（格）
+        private const float WeaverTooFarRange = 8f;      // 超过该距离直接删除重生
+        private const float WeaverWanderMin = 1.2f;
+        private const float WeaverWanderMax = 2.6f;
+        private const float WeaverHopVy = -8f;           // 跳跃初速（格/秒）
+        private const float WeaverHopGravity = 28f;      // 跳跃重力（格/秒²）
+        private const float WeaverHopTime = 0.7f;
+        private const float WeaverSeekRange = 7f;        // 索敌范围（格）
+        private const float WeaverAttackInterval = 2f;   // 蛛丝攻击间隔（秒）
+        private const float WeaverAttackAnimTime = 0.33f;
+        private const float WeaverThreadSpeed = 18f;     // 蛛丝速度（格/秒）
+        private const float WeaverThreadLife = 2.2f;     // 蛛丝最长存活（秒）
+        private const float WeaverThreadHitRadius = 0.4f;
+        private const float WeaverScale = 0.28f;         // 渲染缩放（贴图约 90px）
+
+        private sealed class NoelWeaver
+        {
+            public float X;
+            public float Y;
+            public float Vx;
+            public int State;        // 0=出生 1=跟随 2=蛛丝攻击 4=近战
+            public float AnimTime;
+            public float AttackCd;
+            public float MeleeCd;
+            public float MeleeAnimT;
+            public NelEnemy Target;
+            public int Face;         // 1=左 -1=右
+            public bool ThreadFired;
+            public float WanderT;
+            public float WanderX;
+            public float HopT;
+            public float HopVy;
+            public float NextHopT;
+        }
+
+        private sealed class NoelWeaverThread
+        {
+            public float X;
+            public float Y;
+            public float DirX;
+            public float DirY;
+            public float Life;
+            public float Dist;
+            public readonly HashSet<NelEnemy> Hits = new HashSet<NelEnemy>();
+        }
+
+        private sealed class NoelWeaverClip
+        {
+            public string[] Frames;
+            public float Fps;
+        }
+
+        private static readonly List<NoelWeaver> _noelWeavers = new List<NoelWeaver>();
+        private static readonly List<NoelWeaverThread> _noelWeaverThreads = new List<NoelWeaverThread>();
+        private static float _noelWeaverRespawn;
+        private static Map2d _noelWeaverMap;
+        private static Dictionary<string, Texture2D> _noelWeaverTex;
+        private static Dictionary<string, NoelWeaverClip> _noelWeaverClips;
+        private static MeshDrawer _noelWeaverMesh;
+        private static Material _noelWeaverMat;
+        private static M2RenderTicket _noelWeaverTicket;
+        private static Map2d _noelWeaverTicketMap;
+
+        /// <summary>编织者之歌是否生效（本地诺艾尔 + 佩戴36 + 非小骑士模式）。</summary>
+        private static bool NoelWeaverActive =>
+            !IsKnightMode && IsEquipped(CharmOwner.Noel, SpiderId);
+
+        /// <summary>羁绊：同时携带幼虫之歌时，小蜘蛛命中回 MP。</summary>
+        private static bool NoelWeaverGrubsongBond =>
+            IsEquipped(CharmOwner.Noel, GrubsongId);
+
+        /// <summary>
+        /// 护符36 编织者之歌：每帧推进（挂进 `TickNoelCharmEffects`）。
+        /// 与小骑士那套做法一致：维持 3 只、贴地跟随、乱跑 + 跳跃、蛛丝远程 + 近战，
+        /// 离太远（掉坑/被墙隔开）直接删除重生；过图后等 3 秒再生成。
+        /// </summary>
+        public static void TickNoelWeaversongCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null || !NoelWeaverActive)
+                {
+                    _noelWeavers.Clear();
+                    _noelWeaverThreads.Clear();
+                    _noelWeaverRespawn = 0f;
+                    _noelWeaverMap = null;
+                    ReleaseNoelWeaverTicket();
+                    return;
+                }
+                Map2d mp = pr.Mp;
+                if (mp == null)
+                {
+                    return;
+                }
+                if (!ReferenceEquals(mp, _noelWeaverMap))
+                {
+                    _noelWeaverMap = mp;
+                    _noelWeavers.Clear();
+                    _noelWeaverThreads.Clear();
+                    _noelWeaverRespawn = WeaverRespawnDelay; // 过图后等 3 秒再出现
+                }
+                float dt = Time.deltaTime;
+                if (_noelWeaverRespawn > 0f)
+                {
+                    _noelWeaverRespawn -= dt;
+                    if (_noelWeaverRespawn > 0f)
+                    {
+                        UpdateNoelWeaverThreads(pr, mp, dt);
+                        EnsureNoelWeaverTicket(pr, true);
+                        return;
+                    }
+                }
+                while (_noelWeavers.Count < WeaverCount)
+                {
+                    int idx = _noelWeavers.Count;
+                    var w = new NoelWeaver
+                    {
+                        X = pr.x + (idx - 1) * 1.3f,
+                        Y = NoelBodyCenterY(pr),
+                        State = 0,
+                        Face = UnityEngine.Random.value < 0.5f ? 1 : -1,
+                        AttackCd = UnityEngine.Random.Range(0.4f, 1.4f),
+                        MeleeCd = UnityEngine.Random.Range(0.6f, 1.8f),
+                        WanderT = UnityEngine.Random.Range(0.3f, 1f),
+                        WanderX = pr.x + (idx - 1) * 1.3f,
+                        NextHopT = UnityEngine.Random.Range(1f, 3f)
+                    };
+                    float gy = NoelWeaverGroundY(mp, w.X, w.Y + WeaverHalfH + 0.5f);
+                    if (!float.IsNaN(gy) && gy >= 0f)
+                    {
+                        w.Y = gy - WeaverHalfH;
+                    }
+                    _noelWeavers.Add(w);
+                }
+                UpdateNoelWeaverThreads(pr, mp, dt);
+                for (int i = _noelWeavers.Count - 1; i >= 0; i--)
+                {
+                    NoelWeaver w = _noelWeavers[i];
+                    float ddx = w.X - pr.x;
+                    float ddy = w.Y - NoelBodyCenterY(pr);
+                    if (ddx * ddx + ddy * ddy > WeaverTooFarRange * WeaverTooFarRange)
+                    {
+                        _noelWeavers.RemoveAt(i);
+                        continue;
+                    }
+                    w.AnimTime += dt;
+                    w.AttackCd -= dt;
+                    w.MeleeCd -= dt;
+                    if (w.MeleeAnimT > 0f)
+                    {
+                        w.MeleeAnimT -= dt;
+                    }
+                    if (w.State == 0)
+                    {
+                        if (w.AnimTime >= 0.5f)
+                        {
+                            w.State = 1;
+                            w.AnimTime = 0f;
+                        }
+                        continue;
+                    }
+                    if (w.State == 2)
+                    {
+                        if (!w.ThreadFired && w.AnimTime >= 0.08f && w.Target != null && w.Target.is_alive)
+                        {
+                            w.ThreadFired = true;
+                            FireNoelWeaverThread(w);
+                        }
+                        if (w.AnimTime >= WeaverAttackAnimTime)
+                        {
+                            w.State = 1;
+                            w.AnimTime = 0f;
+                            w.Target = null;
+                            w.AttackCd = WeaverAttackInterval;
+                        }
+                        continue;
+                    }
+                    if (w.State == 4)
+                    {
+                        if (w.AnimTime <= 0.05f && w.Target != null && w.Target.is_alive)
+                        {
+                            ApplyNoelWeaverDamage(pr, w.Target, WeaverMeleeDamage);
+                        }
+                        if (w.AnimTime >= WeaverMeleeAnimTime)
+                        {
+                            w.State = 1;
+                            w.AnimTime = 0f;
+                            w.Target = null;
+                            w.MeleeCd = WeaverMeleeInterval;
+                        }
+                        continue;
+                    }
+                    // State == 1：跟随 + 索敌
+                    if (w.Target == null || !w.Target.is_alive || w.Target.Mp != mp)
+                    {
+                        w.Target = FindNoelWeaverTarget(mp, w.X, w.Y);
+                    }
+                    if (w.Target != null)
+                    {
+                        float tdx = w.Target.x - w.X;
+                        float tdy = w.Target.y - w.Y;
+                        float tDistSq = tdx * tdx + tdy * tdy;
+                        if (w.AttackCd <= 0f && tDistSq <= WeaverSeekRange * WeaverSeekRange)
+                        {
+                            w.State = 2;
+                            w.AnimTime = 0f;
+                            w.ThreadFired = false;
+                            continue;
+                        }
+                        if (w.MeleeCd <= 0f && tDistSq <= WeaverMeleeRange * WeaverMeleeRange)
+                        {
+                            w.State = 4;
+                            w.AnimTime = 0f;
+                            w.MeleeAnimT = WeaverMeleeAnimTime;
+                            continue;
+                        }
+                    }
+                    TickNoelWeaverMove(pr, mp, w, dt);
+                }
+                EnsureNoelWeaverTicket(pr, true);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>跟随：随机乱跑 + 偶尔跳，离诺艾尔太远就贴回来。</summary>
+        private static void TickNoelWeaverMove(PRNoel pr, Map2d mp, NoelWeaver w, float dt)
+        {
+            w.WanderT -= dt;
+            float dxToPr = pr.x - w.X;
+            if (Mathf.Abs(pr.vx) > 0.05f)
+            {
+                w.WanderX = pr.x;
+                w.WanderT = 0f;
+            }
+            else if (Mathf.Abs(dxToPr) > WeaverMaxRange)
+            {
+                w.WanderX = pr.x;
+                w.WanderT = 0f;
+            }
+            else if (w.WanderT <= 0f)
+            {
+                w.WanderT = UnityEngine.Random.Range(0.35f, 1f);
+                float rad = UnityEngine.Random.Range(WeaverWanderMin, WeaverWanderMax);
+                w.WanderX = pr.x + (UnityEngine.Random.value < 0.5f ? -rad : rad);
+            }
+            float dx = w.WanderX - w.X;
+            float dist = Mathf.Abs(dx);
+            bool prMoving = Mathf.Abs(pr.vx) > 0.05f;
+            if (dist > 0.12f || prMoving)
+            {
+                float spd = prMoving ? WeaverFollowSpeed : Mathf.Min(WeaverFollowSpeed, dist * 5f);
+                float dir = Mathf.Sign(dx);
+                float step = dir * spd * dt;
+                if (dist > 0f && Mathf.Abs(step) > dist)
+                {
+                    step = dir * dist;
+                }
+                w.X += step;
+                w.Vx = dir * spd;
+                if (dir != 0f)
+                {
+                    w.Face = dir < 0f ? 1 : -1;
+                }
+            }
+            else
+            {
+                w.Vx = 0f;
+                w.WanderT = 0f;
+            }
+            // 跳跃
+            w.NextHopT -= dt;
+            if (w.NextHopT <= 0f && w.HopT <= 0f)
+            {
+                w.HopT = WeaverHopTime;
+                w.HopVy = WeaverHopVy;
+                w.NextHopT = UnityEngine.Random.Range(1f, 3f);
+            }
+            if (w.HopT > 0f)
+            {
+                w.HopT -= dt;
+                w.HopVy += WeaverHopGravity * dt;
+                w.Y += w.HopVy * dt;
+            }
+            // 贴地：落地后对齐地面
+            float gy = NoelWeaverGroundY(mp, w.X, w.Y + WeaverHalfH + 0.6f);
+            if (!float.IsNaN(gy) && gy >= 0f)
+            {
+                float targetY = gy - WeaverHalfH;
+                if (targetY <= w.Y)
+                {
+                    w.Y = targetY;
+                    w.HopVy = 0f;
+                    w.HopT = 0f;
+                }
+            }
+        }
+
+        /// <summary>蛛丝推进与命中（命中即消失；每只敌人只吃一次）。</summary>
+        private static void UpdateNoelWeaverThreads(PRNoel pr, Map2d mp, float dt)
+        {
+            if (_noelWeaverThreads.Count == 0)
+            {
+                return;
+            }
+            int mask = NoelEnemyOverlapMask();
+            for (int i = _noelWeaverThreads.Count - 1; i >= 0; i--)
+            {
+                NoelWeaverThread t = _noelWeaverThreads[i];
+                t.Life -= dt;
+                if (t.Life <= 0f)
+                {
+                    _noelWeaverThreads.RemoveAt(i);
+                    continue;
+                }
+                float step = WeaverThreadSpeed * dt;
+                t.X += t.DirX * step;
+                t.Y += t.DirY * step;
+                t.Dist += step;
+                if (t.Dist > 9f)
+                {
+                    _noelWeaverThreads.RemoveAt(i);
+                    continue;
+                }
+                if (mask == 0)
+                {
+                    continue;
+                }
+                Vector2 center = mp.gameObject.transform.TransformPoint(
+                    new Vector2(mp.pixel2ux(t.X * mp.CLEN), mp.pixel2uy(t.Y * mp.CLEN)));
+                Collider2D[] hits = Physics2D.OverlapCircleAll(center, WeaverThreadHitRadius, mask);
+                if (hits == null)
+                {
+                    continue;
+                }
+                bool hitAny = false;
+                for (int j = 0; j < hits.Length; j++)
+                {
+                    Collider2D c = hits[j];
+                    if (c == null)
+                    {
+                        continue;
+                    }
+                    NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
+                    if (enemy == null || !t.Hits.Add(enemy))
+                    {
+                        continue;
+                    }
+                    ApplyNoelWeaverDamage(pr, enemy, WeaverThreadDamage);
+                    hitAny = true;
+                }
+                if (hitAny)
+                {
+                    _noelWeaverThreads.RemoveAt(i);
+                }
+            }
+        }
+
+        /// <summary>发射蛛丝。</summary>
+        private static void FireNoelWeaverThread(NoelWeaver w)
+        {
+            if (w.Target == null)
+            {
+                return;
+            }
+            float dx = w.Target.x - w.X;
+            float dy = w.Target.y - w.Y;
+            float d = Mathf.Sqrt(dx * dx + dy * dy);
+            if (d < 0.01f)
+            {
+                return;
+            }
+            _noelWeaverThreads.Add(new NoelWeaverThread
+            {
+                X = w.X,
+                Y = w.Y - 0.3f,
+                DirX = dx / d,
+                DirY = dy / d,
+                Life = WeaverThreadLife,
+                Dist = 0f
+            });
+        }
+
+        /// <summary>
+        /// 小蜘蛛命中敌人：固定伤害（真伤，与小骑士那套一致）。
+        /// 羁绊「幼虫之歌 + 编织者之歌」→ 每次命中回复 `WeaverGrubsongMp`（默认 3）MP。
+        /// </summary>
+        private static void ApplyNoelWeaverDamage(PRNoel pr, NelEnemy enemy, int damage)
+        {
+            try
+            {
+                if (enemy == null || pr == null || IsEnemySummoning(enemy))
+                {
+                    return; // 生成中的魔物不能打
+                }
+                var atk = new NelAttackInfo();
+                atk.hpdmg0 = damage;
+                atk.hpdmg_current = damage;
+                atk.fix_damage = true; // 真伤，同小骑士的幼体/编织者
+                atk.Caster = pr;
+                atk.AttackFrom = pr;
+                atk.CenterXy(enemy.x, enemy.y, 0f);
+                enemy.applyDamage(atk, false);
+                if (NoelWeaverGrubsongBond)
+                {
+                    KnightInCradleBehaviour.GrantNoelMana(KnightInCradlePlugin.WeaverGrubsongMp);
+                    RefreshNoelHudMp();
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>索敌：找最近的、可控的敌人（7 格内）。</summary>
+        private static NelEnemy FindNoelWeaverTarget(Map2d mp, float x, float y)
+        {
+            try
+            {
+                NelEnemy best = null;
+                float bestSq = WeaverSeekRange * WeaverSeekRange;
+                for (int i = mp.count_movers - 1; i >= 0; i--)
+                {
+                    if (!(mp.getMv(i) is NelEnemy en) || !en.is_alive || en.destructed ||
+                        IsEnemySummoning(en) || IsUniEnemy(en))
+                    {
+                        continue;
+                    }
+                    float dx = en.x - x;
+                    float dy = en.y - y;
+                    float dSq = dx * dx + dy * dy;
+                    if (dSq < bestSq)
+                    {
+                        bestSq = dSq;
+                        best = en;
+                    }
+                }
+                return best;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>地面高度（与原版/小骑士同一条路：`Map2d.BCC.isFallable`）。</summary>
+        private static float NoelWeaverGroundY(Map2d mp, float wx, float feetY)
+        {
+            try
+            {
+                if (mp == null || mp.BCC == null)
+                {
+                    return float.NaN;
+                }
+                BCCLine line;
+                return mp.BCC.isFallable(wx, feetY - 0.3f, 0.2f, 0.55f, out line, true, true, -1f, null);
+            }
+            catch (Exception)
+            {
+                return float.NaN;
+            }
+        }
+
+        /// <summary>小蜘蛛 + 蛛丝的渲染票据（诺艾尔身后层 PR0）。</summary>
+        private static void EnsureNoelWeaverTicket(PRNoel pr, bool want)
+        {
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null || !want)
+            {
+                if (!want)
+                {
+                    ReleaseNoelWeaverTicket();
+                }
+                return;
+            }
+            if (_noelWeaverTex == null)
+            {
+                LoadNoelWeaverAssets();
+            }
+            if (_noelWeaverTex == null || _noelWeaverTex.Count == 0)
+            {
+                return;
+            }
+            if (_noelWeaverMesh != null && ReferenceEquals(_noelWeaverTicketMap, mp) && _noelWeaverTicket != null)
+            {
+                return;
+            }
+            ReleaseNoelWeaverTicket();
+            _noelWeaverTicketMap = mp;
+            _noelWeaverMesh = new MeshDrawer(null, 4 * 64, 6 * 64);
+            _noelWeaverMesh.draw_gl_only = true;
+            _noelWeaverMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _noelWeaverMat.EnableKeyword("NO_PIXELSNAP");
+            _noelWeaverMesh.activate("noel_weaver", _noelWeaverMat, false, MTRX.ColWhite, null);
+            _noelWeaverTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR0, null, PrepareNoelWeaverMesh, _noelWeaverMesh, null, null);
+        }
+
+        private static void ReleaseNoelWeaverTicket()
+        {
+            try
+            {
+                if (_noelWeaverTicket != null && _noelWeaverTicketMap != null &&
+                    _noelWeaverTicketMap.MovRenderer != null)
+                {
+                    _noelWeaverTicketMap.MovRenderer.deassignDrawable(_noelWeaverTicket, -1);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (_noelWeaverMat != null)
+                {
+                    IN.DestroyOne(_noelWeaverMat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _noelWeaverTicket = null;
+            _noelWeaverMesh = null;
+            _noelWeaverMat = null;
+            _noelWeaverTicketMap = null;
+        }
+
+        private static bool PrepareNoelWeaverMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw, int draw_id,
+            out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelWeaverTicketMap;
+            if (mp == null || _noelWeaverMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelWeaverMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || _noelWeaverTex == null)
+            {
+                MdOut = _noelWeaverMesh;
+                return true;
+            }
+            float ax = pr.x;
+            float ay = NoelBodyCenterY(pr);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mp.pixel2ux(ax * mp.CLEN), mp.pixel2uy(ay * mp.CLEN), 0f));
+            // 蛛丝：画成细线段（与骑士侧一致）
+            _noelWeaverMesh.Col = new Color(1f, 1f, 1f, 0.85f);
+            for (int i = 0; i < _noelWeaverThreads.Count; i++)
+            {
+                NoelWeaverThread t = _noelWeaverThreads[i];
+                float x0 = (t.X - ax) * mp.CLEN;
+                float y0 = -(t.Y - ay) * mp.CLEN;
+                float x1 = (t.X + t.DirX * 0.55f - ax) * mp.CLEN;
+                float y1 = -(t.Y + t.DirY * 0.55f - ay) * mp.CLEN;
+                _noelWeaverMesh.Line(x0, y0, x1, y1, 2f);
+            }
+            // 小蜘蛛
+            for (int i = 0; i < _noelWeavers.Count; i++)
+            {
+                NoelWeaver w = _noelWeavers[i];
+                string sprite = NoelWeaverSprite(w);
+                Texture2D tex;
+                if (sprite == null || _noelWeaverTex == null ||
+                    !_noelWeaverTex.TryGetValue(sprite, out tex) || tex == null)
+                {
+                    continue;
+                }
+                float dxm = (w.X - ax) * mp.CLEN;
+                float dym = -(w.Y - ay) * mp.CLEN + 0.4f * mp.CLEN;
+                float ww = tex.width * WeaverScale;
+                float hh = tex.height * WeaverScale;
+                _noelWeaverMesh.Col = MTRX.ColWhite;
+                _noelWeaverMesh.initForImgAndTexture(tex);
+                _noelWeaverMesh.uv_top = 0f;
+                _noelWeaverMesh.uv_height = 1f;
+                if (w.Face < 0)
+                {
+                    _noelWeaverMesh.uv_left = 1f;
+                    _noelWeaverMesh.uv_width = -1f;
+                }
+                else
+                {
+                    _noelWeaverMesh.uv_left = 0f;
+                    _noelWeaverMesh.uv_width = 1f;
+                }
+                _noelWeaverMesh.Rect(dxm - ww * 0.5f, dym - hh * 0.5f, ww, hh, false);
+            }
+            MdOut = _noelWeaverMesh;
+            return true;
+        }
+
+        /// <summary>当前该画哪一帧（出生/攻击/近战/跑/待机，与小骑士同一套剪辑名）。</summary>
+        private static string NoelWeaverSprite(NoelWeaver w)
+        {
+            string clipName;
+            if (w.State == 0)
+            {
+                clipName = "WeaverLaunch";
+            }
+            else if (w.State == 2)
+            {
+                clipName = "WeaverAttack";
+            }
+            else if (w.State == 4 || w.MeleeAnimT > 0f)
+            {
+                clipName = "WeaverMelee";
+            }
+            else
+            {
+                clipName = Mathf.Abs(w.Vx) > 0.05f ? "WeaverRun" : "WeaverIdle";
+            }
+            NoelWeaverClip clip;
+            if (_noelWeaverClips == null || !_noelWeaverClips.TryGetValue(clipName, out clip) ||
+                clip == null || clip.Frames == null || clip.Frames.Length == 0)
+            {
+                return null;
+            }
+            int idx = (int)(w.AnimTime * Mathf.Max(1f, clip.Fps)) % clip.Frames.Length;
+            return clip.Frames[idx];
+        }
+
+        /// <summary>读取 `assets/hk/sheets/spider`（与小骑士那份素材/清单完全相同）。</summary>
+        private static void LoadNoelWeaverAssets()
+        {
+            try
+            {
+                string dir = System.IO.Path.Combine(BepInEx.Paths.PluginPath, "KnightInCradle", "assets",
+                    "hk", "sheets", "spider");
+                string spriteDir = System.IO.Path.Combine(dir, "sprites");
+                string manifestPath = System.IO.Path.Combine(dir, "spider_manifest.json");
+                if (!System.IO.Directory.Exists(spriteDir) || !System.IO.File.Exists(manifestPath))
+                {
+                    KnightInCradlePlugin.PluginLog?.LogWarning(
+                        "[KIC][编织者之歌] 找不到素材目录：" + spriteDir);
+                    _noelWeaverTex = new Dictionary<string, Texture2D>();
+                    return;
+                }
+                var texes = new Dictionary<string, Texture2D>();
+                foreach (string png in System.IO.Directory.GetFiles(spriteDir, "*.png"))
+                {
+                    string name = System.IO.Path.GetFileNameWithoutExtension(png);
+                    var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                    if (!ImageConversion.LoadImage(tex, System.IO.File.ReadAllBytes(png)))
+                    {
+                        continue;
+                    }
+                    tex.filterMode = FilterMode.Point;
+                    tex.wrapMode = TextureWrapMode.Clamp;
+                    texes[name] = tex;
+                }
+                var clips = new Dictionary<string, NoelWeaverClip>();
+                var manifest = Newtonsoft.Json.Linq.JObject.Parse(System.IO.File.ReadAllText(manifestPath));
+                var clipMap = new Dictionary<string, string>
+                {
+                    ["Launch"] = "WeaverLaunch",
+                    ["Run"] = "WeaverRun",
+                    ["Idle"] = "WeaverIdle",
+                    ["Attack"] = "WeaverAttack",
+                    ["Sleep"] = "WeaverSleep"
+                };
+                if (manifest["clips"] is Newtonsoft.Json.Linq.JArray arr)
+                {
+                    foreach (Newtonsoft.Json.Linq.JToken c in arr)
+                    {
+                        string clipName = (string)c["name"];
+                        if (clipName == null || !clipMap.TryGetValue(clipName, out string key))
+                        {
+                            continue;
+                        }
+                        var frames = new List<string>();
+                        if (c["frames"] is Newtonsoft.Json.Linq.JArray fr)
+                        {
+                            foreach (Newtonsoft.Json.Linq.JToken f in fr)
+                            {
+                                string nm = (string)f;
+                                if (nm != null && texes.ContainsKey(nm))
+                                {
+                                    frames.Add(nm);
+                                }
+                            }
+                        }
+                        if (frames.Count == 0)
+                        {
+                            continue;
+                        }
+                        clips[key] = new NoelWeaverClip
+                        {
+                            Fps = (float)c["fps"],
+                            Frames = frames.ToArray()
+                        };
+                    }
+                }
+                // 近战剪辑：0014~0016（3 帧，0.3s）
+                var melee = new List<string>();
+                for (int i = 14; i <= 16; i++)
+                {
+                    string nm = "Weaver_Charm_spawn_spider00" + i;
+                    if (texes.ContainsKey(nm))
+                    {
+                        melee.Add(nm);
+                    }
+                }
+                if (melee.Count > 0)
+                {
+                    clips["WeaverMelee"] = new NoelWeaverClip { Fps = 10f, Frames = melee.ToArray() };
+                }
+                _noelWeaverTex = texes;
+                _noelWeaverClips = clips;
+            }
+            catch (Exception ex)
+            {
+                KnightInCradlePlugin.PluginLog?.LogWarning(
+                    "[KIC][编织者之歌] 素材读取失败：" + ex.Message);
+                _noelWeaverTex = new Dictionary<string, Texture2D>();
+            }
+        }
+
         /// <summary>旋风斩当前该摆的姿势名（起手 / 循环 / 收尾）。</summary>
         private static string NailMasterPoseName()
         {
