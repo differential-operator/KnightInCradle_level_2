@@ -4911,3 +4911,18 @@ tick 里那次调用保留作为同帧即时生效。
 
 验证：`build=2026-09-25.10`，DLL SHA256 `A31BE298D0771119…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 51.9 【调整】水平冲刺（去重力）+ 蓄力时方向键只改朝向
+
+1. **冲刺恢复水平、不受重力**：走了物理之后她开始下坠，原因是重力仍在。
+   现在进入冲刺段时 `pr.getPhysic().addLockGravity(ShadowDashGravityKey, 0f, -1f)`
+   （`fineGravityScale = max(0, 1 - LockGravity.getMaxLevel())` → 倍率 0），
+   并在每帧把身体中心 Y **钉在出发高度**：算出 `dy = 锁定Y - 当前中心Y` 后用
+   `walkBy(FOCTYPE.WALK, 0f, dy, false)` 抵消残余垂直速度（仍是物理位移，不会硬穿地形）。
+   收尾时 `remLockGravity(ShadowDashGravityKey)` 解除。
+2. **蓄力时方向键只改朝向**：移动输入依旧在输入锁里被挡掉（所以她不会真的走动），
+   但每帧直接读原生输入 `IN.isRO(0)/IN.isLO(0)`，用 `pr.setAim(AIM.R/L, false)` 把朝向翻过去
+   —— 效果就是"方向键只改变面朝方向"。
+
+验证：`build=2026-09-25.11`，DLL SHA256 `22983CAEB0807B4F…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

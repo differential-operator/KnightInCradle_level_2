@@ -7564,6 +7564,10 @@ namespace KnightInCradle.CharmUi
         private static float _shadowDashBurstDir;
         private static float _shadowDashPrevX;
         private static int _shadowDashStuckFrames;
+        /// <summary>冲刺期间锁重力的 key（`Phy.addLockGravity` 用）。</summary>
+        private static readonly object ShadowDashGravityKey = new object();
+        /// <summary>冲刺期间被钉住的身体中心 Y（水平冲刺：不加重力、不下坠）。</summary>
+        private static float _shadowDashLockY;
 
         /// <summary>冲刺段是否正在进行（光圈缩小 / 发射中）。</summary>
         public static bool NoelShadowDashActive => _shadowDashPhase != ShadowDashPhase.None;
@@ -7661,6 +7665,13 @@ namespace KnightInCradle.CharmUi
                     try
                     {
                         pr.walkBy(FOCTYPE.WALK, dx, 0f, true);
+                        // 水平冲刺：不下坠。重力已锁（EnterNoelShadowBurst 里 addLockGravity），
+                        // 这里再把残余的垂直速度用反向位移抵消，把身体中心 Y 钉在出发高度。
+                        float dy = _shadowDashLockY - NoelBodyCenterY(pr);
+                        if (Mathf.Abs(dy) > 0.001f)
+                        {
+                            pr.walkBy(FOCTYPE.WALK, 0f, dy, false);
+                        }
                     }
                     catch (Exception)
                     {
@@ -7711,6 +7722,15 @@ namespace KnightInCradle.CharmUi
                 _shadowDashBurstY = NoelBodyCenterY(pr);
                 _shadowDashPrevX = pr.x;
                 _shadowDashStuckFrames = 0;
+                _shadowDashLockY = _shadowDashBurstY;
+                // 水平冲刺：锁掉重力（重力倍率 → 0），否则 `walkBy` 走物理后她会往下掉
+                try
+                {
+                    pr.getPhysic()?.addLockGravity(ShadowDashGravityKey, 0f, -1f);
+                }
+                catch (Exception)
+                {
+                }
             }
             KnightInCradleBehaviour.SetNoelHiddenForDash(pr, true);
             _shadowDashBodyHidden = true;
@@ -7724,6 +7744,16 @@ namespace KnightInCradle.CharmUi
             _shadowDashPhase = ShadowDashPhase.None;
             _shadowDashPhaseTimer = 0f;
             _shadowDashStuckFrames = 0;
+            try
+            {
+                if (pr != null)
+                {
+                    pr.getPhysic()?.remLockGravity(ShadowDashGravityKey);
+                }
+            }
+            catch (Exception)
+            {
+            }
             _shadowDashAuraScale = 1f;
             EnsureNoelShadowDashBurstTicket(pr, false);
             KnightInCradleBehaviour.SetNoelHiddenForDash(pr, false);
@@ -7932,6 +7962,22 @@ namespace KnightInCradle.CharmUi
                         _noelShadowEssence);
                     // 空中蓄力 → 缓降（复用 AIC 自己的 FlgSoftFall："猫之缓降"同一条管线）
                     SetNoelChantSoftFall(pr, true);
+                    // 蓄力期间方向键**只改朝向**：移动输入仍被输入锁挡掉（不会真的走动），
+                    // 这里直接读原生输入把朝向翻过去
+                    try
+                    {
+                        if (IN.isRO(0))
+                        {
+                            pr.setAim(AIM.R, false);
+                        }
+                        else if (IN.isLO(0))
+                        {
+                            pr.setAim(AIM.L, false);
+                        }
+                    }
+                    catch (Exception)
+                    {
+                    }
                 }
                 else
                 {
