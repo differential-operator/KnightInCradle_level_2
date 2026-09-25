@@ -4998,6 +4998,7 @@ namespace KnightInCradle.CharmUi
             public bool ThreadFired;
             public float WanderT;
             public float WanderX;
+            public float HomeOx;     // 跟随停靠偏移（格）：三只固定错开 -1.3 / 0 / +1.3
             public float HopT;
             public float HopVy;
             public float NextHopT;
@@ -5095,9 +5096,12 @@ namespace KnightInCradle.CharmUi
                         MeleeCd = UnityEngine.Random.Range(0.6f, 1.8f),
                         WanderT = UnityEngine.Random.Range(0.3f, 1f),
                         WanderX = pr.x + (idx - 1) * 1.3f,
+                        // 三只固定错开站位：-1.3 / 0 / +1.3（跟随诺艾尔时各自停在自己的偏移上，
+                        // 否则三只会全部朝诺艾尔坐标挤、叠在一起）
+                        HomeOx = (idx - 1) * 1.3f,
                         NextHopT = UnityEngine.Random.Range(1f, 3f)
                     };
-                    float gy = NoelWeaverGroundY(mp, w.X, pr.mbottom);
+                    float gy = NoelWeaverGroundY(mp, w.X, w.Y);
                     if (!float.IsNaN(gy) && gy >= 0f)
                     {
                         w.Y = gy - WeaverHalfH;
@@ -5208,12 +5212,12 @@ namespace KnightInCradle.CharmUi
             float dxToPr = pr.x - w.X;
             if (Mathf.Abs(pr.vx) > 0.05f)
             {
-                w.WanderX = pr.x;
+                w.WanderX = pr.x + w.HomeOx; // 各自停在自己的偏移上（否则三只叠在一起）
                 w.WanderT = 0f;
             }
             else if (Mathf.Abs(dxToPr) > WeaverMaxRange)
             {
-                w.WanderX = pr.x;
+                w.WanderX = pr.x + w.HomeOx;
                 w.WanderT = 0f;
             }
             else if (w.WanderT <= 0f)
@@ -5234,7 +5238,18 @@ namespace KnightInCradle.CharmUi
                 {
                     step = dir * dist;
                 }
-                w.X += step;
+                float newX = w.X + step;
+                // 撞墙不穿（与小骑士那套一致：查单元格是否"实心且站不住"）
+                int newCx = Mathf.FloorToInt(newX);
+                bool blocked = NoelWeaverBlockCell(mp, newCx, Mathf.FloorToInt(w.Y + WeaverHalfH));
+                if (pr.hasFoot())
+                {
+                    blocked = blocked && NoelWeaverBlockCell(mp, newCx, Mathf.FloorToInt(pr.mbottom));
+                }
+                if (!blocked)
+                {
+                    w.X = newX;
+                }
                 w.Vx = dir * spd;
                 if (dir != 0f)
                 {
@@ -5248,29 +5263,79 @@ namespace KnightInCradle.CharmUi
             }
             // 跳跃
             w.NextHopT -= dt;
-            if (w.NextHopT <= 0f && w.HopT <= 0f)
+            if (w.HopT <= 0f && w.NextHopT <= 0f && Mathf.Abs(w.HopVy) <= 0.01f)
             {
                 w.HopT = WeaverHopTime;
                 w.HopVy = WeaverHopVy;
-                w.NextHopT = UnityEngine.Random.Range(1f, 3f);
+                w.NextHopT = UnityEngine.Random.Range(0.7f, 2f);
             }
-            if (w.HopT > 0f)
+            if (w.HopT > 0f || Mathf.Abs(w.HopVy) > 0.01f)
             {
-                w.HopT -= dt;
+                if (w.HopT > 0f)
+                {
+                    w.HopT -= dt;
+                }
                 w.HopVy += WeaverHopGravity * dt;
                 w.Y += w.HopVy * dt;
-            }
-            // 贴地：**双向**对齐地面（之前只允许往上贴 → 站在高处/刚生成时会陷进地里）
-            float gy = NoelWeaverGroundY(mp, w.X, w.Y + WeaverHalfH);
-            if (!float.IsNaN(gy) && gy >= 0f)
-            {
-                float targetY = gy - WeaverHalfH;
-                if (Mathf.Abs(targetY - w.Y) <= 2f)
+                // 跳跃中只有真正落到地面才停下（早先的"双向吸附"会在起跳那一帧就把跳跃取消）
+                float hopGy = NoelWeaverGroundY(mp, w.X, w.Y);
+                if (!float.IsNaN(hopGy) && hopGy >= 0f && w.Y + WeaverHalfH >= hopGy)
                 {
-                    w.Y = targetY;
-                    w.HopVy = 0f;
+                    w.Y = hopGy - WeaverHalfH;
                     w.HopT = 0f;
+                    w.HopVy = 0f;
                 }
+            }
+            else
+            {
+                float localGy = NoelWeaverGroundY(mp, w.X, w.Y);
+                bool hasLocal = !float.IsNaN(localGy) && localGy >= 0f;
+                if (hasLocal)
+                {
+                    w.Y = localGy - WeaverHalfH;
+                }
+                else
+                {
+                    // 脚下没地面：自然下坠
+                    w.HopVy = (w.HopVy > 0f ? w.HopVy : 0f) + WeaverHopGravity * dt;
+                    w.Y += w.HopVy * dt;
+                }
+                // 诺艾尔站在高台上、而小蜘蛛还在下面板时：把它拉上台（同小骑士那套）
+                if (pr.hasFoot() && hasLocal && pr.mbottom < localGy - 0.35f)
+                {
+                    float highGy = NoelWeaverGroundY(mp, w.X, pr.mbottom - WeaverHalfH);
+                    if (!float.IsNaN(highGy) && highGy >= 0f && highGy < localGy - 0.05f)
+                    {
+                        w.Y = highGy - WeaverHalfH;
+                        w.WanderX = pr.x + w.HomeOx;
+                        w.WanderT = 0f;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 小编织者撞墙判据（照抄小骑士的 `IsBlockCell`）：
+        /// 越界算实心；单元格"非空、不能站、不是地板、不是水"才算被挡住。
+        /// </summary>
+        private static bool NoelWeaverBlockCell(Map2d mp, int cx, int cy)
+        {
+            try
+            {
+                if (mp == null)
+                {
+                    return false;
+                }
+                if (cx < 0 || cy < 0 || cx >= mp.width || cy >= mp.rows)
+                {
+                    return true;
+                }
+                int cfg = mp.getConfig(cx, cy);
+                return !CCON.isEmpty(cfg) && !CCON.canStand(cfg) && !CCON.isFloor(cfg) && !CCON.isWater(cfg);
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 
