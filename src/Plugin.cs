@@ -233,6 +233,10 @@ namespace KnightInCradle
         /// <summary>同时佩戴冲刺大师时：按护盾键即可直接冲刺（无需蓄力），默认开。</summary>
         internal static ConfigEntry<bool> ShadowDashInstantConfig;
 
+        // ---- 护符34 乌恩之形 ----
+        /// <summary>蹲下/爬行时每秒回复的生命值（默认 5）。</summary>
+        internal static ConfigEntry<float> UnnCrouchHealPerSecondConfig;
+
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
         internal static ConfigEntry<string> PoseBrowserNextKeyConfig;
@@ -363,6 +367,10 @@ namespace KnightInCradle
                 : 15;
         internal static bool ShadowDashInstantWithDashmaster =>
             ShadowDashInstantConfig == null || ShadowDashInstantConfig.Value;
+        internal static float UnnCrouchHealPerSecond =>
+            UnnCrouchHealPerSecondConfig != null
+                ? Mathf.Clamp(UnnCrouchHealPerSecondConfig.Value, 0f, 200f)
+                : 5f;
 
         /// <summary>护符33 粒子的 RGB（从十六进制字符串 `RRGGBB` 解析，默认 FFF200）。</summary>
         internal static Color32 ShadowChantParticleColor
@@ -753,6 +761,9 @@ namespace KnightInCradle
             ShadowDashInstantConfig = Config.Bind("Charm33", "DashInstantWithDashmaster", true,
                 "锋利之影·冲刺：**同时佩戴冲刺大师**时，按一下护盾键即可直接冲刺（无需先蓄力）。" +
                 "冲刺进行中不会再触发（默认开）。");
+            // 护符34 乌恩之形
+            UnnCrouchHealPerSecondConfig = Config.Bind("Charm34", "CrouchHealPerSecond", 5f,
+                "乌恩之形：蹲下/爬行时每秒回复的生命值（默认 5；0 = 不回血）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");

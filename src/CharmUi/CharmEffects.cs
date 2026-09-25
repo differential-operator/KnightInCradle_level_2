@@ -4311,6 +4311,60 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
+        /// 效果3（追加 2026-09-25）：蹲下 / 爬行时**持续回复生命值**，默认 5 HP/秒。
+        ///
+        /// 回血同样走 AIC 原生的 `PR.cureHp` —— 佩戴乔尼的祝福时它会被改写成回魔
+        /// （与护符31 蜂巢之血一个口径），所以这条不需要额外分支。
+        /// 小数部分累积不丢；HP 已满时不积累（不浪费）；起身立即清零累积量。
+        /// </summary>
+        public static void TickUnnCrouchHeal(PRNoel pr)
+        {
+            try
+            {
+                float perSecond = KnightInCradlePlugin.UnnCrouchHealPerSecond;
+                if (perSecond <= 0f || pr == null || !pr.is_alive || !UnnFriendlyActive())
+                {
+                    _unnCrouchHealAccum = 0f;
+                    return;
+                }
+                if (PrMaxHpField == null || PrHpField == null)
+                {
+                    return;
+                }
+                int maxHp = (int)PrMaxHpField.GetValue(pr);
+                int hp = (int)PrHpField.GetValue(pr);
+                if (maxHp <= 0 || hp >= maxHp)
+                {
+                    _unnCrouchHealAccum = 0f;
+                    return;
+                }
+                _unnCrouchHealAccum += perSecond * Time.deltaTime;
+                int heal = Mathf.FloorToInt(_unnCrouchHealAccum);
+                if (heal <= 0)
+                {
+                    return;
+                }
+                _unnCrouchHealAccum -= heal;
+                if (hp + heal > maxHp)
+                {
+                    heal = maxHp - hp;
+                }
+                if (heal <= 0)
+                {
+                    return;
+                }
+                pr.cureHp(heal);
+                RefreshNoelHudHp();
+                RefreshNoelHudMp();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static float _unnCrouchHealAccum;
+
+        /// <summary>
         /// 效果1：诺艾尔不会被魔物抓取/吞下。
         /// - `PR.initAbsorb`（被魔物吞下/吸收）直接拦掉；
         /// - 抓取类状态直接拒绝：`PARASITISED`（被寄生/蚂蟥附着）、`WORM_TRAPPED`（虫墙）、
