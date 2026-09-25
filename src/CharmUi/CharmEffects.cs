@@ -7690,8 +7690,11 @@ namespace KnightInCradle.CharmUi
                     }
                     return;
                 }
+                // 用**游戏时间**推进（`Map2d.TS`：命中停滞/慢动作时会 →0），
+                // 否则打中敌人的那几帧停滞会把冲刺时间白吃掉（也会误判成"撞墙"）
                 float dt = Time.deltaTime;
-                _shadowDashPhaseTimer += dt;
+                float gameDt = dt * Mathf.Clamp(Map2d.TS, 0f, 1f);
+                _shadowDashPhaseTimer += gameDt;
                 if (_shadowDashPhase == ShadowDashPhase.Shrink)
                 {
                     float t = KnightInCradlePlugin.ShadowDashShrinkSeconds > 0f
@@ -7735,10 +7738,16 @@ namespace KnightInCradle.CharmUi
                     // 路径伤害：沿路对每只敌人结算一次（3 倍轻攻击 / 3 倍魔法霰弹）
                     CheckNoelDashHits(pr);
                     // 撞墙判定：连续几帧几乎没前进 → 提前收尾，避免图片卡在墙上空转
-                    if (Mathf.Abs(pr.x - _shadowDashPrevX) < 0.02f)
+                    // ⚠ 打中敌人时 AIC 会有"命中停滞"（`Map2d.TS → 0`），那几帧她本来就不会动，
+                    // 必须跳过判定，否则一打到第一个目标就误判撞墙、冲刺提前结束。
+                    if (Map2d.TS < 0.1f)
+                    {
+                        _shadowDashStuckFrames = 0;
+                    }
+                    else if (Mathf.Abs(pr.x - _shadowDashPrevX) < 0.01f)
                     {
                         _shadowDashStuckFrames++;
-                        if (_shadowDashStuckFrames >= 3)
+                        if (_shadowDashStuckFrames >= 5)
                         {
                             EndNoelShadowDash(pr);
                             return;
