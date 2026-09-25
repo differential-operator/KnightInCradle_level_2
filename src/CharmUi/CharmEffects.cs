@@ -4238,8 +4238,8 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
-        /// 护符9 幼虫之歌 / 护符10 蜕变挽歌（诺艾尔侧）：诺艾尔不会被虫墙/虫巢抓取
-        /// （与小骑士侧一致：这两个护符都会免虫墙抓取）。
+        /// 护符9 幼虫之歌 / 护符10 蜕变挽歌 / 护符34 乌恩之形（诺艾尔侧）：
+        /// 诺艾尔不会被虫墙/虫巢抓取（与小骑士侧一致）。
         /// `M2WormTrap` 决定是否拉扯玩家时读 `PR.canPullByWorm()`（`nel/M2WormTrap.cs:111,148`），
         /// 这里对本地诺艾尔直接返回 false。
         /// 骑士模式下另有 CombatGuard 的同名补丁（它会先返回 false 拦掉），两者按各自模式生效、互不冲突。
@@ -4249,7 +4249,8 @@ namespace KnightInCradle.CharmUi
             try
             {
                 if (IsKnightMode || !(__instance is PRNoel) ||
-                    !(IsEquipped(CharmOwner.Noel, GrubsongId) || IsEquipped(CharmOwner.Noel, ElegyId)))
+                    !(IsEquipped(CharmOwner.Noel, GrubsongId) || IsEquipped(CharmOwner.Noel, ElegyId) ||
+                      IsEquipped(CharmOwner.Noel, UnnId)))
                 {
                     return true;
                 }
@@ -4263,6 +4264,130 @@ namespace KnightInCradle.CharmUi
         }
 
         // ========== 护符7 冲刺大师 / 护符8 飞毛腿（诺艾尔侧：都改 walkSpeed/runSpeed） ==========
+        // ========== 护符34 乌恩之形（诺艾尔侧） ==========
+        /// <summary>乌恩之形：该 PR 是否就是"佩戴了乌恩之形的本地诺艾尔"。</summary>
+        private static bool IsUnnApplied(PR pr)
+        {
+            if (pr == null || IsKnightMode || !IsEquipped(CharmOwner.Noel, UnnId))
+            {
+                return false;
+            }
+            PRNoel noel = KnightInCradleBehaviour.GetPrPublic();
+            return noel != null && ReferenceEquals(pr, noel);
+        }
+
+        /// <summary>诺艾尔是否处于"蹲下/爬行"（蹲着左右移动就是爬行）。</summary>
+        public static bool IsNoelCrouchOrCrawl(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null)
+                {
+                    return false;
+                }
+                return pr.view_crouching || pr.forceCrouch(false, false) || pr.isPoseCrouch(false);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>效果2 是否生效：佩戴乌恩之形 + 诺艾尔模式 + 正蹲着/爬行。</summary>
+        public static bool UnnFriendlyActive()
+        {
+            try
+            {
+                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, UnnId))
+                {
+                    return false;
+                }
+                return IsNoelCrouchOrCrawl(KnightInCradleBehaviour.GetPrPublic());
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 效果1：诺艾尔不会被魔物抓取/吞下。
+        /// - `PR.initAbsorb`（被魔物吞下/吸收）直接拦掉；
+        /// - 抓取类状态直接拒绝：`PARASITISED`（被寄生/蚂蟥附着）、`WORM_TRAPPED`（虫墙）、
+        ///   `EATEN`（被吃住）、`STRONG_HOLD`（强力抓取）、`WEB_TRAPPED`（蜘蛛网）；
+        /// - 虫墙拉扯另外由 `PR.canPullByWorm`（见 `GrubsongCanPullByWormPrefix`，已含乌恩之形）负责。
+        /// </summary>
+        private static bool UnnInitAbsorbPrefix(PR __instance, ref bool __result)
+        {
+            try
+            {
+                if (!IsUnnApplied(__instance))
+                {
+                    return true;
+                }
+                __result = false; // 免疫吸收/吞下
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// 效果2：蹲下/爬行期间，让**战斗区域内**的魔物变成友好状态
+        /// （每帧清掉它们的锁定目标 `Nai.AimPr`；配合 `NaiAimPrSetPrefix` 里禁止重新锁定，
+        /// 它们就不会追着诺艾尔打；起身后自动恢复）。
+        /// 战斗区域取 `EnemySummoner.ActiveScript.getSummonedArea()` 的矩形；没有战斗时才作用于本房间所有魔物。
+        /// </summary>
+        public static void ClearUnnFriendlyAims()
+        {
+            if (!UnnFriendlyActive())
+            {
+                return;
+            }
+            try
+            {
+                PRNoel noel = KnightInCradleBehaviour.GetPrPublic();
+                Map2d mp = noel != null ? noel.Mp : null;
+                if (mp == null)
+                {
+                    return;
+                }
+                M2LpSummon area = null;
+                try
+                {
+                    EnemySummoner active = EnemySummoner.ActiveScript;
+                    area = active != null ? active.getSummonedArea() : null;
+                }
+                catch (Exception)
+                {
+                    area = null;
+                }
+                for (int i = mp.count_movers - 1; i >= 0; i--)
+                {
+                    if (!(mp.getMv(i) is NelEnemy en))
+                    {
+                        continue;
+                    }
+                    if (area != null &&
+                        (en.x < area.mapx || en.x >= area.mapx + area.mapw ||
+                         en.y < area.mapy || en.y >= area.mapy + area.maph))
+                    {
+                        continue; // 只影响当前战斗区域内的魔物
+                    }
+                    NAI ai = en.getAI();
+                    if (ai != null && ai.AimPr != null)
+                    {
+                        ai.AimPr = null; // set_AimPr 前缀放行 null → 清空目标
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         /// <summary>冲刺大师：佩戴后跑步速度倍率（需求：降低 10%）。</summary>
         public const float DashmasterRunSpeedMult = 0.9f;
         /// <summary>飞毛腿：佩戴后走路与跑步速度倍率（+10% 手感不明显、+50% 过强，最终取 +20%）。</summary>
@@ -6737,6 +6862,37 @@ namespace KnightInCradle.CharmUi
                             typeof(CharmEffects).GetMethod(nameof(NoelShadowChantInputLockPrefix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
                     }
+                    // 护符34 乌恩之形：不会被魔物抓取/吞下 + 蹲下时禁止魔物锁定
+                    MethodInfo prInitAbsorb = AccessTools.Method(typeof(PR), "initAbsorb");
+                    if (prInitAbsorb != null)
+                    {
+                        try
+                        {
+                            harmony.Patch(prInitAbsorb, prefix: new HarmonyMethod(
+                                typeof(CharmEffects).GetMethod(nameof(UnnInitAbsorbPrefix),
+                                    BindingFlags.Static | BindingFlags.NonPublic)));
+                        }
+                        catch (Exception ex)
+                        {
+                            KnightInCradlePlugin.PluginLog?.LogWarning(
+                                "[KIC][乌恩之形] PR.initAbsorb 补丁挂载失败：" + ex.Message);
+                        }
+                    }
+                    MethodInfo naiAimUnn = AccessTools.PropertySetter(typeof(NAI), "AimPr");
+                    if (naiAimUnn != null)
+                    {
+                        try
+                        {
+                            harmony.Patch(naiAimUnn, prefix: new HarmonyMethod(
+                                typeof(CharmEffects).GetMethod(nameof(NaiAimPrSetUnnPrefix),
+                                    BindingFlags.Static | BindingFlags.NonPublic)));
+                        }
+                        catch (Exception ex)
+                        {
+                            KnightInCradlePlugin.PluginLog?.LogWarning(
+                                "[KIC][乌恩之形] NAI.AimPr 补丁挂载失败：" + ex.Message);
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -7896,22 +8052,43 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        /// <summary>冲刺隐藏期间拒绝一切状态注入（中毒/麻痹/束缚/睡眠…）。</summary>
-        private static bool NoelDashSerAddPrefix(M2Ser __instance, ref M2SerItem __result)
+        /// <summary>
+        /// `M2Ser.Add` 的**唯一**前缀（同一方法上挂两个前缀会让 HarmonyX 报
+        /// `IL Compile Error`，所以冲刺免疫与乌恩之形抓取免疫合并在这里）：
+        /// ① 冲刺隐藏期间拒绝一切状态注入（中毒/麻痹/束缚/睡眠…）；
+        /// ② 佩戴乌恩之形时拒绝抓取类状态（被寄生/虫墙/被吃住/强力抓取/蜘蛛网）。
+        /// </summary>
+        private static bool NoelDashSerAddPrefix(M2Ser __instance, SER ser, ref M2SerItem __result)
         {
             try
             {
-                if (!NoelShadowDashActive || !(__instance.Mv is PRNoel) || IsKnightMode)
+                if (!(__instance.Mv is PRNoel noel) || IsKnightMode)
                 {
                     return true;
                 }
-                __result = null;
-                return false;
+                if (NoelShadowDashActive)
+                {
+                    __result = null; // 冲刺隐藏期间：免疫一切状态
+                    return false;
+                }
+                if (IsUnnApplied(noel) && IsUnnGrabSer(ser))
+                {
+                    __result = null; // 乌恩之形：免疫抓取类状态
+                    return false;
+                }
+                return true;
             }
             catch (Exception)
             {
                 return true;
             }
+        }
+
+        /// <summary>护符34 乌恩之形：这些状态属于"被魔物抓取/吞下"。</summary>
+        private static bool IsUnnGrabSer(SER key)
+        {
+            return key == SER.PARASITISED || key == SER.WORM_TRAPPED || key == SER.EATEN ||
+                   key == SER.STRONG_HOLD || key == SER.WEB_TRAPPED;
         }
 
         /// <summary>诺艾尔此刻是不是"长按护盾键的伪咏唱"状态（护符33 效果2）。</summary>
@@ -8887,6 +9064,15 @@ namespace KnightInCradle.CharmUi
                 }
                 return false;
             }
+            // 护符34 乌恩之形：蹲下/爬行期间战斗区域内的魔物保持友好（不苏醒）
+            if (UnnFriendlyActive())
+            {
+                if (WillThunderOverdrive(__instance.En))
+                {
+                    return true;
+                }
+                return false;
+            }
             return true;
         }
 
@@ -8938,6 +9124,22 @@ namespace KnightInCradle.CharmUi
             if (MushroomPassive(__instance.En))
             {
                 return false;
+            }
+            return true;
+        }
+
+        /// <summary>护符34 乌恩之形：蹲下/爬行期间不允许魔物锁定诺艾尔（清空目标仍放行）。</summary>
+        private static bool NaiAimPrSetUnnPrefix(NAI __instance, M2Attackable value)
+        {
+            try
+            {
+                if (value != null && UnnFriendlyActive())
+                {
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
             }
             return true;
         }

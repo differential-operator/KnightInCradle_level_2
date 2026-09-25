@@ -5033,3 +5033,42 @@ tick 里那次调用保留作为同帧即时生效。
 
 验证：`build=2026-09-25.15`，DLL SHA256 `0BDD5B519CFCF7DF…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+## 54. 护符 34 乌恩之形（诺艾尔侧，2026-09-25，build=2026-09-25.19）
+
+需求：① 诺艾尔不会被魔物抓取；② 诺艾尔**蹲下或爬行**时，战斗区域内的魔物变成友好状态，起身恢复攻击状态。
+
+### 54.1 效果1：不会被魔物抓取
+
+按"抓取"在 AIC 里的几条真实路径分别拦：
+
+| 路径 | 挂点 |
+|---|---|
+| 被魔物**吞下/吸收** | `PR.initAbsorb(...)` 前缀 → `__result = false`（与小骑士模式那套同一个方法） |
+| 抓取类**状态**：`PARASITISED`（寄生/蚂蟥附着）、`WORM_TRAPPED`（虫墙）、`EATEN`（被吃住）、`STRONG_HOLD`（强力抓取）、`WEB_TRAPPED`（蜘蛛网） | `M2Ser.Add(SER,int,int,bool)` 前缀 → 这些 key 直接 `__result = null` |
+| 虫墙**拉扯** | `PR.canPullByWorm` → false（挂在既有的 `GrubsongCanPullByWormPrefix` 上，条件从"9/10"扩成"9/10/34"） |
+
+### 54.2 效果2：蹲下/爬行 → 战斗区域内魔物友好
+
+- 判据：`UnnFriendlyActive()` = 佩戴乌恩之形 + 诺艾尔模式 + `view_crouching || forceCrouch(false,false) || isPoseCrouch(false)`
+  （蹲着左右移动就是"爬行"，所以这两个状态一起覆盖）；
+- 禁止重新锁定：`NAI.AimPr` 的 **setter** 上挂前缀，友好期间非 null 的赋值一律拒绝（清空仍放行）
+  —— 与蜂巢中立/蚂蟥中立同一套思路；
+- 每帧清掉已有目标：`ClearUnnFriendlyAims()`（挂进 `TickNoelCharmEffects`），**只作用于当前战斗区域**——
+  区域取 `EnemySummoner.ActiveScript.getSummonedArea()` 的矩形（`mapx/mapy/mapw/maph`）；
+  没有战斗时才退回"本房间所有魔物"；
+- 魔物**不苏醒**：`NAI.awakeInit` 前缀里加了乌恩分支（同样保留"雷雨汍染体候选必须先苏醒"的例外）；
+- 起身后 `UnnFriendlyActive()` 变 false，上面的拦截立刻失效 → 魔物自然恢复锁定/攻击状态。
+
+### 54.3 踩到的两个坑（记下来避免重犯）
+
+1. **同一方法不能挂两个同类前缀**：给 `M2Ser.Add` 加第二个前缀后 HarmonyX 直接报
+   `IL Compile Error`（整个 try 块里的后续补丁一起没挂上）。所以冲刺免疫与乌恩抓取免疫
+   **合并进同一个前缀** `NoelDashSerAddPrefix`；注册处也改成**每条补丁各自 try/catch**，
+   失败会单独打 `[KIC][乌恩之形] … 挂载失败`。
+2. **前缀参数名必须和原方法一致**：`M2Ser.Add` 的第一个参数叫 `ser`（不是 `key`），
+   写错同样报 `IL Compile Error`。改回 `ser` 后一切正常。
+
+验证：`build=2026-09-25.19`，DLL SHA256 `6E111FDF83A33F78…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`、**无任何"挂载失败"告警**）。
+本地隐藏启动确认 `71 成功 / 0 失败`）。
