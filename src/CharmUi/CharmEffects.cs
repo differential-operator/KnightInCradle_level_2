@@ -5812,6 +5812,12 @@ namespace KnightInCradle.CharmUi
         private static float NoelFinalDamageMult(MGKIND kind, bool shotgunFlavored)
         {
             float mult = 1f;
+            // 护符35 骨钉大师的荣耀：佩戴时诺艾尔造成的伤害 ×5
+            //（该护符锁了魔法键，此时她的伤害都是无附魔的）
+            if (IsEquipped(CharmOwner.Noel, NailMasterId))
+            {
+                mult *= KnightInCradlePlugin.NailMasterDamageMult;
+            }
             if (IsEquipped(CharmOwner.Noel, ShamanId) &&
                 (IsPlayerMagicKind(kind) || shotgunFlavored))
             {
@@ -6274,7 +6280,8 @@ namespace KnightInCradle.CharmUi
             {
                 if (IsKnightMode ||
                     !(IsEquipped(CharmOwner.Noel, ShamanId) || IsEquipped(CharmOwner.Noel, PowerId) ||
-                      IsEquipped(CharmOwner.Noel, HeavyBlowId) || IsEquipped(CharmOwner.Noel, DeepGatherId)))
+                      IsEquipped(CharmOwner.Noel, HeavyBlowId) || IsEquipped(CharmOwner.Noel, DeepGatherId) ||
+                      IsEquipped(CharmOwner.Noel, NailMasterId))) // 护符35 的 ×5 也走这个乘区
                 {
                     // 注意：护符27 深度聚集的"下一击 +25%"也走这个乘区，
                     // 所以它的佩戴状态必须一起放行，否则只戴深聚时这里会直接早退（= 加成不生效）。

@@ -254,6 +254,8 @@ namespace KnightInCradle
         internal static ConfigEntry<string> NailMasterSpinPoseOutroConfig;
         /// <summary>攻击键按住不超过这个时长算"点按"（会补发凌空横斩/突进冲击），默认 0.18 秒。</summary>
         internal static ConfigEntry<float> NailMasterTapSecondsConfig;
+        /// <summary>佩戴骨钉大师的荣耀时，诺艾尔造成伤害的倍率（默认 5）。</summary>
+        internal static ConfigEntry<float> NailMasterDamageMultConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -417,6 +419,10 @@ namespace KnightInCradle
             NailMasterTapSecondsConfig != null
                 ? Mathf.Clamp(NailMasterTapSecondsConfig.Value, 0.02f, 1f)
                 : 0.18f;
+        internal static float NailMasterDamageMult =>
+            NailMasterDamageMultConfig != null
+                ? Mathf.Clamp(NailMasterDamageMultConfig.Value, 0.1f, 50f)
+                : 5f;
 
         private static string PoseName(ConfigEntry<string> cfg, string fallback)
         {
@@ -835,6 +841,9 @@ namespace KnightInCradle
             NailMasterTapSecondsConfig = Config.Bind("Charm35", "TapSeconds", 0.18f,
                 "骨钉大师的荣耀：攻击键按住不超过这个秒数算「点按」——点按时会**补发**凌空横斩/突进冲击，" +
                 "超过则视为长按（走蓄力）。默认 0.18。");
+            NailMasterDamageMultConfig = Config.Bind("Charm35", "DamageMult", 5f,
+                "骨钉大师的荣耀：佩戴时诺艾尔造成伤害的倍率（默认 5）。" +
+                "因为该护符屏蔽了魔法键，此时她的伤害都是无附魔的。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
