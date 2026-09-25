@@ -4540,7 +4540,27 @@ namespace KnightInCradle.CharmUi
                 }
                 if (_nmTapWasAir && airborne)
                 {
-                    pr.changeState(shotgun ? PR.STATE.AIRPUNCH_SHOTGUN : PR.STATE.AIRPUNCH);
+                    // 空中点按：若同时按着左右方向键（且脚下有落脚点）→ 原版这条会走"旋风斩击"，
+                    // 所以补发也要按原版规则优先给 WHEEL（`getPunchVariation` 空中分支的判定顺序）
+                    bool dirHeld = false;
+                    bool canStand = false;
+                    try
+                    {
+                        dirHeld = pr.isLO(0, false) || pr.isRO(0, false);
+                        canStand = pr.canStand((int)pr.x, (int)(pr.mbottom + 0.12f));
+                    }
+                    catch (Exception)
+                    {
+                        dirHeld = false;
+                    }
+                    if (dirHeld && canStand)
+                    {
+                        pr.changeState(shotgun ? PR.STATE.WHEEL_SHOTGUN : PR.STATE.WHEEL);
+                    }
+                    else
+                    {
+                        pr.changeState(shotgun ? PR.STATE.AIRPUNCH_SHOTGUN : PR.STATE.AIRPUNCH);
+                    }
                 }
                 else if (_nmTapWasRun)
                 {
@@ -9565,14 +9585,16 @@ namespace KnightInCradle.CharmUi
                 {
                     return true;
                 }
-                // 护符35 骨钉大师的荣耀：**按住攻击键**时禁用"突进冲击 / 凌空横斩"，
+                // 护符35 骨钉大师的荣耀：**按住攻击键**时禁用"突进冲击 / 凌空横斩 / 旋风斩击"，
                 // 让长按走蓄力而不是被这些变招吃掉（需求 2026-09-25）。
                 // 与 AIC 的判定一一对应：
                 //   突进冲击 = 奔跑中按下攻击键（`Pr.run_continue_time >= 22f`）；
-                //   凌空横斩 = 空中按下攻击键（`!hasFoot()`）。
+                //   凌空横斩 = 空中按下攻击键（`!hasFoot()`）；
+                //   旋风斩击 = 空中按下攻击键 + 左右方向（`isLO/isRO(4) && canStand(...)`）。
                 if (NailMasterEquipped &&
                     (type == SkillManager.SKILL_TYPE.dashpunch ||
-                     type == SkillManager.SKILL_TYPE.airpunch))
+                     type == SkillManager.SKILL_TYPE.airpunch ||
+                     type == SkillManager.SKILL_TYPE.wheel))
                 {
                     PRNoel prNm = KnightInCradleBehaviour.GetPrPublic();
                     bool held = false;
