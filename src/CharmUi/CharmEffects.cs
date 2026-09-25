@@ -1892,8 +1892,8 @@ namespace KnightInCradle.CharmUi
                 }
                 if (!IsJoniSturdyMpLocked(noel))
                 {
-                    // 护符33 冲刺段（隐藏本体期间）：整次受击也直接作废
-                    if (NoelShadowDashActive)
+                    // 护符33 冲刺段（隐藏本体期间）/ 护符35 旋风斩无敌帧：整次受击也直接作废
+                    if (NoelShadowDashActive || NoelSpinInvincible)
                     {
                         __result = 0;
                         return false;
@@ -4383,6 +4383,23 @@ namespace KnightInCradle.CharmUi
         private static float _nmTapTimer;
         private static bool _nmTapWasAir;
         private static bool _nmTapWasRun;
+        // ---- 旋风斩：无敌窗口 + 自绘圆形判定箱 ----
+        /// <summary>圆内敌人的"下次可再吃一次伤害"的时刻（`Time.time`）。</summary>
+        private static readonly Dictionary<NelEnemy, float> _nmCircleNextHit =
+            new Dictionary<NelEnemy, float>();
+        private static Texture2D _nmCircleTex;
+        private static MeshDrawer _nmCircleMesh;
+        private static Material _nmCircleMat;
+        private static M2RenderTicket _nmCircleTicket;
+        private static Map2d _nmCircleMap;
+
+        /// <summary>
+        /// 是否处于"旋风斩无敌帧"：只有 `attack_air2`（循环段）无敌，
+        /// 起手 `attack_air1` 与收尾 `attack_air3` 照常会被打/被抓（需求 2026-09-26）。
+        /// </summary>
+        public static bool NoelSpinInvincible =>
+            _nmPhase == NailMasterPhase.Spin &&
+            _nmTimer >= KnightInCradlePlugin.NailMasterSpinIntroSeconds;
 
         /// <summary>旋风斩（含收尾动作）是否进行中。</summary>
         public static bool NailMasterSpinActive =>
@@ -4557,6 +4574,13 @@ namespace KnightInCradle.CharmUi
             if (_nmPhase == NailMasterPhase.Spin)
             {
                 TickNailMasterSpinMove(pr);
+                // attack_air2（循环段）阶段：无敌 + 圆形判定箱
+                if (_nmTimer >= KnightInCradlePlugin.NailMasterSpinIntroSeconds)
+                {
+                    ApplyNoelDashImmunity(pr); // 复用同一条"滚动无敌帧"做法
+                    CheckNailMasterSpinCircle(pr);
+                }
+                EnsureNailMasterCircleTicket(pr, NoelSpinInvincible);
                 if (_nmTimer >= KnightInCradlePlugin.NailMasterSpinSeconds)
                 {
                     _nmPhase = NailMasterPhase.SpinOutro;
@@ -4632,8 +4656,275 @@ namespace KnightInCradle.CharmUi
                 {
                 }
             }
+            _nmCircleNextHit.Clear();
+            try
+            {
+                ReleaseNailMasterCircleTicket();
+            }
+            catch (Exception)
+            {
+            }
             _nmPhase = NailMasterPhase.None;
             _nmTimer = 0f;
+        }
+
+        /// <summary>旋风斩圆形判定箱的圆心（世界格坐标；X 偏移随朝向）。</summary>
+        private static void GetNailMasterCircleCenter(PRNoel pr, out float cx, out float cy)
+        {
+            float dir = pr != null && pr.mpf_is_right < 0f ? -1f : 1f;
+            cx = (pr != null ? pr.x : 0f) + dir * KnightInCradlePlugin.NailMasterCircleOffsetX;
+            cy = (pr != null ? NoelBodyCenterY(pr) : 0f) + KnightInCradlePlugin.NailMasterCircleOffsetY;
+        }
+
+        /// <summary>
+        /// 旋风斩（`attack_air2` 段）的圆形判定箱：
+        /// 碰到圈的敌人**立刻**吃一次"轻攻击"伤害；之后在圈内**每停留 `SpinCircleHitSeconds`（默认 0.2 秒）**
+        /// 再吃一次；离开圈子后登记清除（再进圈会重新按"立刻一次"结算）。
+        /// </summary>
+        private static void CheckNailMasterSpinCircle(PRNoel pr)
+        {
+            try
+            {
+                Map2d mp = pr != null ? pr.Mp : null;
+                if (mp == null)
+                {
+                    return;
+                }
+                int mask = NoelEnemyOverlapMask();
+                if (mask == 0)
+                {
+                    return;
+                }
+                float cx;
+                float cy;
+                GetNailMasterCircleCenter(pr, out cx, out cy);
+                float radius = KnightInCradlePlugin.NailMasterCircleRadius;
+                Vector2 center = mp.gameObject.transform.TransformPoint(
+                    new Vector2(mp.pixel2ux(cx * mp.CLEN), mp.pixel2uy(cy * mp.CLEN)));
+                float ur = radius * mp.CLEN;
+                Collider2D[] hits = Physics2D.OverlapCircleAll(center, ur, mask);
+                float now = Time.time;
+                float interval = KnightInCradlePlugin.NailMasterCircleHitSeconds;
+                // 先把"这帧不在圈里"的登记清掉（离开后重新进圈 → 立刻再吃一次）
+                if (_nmCircleNextHit.Count > 0)
+                {
+                    var stale = new List<NelEnemy>();
+                    foreach (KeyValuePair<NelEnemy, float> kv in _nmCircleNextHit)
+                    {
+                        bool inside = false;
+                        for (int i = 0; i < hits.Length; i++)
+                        {
+                            if (hits[i] != null && ReferenceEquals(hits[i].GetComponentInParent<NelEnemy>(), kv.Key))
+                            {
+                                inside = true;
+                                break;
+                            }
+                        }
+                        if (!inside || kv.Key == null || kv.Key.destructed)
+                        {
+                            stale.Add(kv.Key);
+                        }
+                    }
+                    for (int i = 0; i < stale.Count; i++)
+                    {
+                        _nmCircleNextHit.Remove(stale[i]);
+                    }
+                }
+                for (int i = 0; i < hits.Length; i++)
+                {
+                    Collider2D c = hits[i];
+                    if (c == null)
+                    {
+                        continue;
+                    }
+                    NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
+                    if (enemy == null)
+                    {
+                        continue;
+                    }
+                    float nextHit;
+                    if (_nmCircleNextHit.TryGetValue(enemy, out nextHit))
+                    {
+                        if (now < nextHit)
+                        {
+                            continue; // 还在间隔里，等下一次
+                        }
+                    }
+                    _nmCircleNextHit[enemy] = now + interval;
+                    ApplyNailMasterSpinHit(pr, enemy);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>旋风斩命中一次：伤害 = **当前轻攻击**的伤害（与护符33 冲刺同一个取法与乘区）。</summary>
+        private static void ApplyNailMasterSpinHit(PRNoel pr, NelEnemy enemy)
+        {
+            try
+            {
+                if (IsEnemySummoning(enemy))
+                {
+                    return; // 生成中的魔物不能打
+                }
+                NelAttackInfo src = _dashPunchAtk; // 全局缓存的"最近一次轻攻击"攻击包
+                float ratio = _dashPunchRatio;
+                int baseDmg = src != null && src.hpdmg0 > 0
+                    ? src.hpdmg0
+                    : KnightInCradlePlugin.ShadowDashFallbackDamage;
+                float mult = NoelFinalDamageMult(MGKIND.PR_PUNCH, false);
+                int dmg = Mathf.Max(1, Mathf.FloorToInt(baseDmg * mult + 0.5f));
+                NelAttackInfo atk;
+                if (src != null)
+                {
+                    atk = new NelAttackInfo(src);
+                }
+                else
+                {
+                    atk = new NelAttackInfo();
+                    atk.fix_damage = true;
+                    ratio = 1f;
+                }
+                atk.Caster = pr;
+                atk.hpdmg0 = dmg;
+                atk.hpdmg_current = -1000;
+                atk._apply_knockback_current = true;
+                atk.shuffleHpMpDmg(enemy, ratio, 1f, dmg, atk.mpdmg0);
+                atk.CenterXy(enemy.x, enemy.y, 0f);
+                enemy.applyDamage(atk, false);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>绿色圆圈（调试用）：绑当前地图的 MovRenderer，画在诺艾尔身后层 PR0。</summary>
+        private static void EnsureNailMasterCircleTicket(PRNoel pr, bool want)
+        {
+            if (!want || !KnightInCradlePlugin.NailMasterCircleDebug)
+            {
+                ReleaseNailMasterCircleTicket();
+                return;
+            }
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null)
+            {
+                return;
+            }
+            if (_nmCircleTex == null)
+            {
+                _nmCircleTex = MakeRingTexture(128, 0.06f);
+            }
+            if (_nmCircleTex == null)
+            {
+                return;
+            }
+            if (_nmCircleMesh != null && _nmCircleMap == mp && _nmCircleTicket != null)
+            {
+                return;
+            }
+            ReleaseNailMasterCircleTicket();
+            _nmCircleMap = mp;
+            _nmCircleMesh = new MeshDrawer(null, 4, 6);
+            _nmCircleMesh.draw_gl_only = true;
+            _nmCircleMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _nmCircleMat.EnableKeyword("NO_PIXELSNAP");
+            _nmCircleMesh.activate("noel_spin_circle", _nmCircleMat, false, MTRX.ColWhite, null);
+            _nmCircleTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR0, null, PrepareNailMasterCircleMesh, _nmCircleMesh, null, null);
+        }
+
+        private static void ReleaseNailMasterCircleTicket()
+        {
+            try
+            {
+                if (_nmCircleTicket != null && _nmCircleMap != null && _nmCircleMap.MovRenderer != null)
+                {
+                    _nmCircleMap.MovRenderer.deassignDrawable(_nmCircleTicket, -1);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (_nmCircleMat != null)
+                {
+                    IN.DestroyOne(_nmCircleMat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _nmCircleTicket = null;
+            _nmCircleMesh = null;
+            _nmCircleMat = null;
+            _nmCircleMap = null;
+        }
+
+        private static bool PrepareNailMasterCircleMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw,
+            int draw_id, out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _nmCircleMap;
+            if (mp == null || _nmCircleMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _nmCircleMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || _nmCircleTex == null || !NoelSpinInvincible)
+            {
+                MdOut = _nmCircleMesh;
+                return true;
+            }
+            float cx;
+            float cy;
+            GetNailMasterCircleCenter(pr, out cx, out cy);
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mp.pixel2ux(cx * mp.CLEN), mp.pixel2uy(cy * mp.CLEN), 0f));
+            float size = KnightInCradlePlugin.NailMasterCircleRadius * 2f * mp.CLEN;
+            _nmCircleMesh.Col = new Color(0f, 1f, 0f, 0.9f); // 绿框
+            _nmCircleMesh.initForImgAndTexture(_nmCircleTex);
+            _nmCircleMesh.uv_top = 0f;
+            _nmCircleMesh.uv_height = 1f;
+            _nmCircleMesh.uv_left = 0f;
+            _nmCircleMesh.uv_width = 1f;
+            _nmCircleMesh.Rect(0f, 0f, size, size, false);
+            MdOut = _nmCircleMesh;
+            return true;
+        }
+
+        /// <summary>程序化生成"空心圆环"贴图（绿色由绘制时的 Col 乘上去）。</summary>
+        private static Texture2D MakeRingTexture(int size, float thicknessRatio)
+        {
+            try
+            {
+                var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+                float half = size * 0.5f;
+                float outer = half * 0.98f;
+                float inner = outer - half * thicknessRatio;
+                for (int y = 0; y < size; y++)
+                {
+                    for (int x = 0; x < size; x++)
+                    {
+                        float dx = x + 0.5f - half;
+                        float dy = y + 0.5f - half;
+                        float d = Mathf.Sqrt(dx * dx + dy * dy);
+                        float a = d <= outer && d >= inner ? 1f : 0f;
+                        tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                    }
+                }
+                tex.filterMode = FilterMode.Bilinear;
+                tex.wrapMode = TextureWrapMode.Clamp;
+                tex.Apply();
+                return tex;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         /// <summary>旋风斩当前该摆的姿势名（起手 / 循环 / 收尾）。</summary>
@@ -4663,7 +4954,7 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (!IsUnnApplied(__instance))
+                if (!IsUnnApplied(__instance) && !NoelSpinInvincible)
                 {
                     return true;
                 }
@@ -8441,6 +8732,11 @@ namespace KnightInCradle.CharmUi
                 if (IsUnnApplied(noel) && IsUnnGrabSer(ser))
                 {
                     __result = null; // 乌恩之形：免疫抓取类状态
+                    return false;
+                }
+                if (NoelSpinInvincible && IsUnnGrabSer(ser))
+                {
+                    __result = null; // 旋风斩无敌帧：同样不会被抓（被寄生/虫墙/被吃住/强力抓取/蜘蛛网）
                     return false;
                 }
                 return true;

@@ -5206,4 +5206,48 @@ None ──按住Z──► Charging(黄色粒子) ──≥1s──► Charged(
 
 验证：`build=2026-09-26.1`，DLL SHA256 `505DB38F7DFE2AA8…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+## 56. 护符 35 旋风斩的判定与无敌（2026-09-26，build=2026-09-26.2）
+
+需求：起手 `attack_air1` 阶段**照常会被打/被抓**；`attack_air2`（循环段）**无敌**，
+并且自绘一个跟随诺艾尔中心的**隐藏圆形碰撞箱**：碰到圈的敌人吃**一次轻攻击伤害**，
+在圈内**每停留 0.2 秒**再吃一次；收尾 `attack_air3` 阶段又回到会被打/被抓。
+圆形碰撞箱用**绿框**标出来，圆心坐标与半径做成配置。
+
+### 56.1 无敌窗口
+
+`NoelSpinInvincible = (阶段 == Spin) && 计时 >= SpinIntroSeconds` —— 即**只有 air2 那段**：
+- 免疫帧：每帧 `addNoDamage(NDMG._ALL, 0.2f)`；
+- 伤害总闸门：`M2PrADmg.applyDamage` 前缀里 `NoelShadowDashActive || NoelSpinInvincible` 时整次受击作废；
+- 抓取类状态（寄生/虫墙/被吃住/强力抓取/蜘蛛网）在 `M2Ser.Add` 前缀里一并拒绝；
+- 被吞下（`PR.initAbsorb`）也在这个窗口里拦掉。
+
+起手段与收尾段不动，所以她会被打/被抓（与需求一致）。
+
+### 56.2 圆形判定箱
+
+- 圆心 = `诺艾尔身体中心 + 朝向 × SpinCircleOffsetX + (0, SpinCircleOffsetY)`（**跟随诺艾尔**，X 偏移随朝向自动镜像）；
+- 半径 `SpinCircleRadius`（默认 2 格）；
+- 判定用 `Physics2D.OverlapCircleAll`（掩码同挽歌剑气：`EnemySelf/Enemy/AttackHitable`；
+  半径换算成世界单位 `格 × CLEN`）；
+- **进入即结算一次**：`_nmCircleNextHit[enemy] = now + SpinCircleHitSeconds(0.2)`，
+  停留期间每到一个间隔再结算一次；**离开圈子登记清除**（再进圈重新按"立刻一次"算）；
+- 单次伤害 = **当前轻攻击**的伤害（取全局缓存的"最近一次轻攻击"攻击包 + `NoelFinalDamageMult(PR_PUNCH, false)`，
+  于是护符35 的 ×5、萨满/坚固力量/会心/深聚都照常参与；拿不到攻击包时用兜底值+真伤）；
+  同样先跳过 `IsEnemySummoning`。
+
+### 56.3 绿框标记
+
+程序化生成一张**空心圆环**贴图（`MakeRingTexture(128, 0.06f)`），用独立网格/票据绑当前地图的
+MovRenderer，画在诺艾尔身后层 PR0，颜色纯绿（`(0,1,0,0.9)`），尺寸 = `半径 × 2 × CLEN`，
+圆心与判定箱完全一致 —— 所以调配置时看到的就是实际判定范围。
+`Charm35/SpinCircleDebug=false` 可关掉（关闭时不再建票据）。
+
+配置（`[Charm35]`）：`SpinCircleRadius`(2)、`SpinCircleOffsetX`(0)、`SpinCircleOffsetY`(0)、
+`SpinCircleHitSeconds`(0.2)、`SpinCircleDebug`(true)。
+
+> 说明：这一版**没有**把圈内命中记进"沉重之击"的连击数（避免一次旋风斩瞬间叠满会心），需要的话告诉我。
+
+验证：`build=2026-09-26.2`，DLL SHA256 `14C29D038E778D8B…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。
 本地隐藏启动确认 `71 成功 / 0 失败`）。

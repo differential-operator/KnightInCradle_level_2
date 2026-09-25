@@ -256,6 +256,17 @@ namespace KnightInCradle
         internal static ConfigEntry<float> NailMasterTapSecondsConfig;
         /// <summary>佩戴骨钉大师的荣耀时，诺艾尔造成伤害的倍率（默认 5）。</summary>
         internal static ConfigEntry<float> NailMasterDamageMultConfig;
+        // ---- 护符35 旋风斩：自绘圆形判定箱 ----
+        /// <summary>圆形判定箱半径（格，默认 2）。</summary>
+        internal static ConfigEntry<float> NailMasterCircleRadiusConfig;
+        /// <summary>圆心相对诺艾尔身体中心的偏移：X 正值 = 前方（格，默认 0）。</summary>
+        internal static ConfigEntry<float> NailMasterCircleOffsetXConfig;
+        /// <summary>圆心相对诺艾尔身体中心的偏移：Y 正值 = 向下（格，默认 0）。</summary>
+        internal static ConfigEntry<float> NailMasterCircleOffsetYConfig;
+        /// <summary>在圈内每停留多少秒再吃一次伤害（默认 0.2）。</summary>
+        internal static ConfigEntry<float> NailMasterCircleHitSecondsConfig;
+        /// <summary>是否画出绿色圆圈（调试用，默认开）。</summary>
+        internal static ConfigEntry<bool> NailMasterCircleDebugConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -423,6 +434,24 @@ namespace KnightInCradle
             NailMasterDamageMultConfig != null
                 ? Mathf.Clamp(NailMasterDamageMultConfig.Value, 0.1f, 50f)
                 : 5f;
+        internal static float NailMasterCircleRadius =>
+            NailMasterCircleRadiusConfig != null
+                ? Mathf.Clamp(NailMasterCircleRadiusConfig.Value, 0.1f, 20f)
+                : 2f;
+        internal static float NailMasterCircleOffsetX =>
+            NailMasterCircleOffsetXConfig != null
+                ? Mathf.Clamp(NailMasterCircleOffsetXConfig.Value, -20f, 20f)
+                : 0f;
+        internal static float NailMasterCircleOffsetY =>
+            NailMasterCircleOffsetYConfig != null
+                ? Mathf.Clamp(NailMasterCircleOffsetYConfig.Value, -20f, 20f)
+                : 0f;
+        internal static float NailMasterCircleHitSeconds =>
+            NailMasterCircleHitSecondsConfig != null
+                ? Mathf.Clamp(NailMasterCircleHitSecondsConfig.Value, 0.05f, 5f)
+                : 0.2f;
+        internal static bool NailMasterCircleDebug =>
+            NailMasterCircleDebugConfig == null || NailMasterCircleDebugConfig.Value;
 
         private static string PoseName(ConfigEntry<string> cfg, string fallback)
         {
@@ -844,6 +873,16 @@ namespace KnightInCradle
             NailMasterDamageMultConfig = Config.Bind("Charm35", "DamageMult", 5f,
                 "骨钉大师的荣耀：佩戴时诺艾尔造成伤害的倍率（默认 5）。" +
                 "因为该护符屏蔽了魔法键，此时她的伤害都是无附魔的。");
+            NailMasterCircleRadiusConfig = Config.Bind("Charm35", "SpinCircleRadius", 2f,
+                "骨钉大师的荣耀·旋风斩：自绘圆形判定箱的半径（格，默认 2）。");
+            NailMasterCircleOffsetXConfig = Config.Bind("Charm35", "SpinCircleOffsetX", 0f,
+                "骨钉大师的荣耀·旋风斩：圆心相对诺艾尔身体中心的水平偏移（格，正值 = 朝**前方**，默认 0）。");
+            NailMasterCircleOffsetYConfig = Config.Bind("Charm35", "SpinCircleOffsetY", 0f,
+                "骨钉大师的荣耀·旋风斩：圆心相对诺艾尔身体中心的纵向偏移（格，y 向下为正，负值 = 上移，默认 0）。");
+            NailMasterCircleHitSecondsConfig = Config.Bind("Charm35", "SpinCircleHitSeconds", 0.2f,
+                "骨钉大师的荣耀·旋风斩：敌人在圈内每停留多少秒再吃一次伤害（默认 0.2）。");
+            NailMasterCircleDebugConfig = Config.Bind("Charm35", "SpinCircleDebug", true,
+                "骨钉大师的荣耀·旋风斩：是否把圆形判定箱画成绿色圆圈（调试用，默认开）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
