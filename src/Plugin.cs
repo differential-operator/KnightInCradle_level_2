@@ -230,6 +230,8 @@ namespace KnightInCradle
         internal static ConfigEntry<float> ShadowDashHitboxHConfig;
         /// <summary>拿不到攻击包时的兜底基础伤害（默认 15）。</summary>
         internal static ConfigEntry<int> ShadowDashFallbackDamageConfig;
+        /// <summary>同时佩戴冲刺大师时：按护盾键即可直接冲刺（无需蓄力），默认开。</summary>
+        internal static ConfigEntry<bool> ShadowDashInstantConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -359,6 +361,8 @@ namespace KnightInCradle
             ShadowDashFallbackDamageConfig != null
                 ? Mathf.Clamp(ShadowDashFallbackDamageConfig.Value, 1, 9999)
                 : 15;
+        internal static bool ShadowDashInstantWithDashmaster =>
+            ShadowDashInstantConfig == null || ShadowDashInstantConfig.Value;
 
         /// <summary>护符33 粒子的 RGB（从十六进制字符串 `RRGGBB` 解析，默认 FFF200）。</summary>
         internal static Color32 ShadowChantParticleColor
@@ -746,6 +750,9 @@ namespace KnightInCradle
                 "锋利之影·冲刺：沿路径的伤害判定箱高度（格，默认 2）。");
             ShadowDashFallbackDamageConfig = Config.Bind("Charm33", "DashFallbackDamage", 15,
                 "锋利之影·冲刺：拿不到攻击包数据时的兜底基础伤害（默认 15，会再乘 DashDamageMult）。");
+            ShadowDashInstantConfig = Config.Bind("Charm33", "DashInstantWithDashmaster", true,
+                "锋利之影·冲刺：**同时佩戴冲刺大师**时，按一下护盾键即可直接冲刺（无需先蓄力）。" +
+                "冲刺进行中不会再触发（默认开）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");

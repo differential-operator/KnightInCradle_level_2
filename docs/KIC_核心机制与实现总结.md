@@ -5013,3 +5013,23 @@ tick 里那次调用保留作为同帧即时生效。
 
 验证：`build=2026-09-25.14`，DLL SHA256 `1CF39DBD8C8F243D…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+## 53. 护符 33 最后一条：冲刺大师 + 锋利之影 → 按护盾键直接冲刺
+
+需求：**同时携带冲刺大师（护符7）与锋利之影（护符33）**时无需蓄力，**按下护盾键即可直接冲刺**；
+冲刺期间不能再次冲刺。
+
+实现（全在 `TickNoelShadowChantCharm` / `StartNoelShadowDash`）：
+
+- `instant = armed(33) && ShadowDashInstantWithDashmaster && IsEquipped(Noel, DashmasterId(7))`；
+- 直接冲刺模式下**不走长按蓄力那条路**（`holding` 不算），否则按下的同一帧又会开始吟唱；
+- 按下的边沿判定用 `pr.isEvadePD(2)`（护盾键"刚按下"），条件满足即 `StartNoelShadowDash(pr, instant: true)`；
+- `instant = true` 时**跳过 0.1 秒的光圈缩小**，直接进入发射段（更跟手；蓄力流程仍然保留给"没有冲刺大师"的情况）；
+- **冲刺中不能再次冲刺**：`StartNoelShadowDash` 开头 `if (_shadowDashPhase != None) return;`，
+  直接冲刺的判定也带 `_shadowDashPhase == None`；另外冲刺期间本来就有输入锁与换人键锁。
+- 音效、100MP 消耗、伤害结算、隐藏本体、白屏等全部沿用同一条冲刺流程。
+
+配置：`Charm33/DashInstantWithDashmaster`（默认 true，可关掉试试手动蓄力版）。
+
+验证：`build=2026-09-25.15`，DLL SHA256 `0BDD5B519CFCF7DF…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

@@ -7630,8 +7630,29 @@ namespace KnightInCradle.CharmUi
         ///    在她中心把 `dash_burst0000.png` 以 8 格/秒**向前**发射（持续 0.5 秒）；
         /// ③ 发射结束：再白屏 0.07 秒 + 诺艾尔还原。
         /// </summary>
-        private static void StartNoelShadowDash(PRNoel pr)
+        private static bool NoelShadowCanDash(PRNoel pr)
         {
+            try
+            {
+                return pr != null && pr.is_alive && !IsKnightMode &&
+                       NoelPrStateIs(pr, PR.STATE.NORMAL);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 开始冲刺段。`instant = true`（随身佩戴冲刺大师、按护盾键直接冲）时**跳过 0.1 秒的光圈缩小**，
+        /// 直接进入发射段，手感更跟手；冲刺进行中一律不接受新的冲刺。
+        /// </summary>
+        private static void StartNoelShadowDash(PRNoel pr, bool instant)
+        {
+            if (_shadowDashPhase != ShadowDashPhase.None)
+            {
+                return; // 冲刺期间不能再次冲刺
+            }
             // 冲刺消耗 MP（默认 100）：不足则不冲刺（音效/白闪/伤害都不发生）
             int cost = KnightInCradlePlugin.ShadowDashMpCost;
             if (cost > 0 && pr != null)
@@ -7667,13 +7688,17 @@ namespace KnightInCradle.CharmUi
             }
             _dashHitEnemies.Clear();
             _dashShotgunFxDone = false;
-            // 松开护盾键的瞬间：播放冲刺爆发音效（hero_super_dash_burst）
+            // 松开护盾键 / 按下护盾键的瞬间：播放冲刺爆发音效（hero_super_dash_burst）
             try
             {
                 DashAudio.PlaySuperBurst();
             }
             catch (Exception)
             {
+            }
+            if (instant)
+            {
+                EnterNoelShadowBurst(pr);
             }
         }
 
@@ -7966,9 +7991,13 @@ namespace KnightInCradle.CharmUi
                     return;
                 }
                 bool armed = !IsKnightMode && IsEquipped(CharmOwner.Noel, ShadowId);
+                // 同时佩戴"冲刺大师" → 无需蓄力：按一下护盾键直接冲刺
+                bool instant = armed && KnightInCradlePlugin.ShadowDashInstantWithDashmaster &&
+                               IsEquipped(CharmOwner.Noel, DashmasterId);
                 bool holding = false;
                 bool chargedBefore = _noelShadowEssence; // 本帧之前是否处于"蓄力完成"
-                if (armed && pr.is_alive && NoelPrStateIs(pr, PR.STATE.NORMAL))
+                // 直接冲刺模式下不走"长按蓄力"这条路（否则按下的同一帧又会开始蓄力）
+                if (armed && !instant && pr.is_alive && NoelPrStateIs(pr, PR.STATE.NORMAL))
                 {
                     try
                     {
@@ -8062,7 +8091,24 @@ namespace KnightInCradle.CharmUi
                 // 冲刺段：蓄力完成状态下**松开护盾键** → 进入缩小 → 发射
                 if (chargedBefore && !holding && armed && _shadowDashPhase == ShadowDashPhase.None)
                 {
-                    StartNoelShadowDash(pr);
+                    StartNoelShadowDash(pr, false);
+                }
+                // 直接冲刺（冲刺大师 + 锋利之影）：按下护盾键的瞬间就冲，无需蓄力
+                if (instant && _shadowDashPhase == ShadowDashPhase.None && NoelShadowCanDash(pr))
+                {
+                    bool pressed = false;
+                    try
+                    {
+                        pressed = pr.isEvadePD(2);
+                    }
+                    catch (Exception)
+                    {
+                        pressed = false;
+                    }
+                    if (pressed)
+                    {
+                        StartNoelShadowDash(pr, true);
+                    }
                 }
                 TickNoelShadowDash(pr);
             }
