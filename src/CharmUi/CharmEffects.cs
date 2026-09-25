@@ -8040,8 +8040,9 @@ namespace KnightInCradle.CharmUi
                         return false;
                     }
                 }
-                // 护符35 旋风斩：方向键不再移动/蹲下/跳跃（改由模组直接平移），跳跃键也锁掉
-                if (NailMasterSpinActive && (isDirection || isJump))
+                // 护符35 旋风斩：方向键不再移动/蹲下/跳跃（改由模组直接平移），
+                // 跳跃键与**攻击键**一并锁掉（需求 2026-09-25）
+                if (NailMasterSpinActive && (isDirection || isJump || key == KEY.SIMKEY.Z))
                 {
                     __result = false;
                     return false;
@@ -9183,8 +9184,31 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, ShadowId) ||
-                    !IsNoelShadowDisabledSkill(type))
+                if (IsKnightMode)
+                {
+                    return true;
+                }
+                // 护符35 骨钉大师的荣耀：**奔跑中按住攻击键时禁用"突进冲击"**，
+                // 让长按走蓄力而不是被突进冲击吃掉（需求 2026-09-25）。
+                if (type == SkillManager.SKILL_TYPE.dashpunch && NailMasterEquipped)
+                {
+                    PRNoel prNm = KnightInCradleBehaviour.GetPrPublic();
+                    bool held = false;
+                    try
+                    {
+                        held = prNm != null && prNm.isAtkO(0);
+                    }
+                    catch (Exception)
+                    {
+                        held = false;
+                    }
+                    if (held)
+                    {
+                        __result = false;
+                        return false;
+                    }
+                }
+                if (!IsEquipped(CharmOwner.Noel, ShadowId) || !IsNoelShadowDisabledSkill(type))
                 {
                     return true;
                 }
