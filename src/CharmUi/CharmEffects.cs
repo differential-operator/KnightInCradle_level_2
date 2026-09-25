@@ -7800,8 +7800,13 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                bool idle = title == "stand" ||
-                            (title.StartsWith("stand", StringComparison.Ordinal) && title.IndexOf('2') < 0);
+                // 待机/移动（stand*）+ **空中**（jump* / fall*，见 `AnimationShufflerNoel.cs:658`：
+                // 上升中是 "jump"、下落/滞空是 "fall"）。跳过带 '2' 的过渡姿势（stand2sink、fall2…）。
+                bool idle = title == "stand" || title == "jump" || title == "fall" ||
+                            ((title.StartsWith("stand", StringComparison.Ordinal) ||
+                              title.StartsWith("jump", StringComparison.Ordinal) ||
+                              title.StartsWith("fall", StringComparison.Ordinal)) &&
+                             title.IndexOf('2') < 0);
                 if (!idle)
                 {
                     return;
