@@ -4861,3 +4861,14 @@ tick 里那次调用保留作为同帧即时生效。
 
 验证：`build=2026-09-25.6`，DLL SHA256 `4892B0282AB28F6E…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`、`[Charm33]` 段已写入上述键）。
+
+### 51.6 【新增】松开护盾键音效 / 蓄力时锁输入 / 空中蓄力缓降
+
+| 需求 | 实现 |
+|---|---|
+| 松开护盾键瞬间播音效 | `StartNoelShadowDash`（= 蓄力完成后松键那一瞬间）里调 `DashAudio.PlaySuperBurst()` —— 模组本来就内嵌了 `hero_super_dash_burst.wav`（用户给的就是这个音），骑士的超级冲刺就是用它 |
+| 蓄力时锁定移动/攻击/法术键 | 前缀挂 `EV.lockPrInputManipulate(SIMKEY, bool, bool)`：蓄力中把 **L/R/T/B（移动，含 LA/RA/TA/BA 同值）、Z（攻击）、X（法术）** 一律判为"没按"（`__result=false`）。**不锁 LSH（护盾键）**，否则松键判定会被自己挡掉；也不锁跳跃（需求没提） |
+| 空中蓄力获得缓降 | 不自己写物理，直接复用 AIC 的软着陆管线：蓄力期间 `pr.Skill.FlgSoftFall.Add("KIC_SHADOW_CHANT")`、结束 `Rem`。该 Flag 的回调正是 `Phy.initSoftFall(chanting_softfall_scale × num, 14 × num)`，其中 `num` 由 `ENHA.EH.falling_cat`（原版技能「猫之缓降」）决定 → 效果与原版一致。`Add` 幂等（重复添加只触发一次回调），键名独立不与原版 "MAGIC" 等冲突 |
+
+验证：`build=2026-09-25.7`，DLL SHA256 `A4C0EB1914F47B0D…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。

@@ -6722,6 +6722,15 @@ namespace KnightInCradle.CharmUi
                             typeof(CharmEffects).GetMethod(nameof(NoelDashSerAddPrefix),
                                 BindingFlags.Static | BindingFlags.NonPublic)));
                     }
+                    // 护符33：蓄力（长按护盾键）期间锁定移动/攻击/法术键
+                    MethodInfo inputLock = AccessTools.Method(typeof(EV), "lockPrInputManipulate",
+                        new[] { typeof(KEY.SIMKEY), typeof(bool), typeof(bool) });
+                    if (inputLock != null)
+                    {
+                        harmony.Patch(inputLock, prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(NoelShadowChantInputLockPrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -7560,6 +7569,30 @@ namespace KnightInCradle.CharmUi
         /// <summary>冲刺段是否处于"本体应被隐藏"的阶段（发射中）。</summary>
         public static bool NoelShadowDashHiding => _shadowDashPhase == ShadowDashPhase.Burst;
 
+        /// <summary>蓄力（长按护盾键）期间：锁定移动键 / 攻击键 / 法术键。</summary>
+        private static bool NoelShadowChantInputLockPrefix(KEY.SIMKEY key, ref bool __result)
+        {
+            try
+            {
+                if (!_noelShadowChanting || IsKnightMode)
+                {
+                    return true;
+                }
+                // 移动（L/R/T/B，含 LA/RA/TA/BA 同值）、攻击（Z）、法术（X）
+                if (key == KEY.SIMKEY.L || key == KEY.SIMKEY.R || key == KEY.SIMKEY.T ||
+                    key == KEY.SIMKEY.B || key == KEY.SIMKEY.Z || key == KEY.SIMKEY.X)
+                {
+                    __result = false; // = 这几个键在蓄力期间视为没按
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
         /// <summary>此刻是不是"精华"阶段（长按冲刺键够久；供 HUD 白闪与绘制判断）。</summary>
         public static bool NoelShadowEssence => _noelShadowEssence;
 
@@ -7576,6 +7609,14 @@ namespace KnightInCradle.CharmUi
             _shadowDashPhase = ShadowDashPhase.Shrink;
             _shadowDashPhaseTimer = 0f;
             _shadowDashAuraScale = 1f;
+            // 松开护盾键的瞬间：播放冲刺爆发音效（hero_super_dash_burst）
+            try
+            {
+                DashAudio.PlaySuperBurst();
+            }
+            catch (Exception)
+            {
+            }
         }
 
         private static void TickNoelShadowDash(PRNoel pr)
@@ -7659,6 +7700,37 @@ namespace KnightInCradle.CharmUi
             _shadowDashBodyHidden = false;
             KnightHudDeco.TriggerScreenWhite(KnightInCradlePlugin.ShadowDashFlashSeconds);
         }
+
+        /// <summary>
+        /// 蓄力期间开关"缓降"（空中蓄力时生效）：直接复用 AIC 自己的 `FlgSoftFall` 管线，
+        /// 它的回调里就是 `Phy.initSoftFall(chanting_softfall_scale × num, 14 × num)`，
+        /// 而 `num` 取决于 `ENHA.EH.falling_cat`（= 原版技能「猫之缓降」）→ 效果与原版一致。
+        /// </summary>
+        private static void SetNoelChantSoftFall(PRNoel pr, bool active)
+        {
+            try
+            {
+                if (pr == null || pr.Skill == null || pr.Skill.FlgSoftFall == null)
+                {
+                    return;
+                }
+                if (active)
+                {
+                    // 只在空中需要；Add 本身幂等（重复添加不重复触发回调）
+                    pr.Skill.FlgSoftFall.Add(NoelChantSoftFallKey);
+                }
+                else if (pr.Skill.FlgSoftFall.hasKey(NoelChantSoftFallKey))
+                {
+                    pr.Skill.FlgSoftFall.Rem(NoelChantSoftFallKey);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>蓄力缓降用的 FlgSoftFall 键名（AIC 自己用 "MAGIC" 之类；这里用独立键避免互相干扰）。</summary>
+        private const string NoelChantSoftFallKey = "KIC_SHADOW_CHANT";
 
         /// <summary>
         /// 冲刺隐藏期间：让诺艾尔**免疫伤害与负面状态**。
@@ -7823,6 +7895,12 @@ namespace KnightInCradle.CharmUi
                     // 蓄力完成段：粒子仍是黄色圆点，但方向改成"由内到外"
                     SpawnNoelShadowParticles(KnightInCradlePlugin.ShadowChantParticlesPerFrame,
                         _noelShadowEssence);
+                    // 空中蓄力 → 缓降（复用 AIC 自己的 FlgSoftFall："猫之缓降"同一条管线）
+                    SetNoelChantSoftFall(pr, true);
+                }
+                else
+                {
+                    SetNoelChantSoftFall(pr, false);
                 }
                 UpdateNoelShadowParticles(pr);
                 // 粒子（两种方向共用同一张黄色圆点贴图，所以共用一个网格）
