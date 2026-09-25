@@ -7578,9 +7578,10 @@ namespace KnightInCradle.CharmUi
                 {
                     return true;
                 }
-                // 移动（L/R/T/B，含 LA/RA/TA/BA 同值）、攻击（Z）、法术（X）
+                // 移动（L/R/T/B，含 LA/RA/TA/BA 同值）、攻击（Z）、法术（X）、跳跃（JUMP）
                 if (key == KEY.SIMKEY.L || key == KEY.SIMKEY.R || key == KEY.SIMKEY.T ||
-                    key == KEY.SIMKEY.B || key == KEY.SIMKEY.Z || key == KEY.SIMKEY.X)
+                    key == KEY.SIMKEY.B || key == KEY.SIMKEY.Z || key == KEY.SIMKEY.X ||
+                    key == KEY.SIMKEY.JUMP)
                 {
                     __result = false; // = 这几个键在蓄力期间视为没按
                     return false;
