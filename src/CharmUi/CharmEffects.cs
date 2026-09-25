@@ -7653,10 +7653,14 @@ namespace KnightInCradle.CharmUi
             _shadowDashPhaseTimer = 0f;
             _shadowDashAuraScale = 1f;
             // 本次冲刺按哪种伤害结算：冲刺开始那一刻法杖是否带"魔法霰弹附魔"
+            // ⚠ 判据**不能**用 `pr.isShotgunState()` —— 那个只在"挥出去的霰弹/变种"那几个
+            // `*_SHOTGUN` 状态里为 true（`PR.cs:6012-6035`），站着的时候恒为 false。
+            // 真正表示"法杖附了魔法霰弹"的是**手里握着魔法蓄力**（CurMg 存在且蓄着 ≥1 MP），
+            // 也就是下面这个既有判据 `IsNoelMagicChanting`（护符22 巴尔德之壳用的同一个）。
             _dashUseShotgun = false;
             try
             {
-                _dashUseShotgun = pr != null && pr.isShotgunState();
+                _dashUseShotgun = pr != null && IsNoelMagicChanting(pr);
             }
             catch (Exception)
             {
@@ -9446,7 +9450,8 @@ namespace KnightInCradle.CharmUi
                 {
                     return; // 生成中的魔物不能打（否则它渲染会永久消失）
                 }
-                bool shotgun = _dashUseShotgun && _dashShotgunAtk != null;
+                // 附魔中就是霰弹结算（缓存只是"数值来源"之一，不能因为没有缓存就退回轻攻击）
+                bool shotgun = _dashUseShotgun;
                 NelAttackInfo src = shotgun ? _dashShotgunAtk : _dashPunchAtk;
                 float ratio = shotgun ? _dashShotgunRatio : _dashPunchRatio;
                 MGKIND kind = shotgun ? MGKIND.PR_SHOTGUN : MGKIND.PR_PUNCH;
@@ -9455,7 +9460,7 @@ namespace KnightInCradle.CharmUi
                 {
                     baseDmg = src.hpdmg0;
                 }
-                else if (_dashUseShotgun)
+                else if (shotgun)
                 {
                     int computed = ComputeNoelShotgunDamageNow(pr);
                     baseDmg = computed > 0 ? computed : KnightInCradlePlugin.ShadowDashFallbackDamage;
@@ -9466,7 +9471,18 @@ namespace KnightInCradle.CharmUi
                 }
                 float mult = KnightInCradlePlugin.ShadowDashDamageMult * NoelFinalDamageMult(kind, shotgun);
                 int dmg = Mathf.Max(1, Mathf.FloorToInt(baseDmg * mult + 0.5f));
-                var atk = src != null ? new NelAttackInfo(src) : new NelAttackInfo();
+                NelAttackInfo atk;
+                if (src != null)
+                {
+                    atk = new NelAttackInfo(src);
+                }
+                else
+                {
+                    // 没有任何可抄的攻击包 → 用最小攻击包 + 真伤，保证伤害真的落地（同挽歌的兜底做法）
+                    atk = new NelAttackInfo();
+                    atk.fix_damage = true;
+                    ratio = 1f;
+                }
                 atk.Caster = pr;
                 atk.hpdmg0 = dmg;
                 atk.hpdmg_current = -1000; // 置回未结算态 → 按下面的发布率重新算
