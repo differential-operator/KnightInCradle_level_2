@@ -7562,6 +7562,8 @@ namespace KnightInCradle.CharmUi
         private static float _shadowDashBurstX;
         private static float _shadowDashBurstY;
         private static float _shadowDashBurstDir;
+        private static float _shadowDashPrevX;
+        private static int _shadowDashStuckFrames;
 
         /// <summary>冲刺段是否正在进行（光圈缩小 / 发射中）。</summary>
         public static bool NoelShadowDashActive => _shadowDashPhase != ShadowDashPhase.None;
@@ -7574,7 +7576,7 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (!_noelShadowChanting || IsKnightMode)
+                if ((!_noelShadowChanting && !NoelShadowDashActive) || IsKnightMode)
                 {
                     return true;
                 }
@@ -7653,12 +7655,36 @@ namespace KnightInCradle.CharmUi
                     // 隐藏本体：真正生效的那一次在 KnightInCradleBehaviour.LateUpdate（渲染前），
                     // 这里再压一遍保证同帧生效（tick 早于游戏 Update 时会被覆盖，LateUpdate 会补上）
                     KnightInCradleBehaviour.SetNoelHiddenForDash(pr, true);
-                    _shadowDashBurstX += _shadowDashBurstDir * KnightInCradlePlugin.ShadowDashBurstSpeed * dt;
-                    // 诺艾尔本体每帧跟到图片**后面**（同小骑士：本体跟着冲刺特效走）
-                    pr.setTo(_shadowDashBurstX - _shadowDashBurstDir * KnightInCradlePlugin.ShadowDashBurstBackOffset,
-                        _shadowDashBurstY);
+                    // 让**游戏自己的物理**来推进（`walkBy` 带 `checkwall`），这样撞墙会被挡住，
+                    // 不会像 `setTo` 那样整个人穿墙过去（2026-09-25 用户反馈）。
+                    float dx = _shadowDashBurstDir * KnightInCradlePlugin.ShadowDashBurstSpeed / 60f;
+                    try
+                    {
+                        pr.walkBy(FOCTYPE.WALK, dx, 0f, true);
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    // 图片仍然画在诺艾尔**前方** `DashBurstBackOffset` 格 → 观感依旧是"图片带着她冲"
+                    _shadowDashBurstX = pr.x + _shadowDashBurstDir * KnightInCradlePlugin.ShadowDashBurstBackOffset;
+                    _shadowDashBurstY = NoelBodyCenterY(pr);
                     // 隐藏期间免疫伤害与负面状态
                     ApplyNoelDashImmunity(pr);
+                    // 撞墙判定：连续几帧几乎没前进 → 提前收尾，避免图片卡在墙上空转
+                    if (Mathf.Abs(pr.x - _shadowDashPrevX) < 0.02f)
+                    {
+                        _shadowDashStuckFrames++;
+                        if (_shadowDashStuckFrames >= 3)
+                        {
+                            EndNoelShadowDash(pr);
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        _shadowDashStuckFrames = 0;
+                    }
+                    _shadowDashPrevX = pr.x;
                 }
                 if (_shadowDashPhaseTimer >= KnightInCradlePlugin.ShadowDashBurstSeconds)
                 {
@@ -7683,6 +7709,8 @@ namespace KnightInCradle.CharmUi
                 _shadowDashBurstDir = pr.mpf_is_right >= 0f ? 1f : -1f;
                 _shadowDashBurstX = pr.x;
                 _shadowDashBurstY = NoelBodyCenterY(pr);
+                _shadowDashPrevX = pr.x;
+                _shadowDashStuckFrames = 0;
             }
             KnightInCradleBehaviour.SetNoelHiddenForDash(pr, true);
             _shadowDashBodyHidden = true;
@@ -7695,6 +7723,7 @@ namespace KnightInCradle.CharmUi
         {
             _shadowDashPhase = ShadowDashPhase.None;
             _shadowDashPhaseTimer = 0f;
+            _shadowDashStuckFrames = 0;
             _shadowDashAuraScale = 1f;
             EnsureNoelShadowDashBurstTicket(pr, false);
             KnightInCradleBehaviour.SetNoelHiddenForDash(pr, false);
