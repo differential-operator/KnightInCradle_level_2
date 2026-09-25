@@ -9188,21 +9188,28 @@ namespace KnightInCradle.CharmUi
                 {
                     return true;
                 }
-                // 护符35 骨钉大师的荣耀：**奔跑中按住攻击键时禁用"突进冲击"**，
-                // 让长按走蓄力而不是被突进冲击吃掉（需求 2026-09-25）。
-                if (type == SkillManager.SKILL_TYPE.dashpunch && NailMasterEquipped)
+                // 护符35 骨钉大师的荣耀：**按住攻击键**时禁用"突进冲击 / 凌空横斩"，
+                // 让长按走蓄力而不是被这些变招吃掉（需求 2026-09-25）。
+                // 与 AIC 的判定一一对应：
+                //   突进冲击 = 奔跑中按下攻击键（`Pr.run_continue_time >= 22f`）；
+                //   凌空横斩 = 空中按下攻击键（`!hasFoot()`）。
+                if (NailMasterEquipped &&
+                    (type == SkillManager.SKILL_TYPE.dashpunch ||
+                     type == SkillManager.SKILL_TYPE.airpunch))
                 {
                     PRNoel prNm = KnightInCradleBehaviour.GetPrPublic();
                     bool held = false;
+                    bool airborne = false;
                     try
                     {
                         held = prNm != null && prNm.isAtkO(0);
+                        airborne = prNm != null && !prNm.hasFoot();
                     }
                     catch (Exception)
                     {
                         held = false;
                     }
-                    if (held)
+                    if (held && (type == SkillManager.SKILL_TYPE.dashpunch || airborne))
                     {
                         __result = false;
                         return false;
