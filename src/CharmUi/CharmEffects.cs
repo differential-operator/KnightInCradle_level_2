@@ -5086,7 +5086,9 @@ namespace KnightInCradle.CharmUi
                     var w = new NoelWeaver
                     {
                         X = pr.x + (idx - 1) * 1.3f,
-                        Y = NoelBodyCenterY(pr),
+                        // 出生位置以**诺艾尔的脚底**为准（她脚下的地面就在这里），
+                        // 绝不放在她的身体中心之下 —— 早先直接用身体中心会陷进地面。
+                        Y = pr.mbottom - WeaverHalfH,
                         State = 0,
                         Face = UnityEngine.Random.value < 0.5f ? 1 : -1,
                         AttackCd = UnityEngine.Random.Range(0.4f, 1.4f),
@@ -5095,10 +5097,15 @@ namespace KnightInCradle.CharmUi
                         WanderX = pr.x + (idx - 1) * 1.3f,
                         NextHopT = UnityEngine.Random.Range(1f, 3f)
                     };
-                    float gy = NoelWeaverGroundY(mp, w.X, w.Y + WeaverHalfH + 0.5f);
+                    float gy = NoelWeaverGroundY(mp, w.X, pr.mbottom);
                     if (!float.IsNaN(gy) && gy >= 0f)
                     {
                         w.Y = gy - WeaverHalfH;
+                    }
+                    // 兜底：任何情况下都不低于诺艾尔脚下的地面
+                    if (w.Y > pr.mbottom - WeaverHalfH)
+                    {
+                        w.Y = pr.mbottom - WeaverHalfH;
                     }
                     _noelWeavers.Add(w);
                 }
@@ -5253,12 +5260,12 @@ namespace KnightInCradle.CharmUi
                 w.HopVy += WeaverHopGravity * dt;
                 w.Y += w.HopVy * dt;
             }
-            // 贴地：落地后对齐地面
-            float gy = NoelWeaverGroundY(mp, w.X, w.Y + WeaverHalfH + 0.6f);
+            // 贴地：**双向**对齐地面（之前只允许往上贴 → 站在高处/刚生成时会陷进地里）
+            float gy = NoelWeaverGroundY(mp, w.X, w.Y + WeaverHalfH);
             if (!float.IsNaN(gy) && gy >= 0f)
             {
                 float targetY = gy - WeaverHalfH;
-                if (targetY <= w.Y)
+                if (Mathf.Abs(targetY - w.Y) <= 2f)
                 {
                     w.Y = targetY;
                     w.HopVy = 0f;
@@ -5539,9 +5546,9 @@ namespace KnightInCradle.CharmUi
                     continue;
                 }
                 float dxm = (w.X - ax) * mp.CLEN;
-                float dym = -(w.Y - ay) * mp.CLEN + 0.4f * mp.CLEN;
-                float ww = tex.width * WeaverScale;
-                float hh = tex.height * WeaverScale;
+                float dym = -(w.Y - ay) * mp.CLEN + KnightInCradlePlugin.WeaverRenderOffsetY * mp.CLEN;
+                float ww = tex.width * KnightInCradlePlugin.WeaverRenderScale;
+                float hh = tex.height * KnightInCradlePlugin.WeaverRenderScale;
                 _noelWeaverMesh.Col = MTRX.ColWhite;
                 _noelWeaverMesh.initForImgAndTexture(tex);
                 _noelWeaverMesh.uv_top = 0f;

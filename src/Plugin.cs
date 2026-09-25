@@ -271,6 +271,10 @@ namespace KnightInCradle
         // ---- 护符36 编织者之歌 ----
         /// <summary>幼虫之歌 + 编织者之歌：小蜘蛛每次命中回复的 MP（默认 3）。</summary>
         internal static ConfigEntry<float> WeaverGrubsongMpConfig;
+        /// <summary>小蜘蛛渲染的纵向偏移（格，正值 = 上移；默认 0.4，同小骑士那份）。</summary>
+        internal static ConfigEntry<float> WeaverRenderOffsetYConfig;
+        /// <summary>小蜘蛛渲染缩放（默认 0.28，同小骑士那份）。</summary>
+        internal static ConfigEntry<float> WeaverRenderScaleConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -458,6 +462,14 @@ namespace KnightInCradle
             NailMasterCircleDebugConfig == null || NailMasterCircleDebugConfig.Value;
         internal static float WeaverGrubsongMp =>
             WeaverGrubsongMpConfig != null ? Mathf.Clamp(WeaverGrubsongMpConfig.Value, 0f, 99f) : 3f;
+        internal static float WeaverRenderOffsetY =>
+            WeaverRenderOffsetYConfig != null
+                ? Mathf.Clamp(WeaverRenderOffsetYConfig.Value, -3f, 3f)
+                : 0.4f;
+        internal static float WeaverRenderScale =>
+            WeaverRenderScaleConfig != null
+                ? Mathf.Clamp(WeaverRenderScaleConfig.Value, 0.05f, 3f)
+                : 0.28f;
 
         private static string PoseName(ConfigEntry<string> cfg, string fallback)
         {
@@ -892,6 +904,11 @@ namespace KnightInCradle
             // 护符36 编织者之歌
             WeaverGrubsongMpConfig = Config.Bind("Charm36", "GrubsongBondMp", 3f,
                 "编织者之歌：**同时携带幼虫之歌**时，小蜘蛛每次攻击命中回复的 MP（默认 3）。");
+            WeaverRenderOffsetYConfig = Config.Bind("Charm36", "RenderOffsetY", 0.4f,
+                "编织者之歌：小蜘蛛渲染的纵向偏移（格，正值 = 上移；默认 0.4，同小骑士那份）。" +
+                "如果看到小蜘蛛陷在地面里，把它调大即可。");
+            WeaverRenderScaleConfig = Config.Bind("Charm36", "RenderScale", 0.28f,
+                "编织者之歌：小蜘蛛渲染缩放（默认 0.28，同小骑士那份）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
