@@ -221,6 +221,15 @@ namespace KnightInCradle
         internal static ConfigEntry<float> ShadowDashBurstOffsetXConfig;
         /// <summary>发射图片位置偏移：y 向下为正（格，默认 0）。</summary>
         internal static ConfigEntry<float> ShadowDashBurstOffsetYConfig;
+        /// <summary>冲刺消耗的 MP（默认 100）。</summary>
+        internal static ConfigEntry<int> ShadowDashMpCostConfig;
+        /// <summary>冲刺伤害倍率（相对"当前轻攻击/魔法霰弹"伤害，默认 3）。</summary>
+        internal static ConfigEntry<float> ShadowDashDamageMultConfig;
+        /// <summary>冲刺判定箱：宽（格）与高（格）。</summary>
+        internal static ConfigEntry<float> ShadowDashHitboxWConfig;
+        internal static ConfigEntry<float> ShadowDashHitboxHConfig;
+        /// <summary>拿不到攻击包时的兜底基础伤害（默认 15）。</summary>
+        internal static ConfigEntry<int> ShadowDashFallbackDamageConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -332,6 +341,24 @@ namespace KnightInCradle
             ShadowDashBurstOffsetYConfig != null
                 ? Mathf.Clamp(ShadowDashBurstOffsetYConfig.Value, -20f, 20f)
                 : 0f;
+        internal static int ShadowDashMpCost =>
+            ShadowDashMpCostConfig != null ? Mathf.Clamp(ShadowDashMpCostConfig.Value, 0, 9999) : 100;
+        internal static float ShadowDashDamageMult =>
+            ShadowDashDamageMultConfig != null
+                ? Mathf.Clamp(ShadowDashDamageMultConfig.Value, 0.1f, 20f)
+                : 3f;
+        internal static float ShadowDashHitboxW =>
+            ShadowDashHitboxWConfig != null
+                ? Mathf.Clamp(ShadowDashHitboxWConfig.Value, 0.2f, 20f)
+                : 2f;
+        internal static float ShadowDashHitboxH =>
+            ShadowDashHitboxHConfig != null
+                ? Mathf.Clamp(ShadowDashHitboxHConfig.Value, 0.2f, 20f)
+                : 2f;
+        internal static int ShadowDashFallbackDamage =>
+            ShadowDashFallbackDamageConfig != null
+                ? Mathf.Clamp(ShadowDashFallbackDamageConfig.Value, 1, 9999)
+                : 15;
 
         /// <summary>护符33 粒子的 RGB（从十六进制字符串 `RRGGBB` 解析，默认 FFF200）。</summary>
         internal static Color32 ShadowChantParticleColor
@@ -709,6 +736,16 @@ namespace KnightInCradle
                 "锋利之影·冲刺：发射图片的水平位置偏移（格，正值 = 朝**前方**，默认 0）。");
             ShadowDashBurstOffsetYConfig = Config.Bind("Charm33", "DashBurstOffsetY", 0f,
                 "锋利之影·冲刺：发射图片的垂直位置偏移（格，y 向下为正，负值 = 上移，默认 0）。");
+            ShadowDashMpCostConfig = Config.Bind("Charm33", "DashMpCost", 100,
+                "锋利之影·冲刺：消耗的 MP（默认 100）；MP 不足则不冲刺。");
+            ShadowDashDamageMultConfig = Config.Bind("Charm33", "DashDamageMult", 3f,
+                "锋利之影·冲刺：伤害倍率 —— 相对**当前轻攻击**（法杖带霰弹附魔时相对**当前魔法霰弹**）的伤害，默认 3。");
+            ShadowDashHitboxWConfig = Config.Bind("Charm33", "DashHitboxWidth", 2f,
+                "锋利之影·冲刺：沿路径的伤害判定箱宽度（格，默认 2）。");
+            ShadowDashHitboxHConfig = Config.Bind("Charm33", "DashHitboxHeight", 2f,
+                "锋利之影·冲刺：沿路径的伤害判定箱高度（格，默认 2）。");
+            ShadowDashFallbackDamageConfig = Config.Bind("Charm33", "DashFallbackDamage", 15,
+                "锋利之影·冲刺：拿不到攻击包数据时的兜底基础伤害（默认 15，会再乘 DashDamageMult）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");

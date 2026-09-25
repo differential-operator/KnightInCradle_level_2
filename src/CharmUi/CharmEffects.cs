@@ -998,6 +998,12 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
+                // 护符33 冲刺段：无论是否佩戴蜕变挽歌，都记录"最近一次挥击"的攻击包
+                // （冲刺伤害要用"当前轻攻击 / 当前魔法霰弹"的数值）
+                if (!IsKnightMode)
+                {
+                    CaptureNoelDashAttack(__result);
+                }
                 if (IsKnightMode || !IsEquipped(CharmOwner.Noel, ElegyId))
                 {
                     return;
@@ -7568,6 +7574,19 @@ namespace KnightInCradle.CharmUi
         private static readonly object ShadowDashGravityKey = new object();
         /// <summary>冲刺期间被钉住的身体中心 Y（水平冲刺：不加重力、不下坠）。</summary>
         private static float _shadowDashLockY;
+        // ---- 冲刺伤害：缓存"最近一次挥击"的攻击包（同蜕变挽歌的做法）----
+        /// <summary>最近一次**轻攻击**（PR_PUNCH）的攻击包副本。</summary>
+        private static NelAttackInfo _dashPunchAtk;
+        private static float _dashPunchRatio = 1f;
+        /// <summary>最近一次**魔法霰弹**（含变种）的攻击包副本。</summary>
+        private static NelAttackInfo _dashShotgunAtk;
+        private static float _dashShotgunRatio = 1f;
+        /// <summary>本次冲刺是否按"魔法霰弹"结算（冲刺开始那一刻法杖是否带霰弹附魔）。</summary>
+        private static bool _dashUseShotgun;
+        /// <summary>本次冲刺已经打过的敌人（同一只只结算一次）。</summary>
+        private static readonly HashSet<NelEnemy> _dashHitEnemies = new HashSet<NelEnemy>();
+        /// <summary>本次冲刺的霰弹命中特效是否已经播过（只播一次）。</summary>
+        private static bool _dashShotgunFxDone;
 
         /// <summary>冲刺段是否正在进行（光圈缩小 / 发射中）。</summary>
         public static bool NoelShadowDashActive => _shadowDashPhase != ShadowDashPhase.None;
@@ -7613,9 +7632,37 @@ namespace KnightInCradle.CharmUi
         /// </summary>
         private static void StartNoelShadowDash(PRNoel pr)
         {
+            // 冲刺消耗 MP（默认 100）：不足则不冲刺（音效/白闪/伤害都不发生）
+            int cost = KnightInCradlePlugin.ShadowDashMpCost;
+            if (cost > 0 && pr != null)
+            {
+                try
+                {
+                    if (pr.get_mp() < cost)
+                    {
+                        return;
+                    }
+                    pr.applyMpDamage(cost, true, null, false, false);
+                    RefreshNoelHudMp();
+                }
+                catch (Exception)
+                {
+                }
+            }
             _shadowDashPhase = ShadowDashPhase.Shrink;
             _shadowDashPhaseTimer = 0f;
             _shadowDashAuraScale = 1f;
+            // 本次冲刺按哪种伤害结算：冲刺开始那一刻法杖是否带"魔法霰弹附魔"
+            _dashUseShotgun = false;
+            try
+            {
+                _dashUseShotgun = pr != null && pr.isShotgunState();
+            }
+            catch (Exception)
+            {
+            }
+            _dashHitEnemies.Clear();
+            _dashShotgunFxDone = false;
             // 松开护盾键的瞬间：播放冲刺爆发音效（hero_super_dash_burst）
             try
             {
@@ -7681,6 +7728,8 @@ namespace KnightInCradle.CharmUi
                     _shadowDashBurstY = NoelBodyCenterY(pr);
                     // 隐藏期间免疫伤害与负面状态
                     ApplyNoelDashImmunity(pr);
+                    // 路径伤害：沿路对每只敌人结算一次（3 倍轻攻击 / 3 倍魔法霰弹）
+                    CheckNoelDashHits(pr);
                     // 撞墙判定：连续几帧几乎没前进 → 提前收尾，避免图片卡在墙上空转
                     if (Mathf.Abs(pr.x - _shadowDashPrevX) < 0.02f)
                     {
@@ -9282,6 +9331,232 @@ namespace KnightInCradle.CharmUi
                 }
             }
             catch
+            {
+            }
+        }
+
+        // ==================== 护符33 冲刺段：伤害结算 ====================
+        /// <summary>
+        /// 记录"最近一次挥击"的攻击包（轻攻击 / 魔法霰弹及其变种），供冲刺段取"当前伤害"。
+        /// 与蜕变挽歌当初的做法一致：抄一份**独立的** `NelAttackInfo`（不随原攻击包回收失效），
+        /// 并记下那一刀的"伤害发布率"（`PR.getHpDamagePublishRatio`）。
+        /// </summary>
+        private static void CaptureNoelDashAttack(MagicItem mg)
+        {
+            try
+            {
+                if (mg == null || mg.Atk0 == null)
+                {
+                    return;
+                }
+                bool shotgun = IsNoelShotgunFlavored(mg);
+                bool punch = mg.kind == MGKIND.PR_PUNCH;
+                if (!shotgun && !punch)
+                {
+                    return; // 只关心轻攻击与魔法霰弹（含霰弹变种）
+                }
+                PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+                if (pr == null)
+                {
+                    return;
+                }
+                var copy = new NelAttackInfo(mg.Atk0);
+                float ratio = 1f;
+                try
+                {
+                    ratio = pr.getHpDamagePublishRatio(mg);
+                }
+                catch (Exception)
+                {
+                    ratio = 1f;
+                }
+                if (shotgun)
+                {
+                    _dashShotgunAtk = copy;
+                    _dashShotgunRatio = ratio;
+                }
+                else
+                {
+                    _dashPunchAtk = copy;
+                    _dashPunchRatio = ratio;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 冲刺路径伤害（需求 2026-09-25）：沿路对**所有**目标结算一次，
+        /// 数值 = 当前伤害 × `DashDamageMult`（默认 3 倍）：
+        /// - 法杖带**魔法霰弹附魔**（冲刺开始那一刻的 `pr.isShotgunState()`）→ 用"当前魔法霰弹"的伤害包，
+        ///   并在首个命中时触发原版霰弹的击中特效（同时按原版规则把蓄力耗掉）；
+        /// - 否则 → 用"当前轻攻击"的伤害包。
+        /// 伤害包优先取"最近一次同类型挥击"的缓存；霰弹没有缓存时按原版公式现算
+        /// （`int(shotgun_ratio × ZPOW(mp_hold, reduce_mp) × CurMg.Atk0.hpdmg0)`）；
+        /// 都拿不到时用配置的兜底基础伤害。
+        /// 乘区与其它诺艾尔侧效果统一走 `NoelFinalDamageMult`（萨满/坚固力量/会心）。
+        /// </summary>
+        private static void CheckNoelDashHits(PRNoel pr)
+        {
+            try
+            {
+                Map2d mp = pr != null ? pr.Mp : null;
+                if (mp == null)
+                {
+                    return;
+                }
+                int mask = NoelEnemyOverlapMask();
+                if (mask == 0)
+                {
+                    return;
+                }
+                float cy = NoelBodyCenterY(pr);
+                float ux = mp.pixel2ux(pr.x * mp.CLEN);
+                float uy = mp.pixel2uy(cy * mp.CLEN);
+                Vector2 center = mp.gameObject.transform.TransformPoint(new Vector2(ux, uy));
+                Collider2D[] hits = Physics2D.OverlapBoxAll(center,
+                    new Vector2(KnightInCradlePlugin.ShadowDashHitboxW,
+                        KnightInCradlePlugin.ShadowDashHitboxH), 0f, mask);
+                for (int i = 0; i < hits.Length; i++)
+                {
+                    Collider2D c = hits[i];
+                    if (c == null)
+                    {
+                        continue;
+                    }
+                    NelEnemy enemy = c.GetComponentInParent<NelEnemy>();
+                    if (enemy == null || !_dashHitEnemies.Add(enemy))
+                    {
+                        continue; // 每只魔物只挨一次
+                    }
+                    ApplyNoelDashDamage(pr, enemy);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static void ApplyNoelDashDamage(PRNoel pr, NelEnemy enemy)
+        {
+            try
+            {
+                if (IsEnemySummoning(enemy))
+                {
+                    return; // 生成中的魔物不能打（否则它渲染会永久消失）
+                }
+                bool shotgun = _dashUseShotgun && _dashShotgunAtk != null;
+                NelAttackInfo src = shotgun ? _dashShotgunAtk : _dashPunchAtk;
+                float ratio = shotgun ? _dashShotgunRatio : _dashPunchRatio;
+                MGKIND kind = shotgun ? MGKIND.PR_SHOTGUN : MGKIND.PR_PUNCH;
+                int baseDmg;
+                if (src != null && src.hpdmg0 > 0)
+                {
+                    baseDmg = src.hpdmg0;
+                }
+                else if (_dashUseShotgun)
+                {
+                    int computed = ComputeNoelShotgunDamageNow(pr);
+                    baseDmg = computed > 0 ? computed : KnightInCradlePlugin.ShadowDashFallbackDamage;
+                }
+                else
+                {
+                    baseDmg = KnightInCradlePlugin.ShadowDashFallbackDamage;
+                }
+                float mult = KnightInCradlePlugin.ShadowDashDamageMult * NoelFinalDamageMult(kind, shotgun);
+                int dmg = Mathf.Max(1, Mathf.FloorToInt(baseDmg * mult + 0.5f));
+                var atk = src != null ? new NelAttackInfo(src) : new NelAttackInfo();
+                atk.Caster = pr;
+                atk.hpdmg0 = dmg;
+                atk.hpdmg_current = -1000; // 置回未结算态 → 按下面的发布率重新算
+                atk._apply_knockback_current = true;
+                atk.shuffleHpMpDmg(enemy, ratio, 1f, dmg, atk.mpdmg0);
+                atk.CenterXy(enemy.x, enemy.y, 0f);
+                ResolveHeavyFocusHit(); // 算是"这一发攻击命中了"（沉重之击的连击）
+                enemy.applyDamage(atk, false);
+                try
+                {
+                    DashAudio.PlayEnemyHit();
+                }
+                catch (Exception)
+                {
+                }
+                if (_dashUseShotgun)
+                {
+                    TriggerNoelDashShotgunEffect(pr, enemy);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>按原版公式现算"当前魔法霰弹"的基础伤害（没有可用的挥击缓存时用）。</summary>
+        private static int ComputeNoelShotgunDamageNow(PRNoel pr)
+        {
+            try
+            {
+                M2PrSkill skill = pr != null ? pr.Skill : null;
+                MagicItem hold = skill != null ? skill.getCurMagic() : null;
+                if (hold == null || hold.Atk0 == null || hold.casttime <= 0f || hold.reduce_mp <= 0f)
+                {
+                    return -1;
+                }
+                float ratio = 1.5f;
+                MKind mk = MKind.Get(hold.kind);
+                if (mk != null)
+                {
+                    ratio = mk.shotgun_ratio;
+                }
+                float charge01 = X.ZPOW(skill.getHoldingMp(true), hold.reduce_mp);
+                int dmg = X.IntC(ratio * charge01 * hold.Atk0.hpdmg0);
+                if (_dashPunchAtk != null && _dashPunchAtk.hpdmg0 > dmg)
+                {
+                    dmg = _dashPunchAtk.hpdmg0; // 原版是 max(算出来的, 轻攻击基础伤害)
+                }
+                return dmg;
+            }
+            catch (Exception)
+            {
+                return -1;
+            }
+        }
+
+        /// <summary>冲刺霰弹命中特效：与原版霰弹同一套（满蓄力时带瞬间减速的后仰）；只触发一次。</summary>
+        private static void TriggerNoelDashShotgunEffect(PRNoel pr, NelEnemy enemy)
+        {
+            try
+            {
+                if (_dashShotgunFxDone || pr == null || enemy == null)
+                {
+                    return;
+                }
+                M2PrSkill skill = pr.Skill;
+                MagicItem curMg = skill != null ? skill.getCurMagic() : null;
+                Map2d mp = pr.Mp;
+                if (skill == null || curMg == null || !curMg.isPreparingCircle || mp == null)
+                {
+                    return; // 冲刺那一刻的蓄力已经不在了 → 只结算伤害
+                }
+                int holdingMp = skill.getHoldingMp(true);
+                if (holdingMp < 1)
+                {
+                    return;
+                }
+                _dashShotgunFxDone = true;
+                float charge01 = Mathf.Clamp01(holdingMp / Mathf.Max(1f, curMg.reduce_mp));
+                var hitItem = new M2Ray.M2RayHittedItem();
+                hitItem.type = HITTYPE.EN;
+                hitItem.Hit = enemy;
+                hitItem.Mv = enemy;
+                hitItem.hit_ux = mp.map2globalux(enemy.x);
+                hitItem.hit_uy = mp.map2globaluy(enemy.y);
+                MDAT.setFullChargeShotgunEffect(pr, charge01, hitItem, false, true, 0.47123894f);
+                // 与原版"霰弹把蓄力耗尽"同一个收尾（不复位、不返还魔力）
+                skill.killHoldMagic(false, false, false);
+            }
+            catch (Exception)
             {
             }
         }

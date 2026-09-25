@@ -4926,3 +4926,52 @@ tick 里那次调用保留作为同帧即时生效。
 
 验证：`build=2026-09-25.11`，DLL SHA256 `22983CAEB0807B4F…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+## 52. 护符 33 冲刺伤害（2026-09-25，build=2026-09-25.12）
+
+需求：蓄力完成、松开护盾键 → **消耗 100MP** → 向前冲刺，对**路径上所有目标**造成
+**当前 3 倍「轻攻击」**伤害；若诺艾尔法杖带**魔法霰弹附魔**，则改为 **3 倍「魔法霰弹」**伤害
+（并触发霰弹的击中特效）。
+
+### 52.1 消耗与开关
+
+- `StartNoelShadowDash` 里先扣 MP：`pr.get_mp() < DashMpCost(默认100)` → **不冲刺**（音效/白闪/伤害都不发生）；
+  否则 `pr.applyMpDamage(cost, true, null, false, false)` + 刷新 HUD。
+- 同时在冲刺开始那一刻判定 `_dashUseShotgun = pr.isShotgunState()`（= 法杖带霰弹附魔），
+  这一次冲刺的伤害类型就固定下来；并清空"已命中敌人"集合与霰弹特效标记。
+
+### 52.2 伤害来源（"当前"怎么取）
+
+沿用蜕变挽歌那套"抄攻击包"的做法（挂 `M2PrSkill.executeSmallAttack` 后缀，**与是否佩戴挽歌无关**）：
+每次挥击把攻击包复制一份存起来 —— `PR_PUNCH` → 轻攻击缓存；霰弹（含变种，`IsNoelShotgunFlavored`）→ 霰弹缓存，
+并记下那一刀的伤害发布率 `PR.getHpDamagePublishRatio`。
+
+冲刺结算时按优先级取基础伤害：
+
+| 情况 | 基础伤害 |
+|---|---|
+| 霰弹附魔 + 有霰弹缓存 | 缓存的霰弹 `hpdmg0` |
+| 霰弹附魔 + 无缓存 | 按原版公式现算：`int(shotgun_ratio × ZPOW(mp_hold, reduce_mp) × CurMg.Atk0.hpdmg0)`（并与轻攻击基础伤害取大，同 `MDAT.initShotGun`） |
+| 无附魔 + 有轻攻击缓存 | 缓存的轻攻击 `hpdmg0` |
+| 都没有 | 配置兜底 `DashFallbackDamage`（默认 15） |
+
+最终伤害 = `基础伤害 × DashDamageMult(默认3) × NoelFinalDamageMult(kind, shotgun)`
+（与萨满之石/坚固力量/会心同一个乘区），再走 `shuffleHpMpDmg(enemy, 那一刀的发布率, …)` 后 `enemy.applyDamage(atk, false)`。
+命中前同样先跳过 `IsEnemySummoning`（生成中的魔物不能打）。
+
+### 52.3 路径判定与霰弹特效
+
+- 冲刺每帧以**诺艾尔身体中心**为中心做 `Physics2D.OverlapBoxAll`（掩码同挽歌剑气：
+  `EnemySelf/Enemy/AttackHitable`），判定箱默认 2×2 格（配置 `DashHitboxWidth/Height`）；
+  同一只敌人**整次冲刺只结算一次**（`HashSet<NelEnemy>`）。
+- 霰弹附魔时，首次命中触发原版霰弹的击中特效 `MDAT.setFullChargeShotgunEffect(...)`，
+  并按原版规则把蓄力耗掉（`skill.killHoldMagic(false,false,false)`）；只触发一次。
+
+新增配置（`[Charm33]`）：`DashMpCost`(100)、`DashDamageMult`(3)、`DashHitboxWidth`(2)、
+`DashHitboxHeight`(2)、`DashFallbackDamage`(15)。
+
+> 说明：如果这次蓄力后**一次都没挥过法杖**，霰弹那条会走"按原版公式现算"分支；
+> 若你觉得现算的数值和实打一发不一致，先进游戏打一发霰弹再试一次（会走缓存分支），把两次的结果告诉我即可。
+
+验证：`build=2026-09-25.12`，DLL SHA256 `C0F854B699111EBE…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。
