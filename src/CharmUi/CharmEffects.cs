@@ -4728,8 +4728,9 @@ namespace KnightInCradle.CharmUi
                 float radius = KnightInCradlePlugin.NailMasterCircleRadius;
                 Vector2 center = mp.gameObject.transform.TransformPoint(
                     new Vector2(mp.pixel2ux(cx * mp.CLEN), mp.pixel2uy(cy * mp.CLEN)));
-                float ur = radius * mp.CLEN;
-                Collider2D[] hits = Physics2D.OverlapCircleAll(center, ur, mask);
+                // ⚠ 这里的物理世界单位与"格"是 1:1（护符21 苦痛荆棘 / 护符24 防御者纹章都是直接用格数当半径），
+                // 早先误乘了 CLEN → 半径变成 100 多格 = 全屏伤害。
+                Collider2D[] hits = Physics2D.OverlapCircleAll(center, radius, mask);
                 float now = Time.time;
                 float interval = KnightInCradlePlugin.NailMasterCircleHitSeconds;
                 // 先把"这帧不在圈里"的登记清掉（离开后重新进圈 → 立刻再吃一次）
