@@ -237,6 +237,22 @@ namespace KnightInCradle
         /// <summary>蹲下/爬行时每秒回复的生命值（默认 5）。</summary>
         internal static ConfigEntry<float> UnnCrouchHealPerSecondConfig;
 
+        // ---- 护符35 骨钉大师的荣耀 ----
+        /// <summary>长按攻击键多少秒完成蓄力（默认 1）。</summary>
+        internal static ConfigEntry<float> NailMasterChargeSecondsConfig;
+        /// <summary>旋风斩持续时间（秒，默认 2）。</summary>
+        internal static ConfigEntry<float> NailMasterSpinSecondsConfig;
+        /// <summary>起手动作（attack_air1）播放多久后切到循环（秒，默认 0.25）。</summary>
+        internal static ConfigEntry<float> NailMasterSpinIntroSecondsConfig;
+        /// <summary>收尾动作（attack_air3）播放时长（秒，默认 0.3）。</summary>
+        internal static ConfigEntry<float> NailMasterSpinOutroSecondsConfig;
+        /// <summary>旋风斩期间方向键平移速度（格/秒，默认 6）。</summary>
+        internal static ConfigEntry<float> NailMasterSpinMoveSpeedConfig;
+        /// <summary>三个动作名（默认 attack_air1 / attack_air2 / attack_air3）。</summary>
+        internal static ConfigEntry<string> NailMasterSpinPoseIntroConfig;
+        internal static ConfigEntry<string> NailMasterSpinPoseLoopConfig;
+        internal static ConfigEntry<string> NailMasterSpinPoseOutroConfig;
+
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
         internal static ConfigEntry<string> PoseBrowserNextKeyConfig;
@@ -371,6 +387,35 @@ namespace KnightInCradle
             UnnCrouchHealPerSecondConfig != null
                 ? Mathf.Clamp(UnnCrouchHealPerSecondConfig.Value, 0f, 200f)
                 : 5f;
+
+        internal static float NailMasterChargeSeconds =>
+            NailMasterChargeSecondsConfig != null
+                ? Mathf.Clamp(NailMasterChargeSecondsConfig.Value, 0.05f, 10f)
+                : 1f;
+        internal static float NailMasterSpinSeconds =>
+            NailMasterSpinSecondsConfig != null
+                ? Mathf.Clamp(NailMasterSpinSecondsConfig.Value, 0.1f, 20f)
+                : 2f;
+        internal static float NailMasterSpinIntroSeconds =>
+            NailMasterSpinIntroSecondsConfig != null
+                ? Mathf.Clamp(NailMasterSpinIntroSecondsConfig.Value, 0f, 10f)
+                : 0.25f;
+        internal static float NailMasterSpinOutroSeconds =>
+            NailMasterSpinOutroSecondsConfig != null
+                ? Mathf.Clamp(NailMasterSpinOutroSecondsConfig.Value, 0f, 10f)
+                : 0.3f;
+        internal static float NailMasterSpinMoveSpeed =>
+            NailMasterSpinMoveSpeedConfig != null
+                ? Mathf.Clamp(NailMasterSpinMoveSpeedConfig.Value, 0f, 40f)
+                : 6f;
+        internal static string NailMasterSpinPoseIntro => PoseName(NailMasterSpinPoseIntroConfig, "attack_air1");
+        internal static string NailMasterSpinPoseLoop => PoseName(NailMasterSpinPoseLoopConfig, "attack_air2");
+        internal static string NailMasterSpinPoseOutro => PoseName(NailMasterSpinPoseOutroConfig, "attack_air3");
+
+        private static string PoseName(ConfigEntry<string> cfg, string fallback)
+        {
+            return cfg != null && !string.IsNullOrEmpty(cfg.Value) ? cfg.Value : fallback;
+        }
 
         /// <summary>护符33 粒子的 RGB（从十六进制字符串 `RRGGBB` 解析，默认 FFF200）。</summary>
         internal static Color32 ShadowChantParticleColor
@@ -764,6 +809,23 @@ namespace KnightInCradle
             // 护符34 乌恩之形
             UnnCrouchHealPerSecondConfig = Config.Bind("Charm34", "CrouchHealPerSecond", 5f,
                 "乌恩之形：蹲下/爬行时每秒回复的生命值（默认 5；0 = 不回血）。");
+            // 护符35 骨钉大师的荣耀
+            NailMasterChargeSecondsConfig = Config.Bind("Charm35", "ChargeSeconds", 1f,
+                "骨钉大师的荣耀：长按攻击键多少秒完成蓄力（默认 1）。");
+            NailMasterSpinSecondsConfig = Config.Bind("Charm35", "SpinSeconds", 2f,
+                "骨钉大师的荣耀：旋风斩（松开攻击键后）的持续时间（秒，默认 2）。");
+            NailMasterSpinIntroSecondsConfig = Config.Bind("Charm35", "SpinIntroSeconds", 0.25f,
+                "骨钉大师的荣耀：起手动作播放多久后切到循环动作（秒，默认 0.25）。");
+            NailMasterSpinOutroSecondsConfig = Config.Bind("Charm35", "SpinOutroSeconds", 0.3f,
+                "骨钉大师的荣耀：收尾动作播放时长（秒，默认 0.3）。");
+            NailMasterSpinMoveSpeedConfig = Config.Bind("Charm35", "SpinMoveSpeed", 6f,
+                "骨钉大师的荣耀：旋风斩期间用方向键平移的速度（格/秒，默认 6）。");
+            NailMasterSpinPoseIntroConfig = Config.Bind("Charm35", "SpinPoseIntro", "attack_air1",
+                "骨钉大师的荣耀：起手动作名（默认 attack_air1，原版旋风斩用的名字）。");
+            NailMasterSpinPoseLoopConfig = Config.Bind("Charm35", "SpinPoseLoop", "attack_air2",
+                "骨钉大师的荣耀：循环动作名（默认 attack_air2）。");
+            NailMasterSpinPoseOutroConfig = Config.Bind("Charm35", "SpinPoseOutro", "attack_air3",
+                "骨钉大师的荣耀：收尾动作名（默认 attack_air3）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");

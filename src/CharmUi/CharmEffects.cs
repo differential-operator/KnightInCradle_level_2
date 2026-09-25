@@ -4364,6 +4364,220 @@ namespace KnightInCradle.CharmUi
 
         private static float _unnCrouchHealAccum;
 
+        // ==================== 护符35 骨钉大师的荣耀（诺艾尔侧） ====================
+        private enum NailMasterPhase
+        {
+            None,
+            Charging,  // 长按攻击键蓄力中（黄色粒子）
+            Charged,   // 蓄力完成（含 nail_charge_effect 光圈）
+            Spin,      // 旋风斩：attack_air1 → attack_air2 循环，方向键平移
+            SpinOutro, // 收尾：attack_air3
+        }
+        private static NailMasterPhase _nmPhase = NailMasterPhase.None;
+        private static float _nmTimer;
+        /// <summary>旋风斩期间锁重力的 key。</summary>
+        private static readonly object NailMasterGravityKey = new object();
+
+        /// <summary>旋风斩（含收尾动作）是否进行中。</summary>
+        public static bool NailMasterSpinActive =>
+            _nmPhase == NailMasterPhase.Spin || _nmPhase == NailMasterPhase.SpinOutro;
+
+        /// <summary>护符35 是否装备在本地诺艾尔身上（诺艾尔模式）。</summary>
+        public static bool NailMasterEquipped =>
+            !IsKnightMode && IsEquipped(CharmOwner.Noel, NailMasterId);
+
+        /// <summary>蓄力完成状态（决定是否画 nail_charge_effect 光圈）。</summary>
+        public static bool NailMasterCharged => _nmPhase == NailMasterPhase.Charged;
+
+        /// <summary>
+        /// 护符35 骨钉大师的荣耀（诺艾尔侧）：
+        /// ① 锁魔法键 X（见 `NoelShadowChantInputLockPrefix`）；
+        /// ② 长按**攻击键**蓄力：黄色粒子（照搬护符33 那套），**蓄力期间可自由行动**，
+        ///    `NailMasterChargeSeconds`（默认 1 秒）后完成，完成时出现 `nail_charge_effect` 光圈；
+        /// ③ 松开攻击键进入**旋风斩**：起手 `attack_air1` → 循环 `attack_air2`（沿用原版旋风斩的动作名），
+        ///    期间上下左右键不再控制跳跃/蹲下/移动，而是**直接平移**诺艾尔（锁重力、可 8 方向飞），
+        ///    持续 `SpinSeconds`（默认 2 秒）→ `attack_air3` 收尾 → 恢复。
+        /// </summary>
+        public static void TickNoelNailMasterCharm(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null || !NailMasterEquipped)
+                {
+                    EndNailMaster(pr);
+                    return;
+                }
+                bool attackHeld = false;
+                try
+                {
+                    attackHeld = pr.isAtkO(0);
+                }
+                catch (Exception)
+                {
+                    attackHeld = false;
+                }
+                switch (_nmPhase)
+                {
+                    case NailMasterPhase.None:
+                    case NailMasterPhase.Charging:
+                        if (attackHeld)
+                        {
+                            _nmTimer += Time.deltaTime;
+                            // 蓄力粒子：与护符33 同一套（向内收敛）
+                            SpawnNoelShadowParticles(KnightInCradlePlugin.ShadowChantParticlesPerFrame, false);
+                            if (_nmTimer >= KnightInCradlePlugin.NailMasterChargeSeconds)
+                            {
+                                _nmPhase = NailMasterPhase.Charged;
+                            }
+                            else
+                            {
+                                _nmPhase = NailMasterPhase.Charging;
+                            }
+                        }
+                        else
+                        {
+                            _nmTimer = 0f;
+                            _nmPhase = NailMasterPhase.None;
+                        }
+                        break;
+                    case NailMasterPhase.Charged:
+                        if (attackHeld)
+                        {
+                            EnsureNoelChargeAuraTicket(pr, true); // 蓄满：nail_charge_effect 光圈
+                        }
+                        else
+                        {
+                            StartNailMasterSpin(pr);
+                        }
+                        break;
+                    case NailMasterPhase.Spin:
+                    case NailMasterPhase.SpinOutro:
+                        TickNailMasterSpin(pr);
+                        break;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static void StartNailMasterSpin(PRNoel pr)
+        {
+            _nmPhase = NailMasterPhase.Spin;
+            _nmTimer = 0f;
+            EnsureNoelChargeAuraTicket(pr, false); // 收掉光圈
+            try
+            {
+                // 与锁定重力配套：先把残余速度清干净（原版旋风斩也是这么起手的）
+                pr.getPhysic()?.killSpeedForce(true, true, true, false, false);
+                pr.getPhysic()?.addLockGravity(NailMasterGravityKey, 0f, -1f);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static void TickNailMasterSpin(PRNoel pr)
+        {
+            _nmTimer += Time.deltaTime;
+            if (_nmPhase == NailMasterPhase.Spin)
+            {
+                TickNailMasterSpinMove(pr);
+                if (_nmTimer >= KnightInCradlePlugin.NailMasterSpinSeconds)
+                {
+                    _nmPhase = NailMasterPhase.SpinOutro;
+                    _nmTimer = 0f;
+                }
+                return;
+            }
+            // SpinOutro：只播 attack_air3，不再平移
+            if (_nmTimer >= KnightInCradlePlugin.NailMasterSpinOutroSeconds)
+            {
+                EndNailMaster(pr);
+            }
+        }
+
+        /// <summary>旋风斩期间：方向键直接平移（8 方向、锁重力、带墙检测）。</summary>
+        private static void TickNailMasterSpinMove(PRNoel pr)
+        {
+            try
+            {
+                float speed = KnightInCradlePlugin.NailMasterSpinMoveSpeed;
+                if (speed <= 0f)
+                {
+                    return;
+                }
+                float dx = 0f;
+                float dy = 0f;
+                if (IN.isRO(0))
+                {
+                    dx += 1f;
+                }
+                if (IN.isLO(0))
+                {
+                    dx -= 1f;
+                }
+                if (IN.isBO(0))
+                {
+                    dy += 1f; // y 向下为正
+                }
+                if (IN.isTO(0))
+                {
+                    dy -= 1f;
+                }
+                if (dx == 0f && dy == 0f)
+                {
+                    return;
+                }
+                float len = Mathf.Sqrt(dx * dx + dy * dy);
+                float step = speed / 60f; // 格/帧@60（与冲刺同一个口径）
+                pr.walkBy(FOCTYPE.WALK, dx / len * step, dy / len * step, true);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>结束旋风斩/蓄力：解锁重力、收掉光圈。</summary>
+        private static void EndNailMaster(PRNoel pr)
+        {
+            if (_nmPhase != NailMasterPhase.None)
+            {
+                try
+                {
+                    pr?.getPhysic()?.remLockGravity(NailMasterGravityKey);
+                }
+                catch (Exception)
+                {
+                }
+                try
+                {
+                    EnsureNoelChargeAuraTicket(pr, false);
+                }
+                catch (Exception)
+                {
+                }
+            }
+            _nmPhase = NailMasterPhase.None;
+            _nmTimer = 0f;
+        }
+
+        /// <summary>旋风斩当前该摆的姿势名（起手 / 循环 / 收尾）。</summary>
+        private static string NailMasterPoseName()
+        {
+            if (_nmPhase == NailMasterPhase.Spin)
+            {
+                return _nmTimer < KnightInCradlePlugin.NailMasterSpinIntroSeconds
+                    ? KnightInCradlePlugin.NailMasterSpinPoseIntro
+                    : KnightInCradlePlugin.NailMasterSpinPoseLoop;
+            }
+            if (_nmPhase == NailMasterPhase.SpinOutro)
+            {
+                return KnightInCradlePlugin.NailMasterSpinPoseOutro;
+            }
+            return null;
+        }
+
         /// <summary>
         /// 效果1：诺艾尔不会被魔物抓取/吞下。
         /// - `PR.initAbsorb`（被魔物吞下/吸收）直接拦掉；
@@ -7809,16 +8023,33 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if ((!_noelShadowChanting && !NoelShadowDashActive) || IsKnightMode)
+                if (IsKnightMode)
                 {
                     return true;
                 }
                 // 移动（L/R/T/B，含 LA/RA/TA/BA 同值）、攻击（Z）、法术（X）、跳跃（JUMP）
-                if (key == KEY.SIMKEY.L || key == KEY.SIMKEY.R || key == KEY.SIMKEY.T ||
-                    key == KEY.SIMKEY.B || key == KEY.SIMKEY.Z || key == KEY.SIMKEY.X ||
-                    key == KEY.SIMKEY.JUMP)
+                bool isDirection = key == KEY.SIMKEY.L || key == KEY.SIMKEY.R ||
+                                   key == KEY.SIMKEY.T || key == KEY.SIMKEY.B;
+                bool isJump = key == KEY.SIMKEY.JUMP;
+                // 护符33：伪咏唱 / 冲刺期间锁移动/攻击/法术/跳跃
+                if (_noelShadowChanting || NoelShadowDashActive)
                 {
-                    __result = false; // = 这几个键在蓄力期间视为没按
+                    if (isDirection || isJump || key == KEY.SIMKEY.Z || key == KEY.SIMKEY.X)
+                    {
+                        __result = false; // = 这几个键在蓄力期间视为没按
+                        return false;
+                    }
+                }
+                // 护符35 旋风斩：方向键不再移动/蹲下/跳跃（改由模组直接平移），跳跃键也锁掉
+                if (NailMasterSpinActive && (isDirection || isJump))
+                {
+                    __result = false;
+                    return false;
+                }
+                // 护符35：**魔法键锁掉**（需求1）
+                if (NailMasterEquipped && key == KEY.SIMKEY.X)
+                {
+                    __result = false;
                     return false;
                 }
                 return true;
@@ -8169,6 +8400,16 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
+                // 护符35 旋风斩：起手 / 循环 / 收尾三个动作名接管姿势
+                if (__instance != null && __instance.Pr is PRNoel)
+                {
+                    string nmPose = NailMasterPoseName();
+                    if (!string.IsNullOrEmpty(nmPose))
+                    {
+                        title = nmPose;
+                        return;
+                    }
+                }
                 if (!_noelShadowChanting || IsKnightMode || string.IsNullOrEmpty(title))
                 {
                     return;
@@ -8309,7 +8550,7 @@ namespace KnightInCradle.CharmUi
                 // 粒子（两种方向共用同一张黄色圆点贴图，所以共用一个网格）
                 EnsureNoelShadowTicket(pr, _noelShadowParticles.Count > 0);
                 // 蓄力完成：诺艾尔中心渲染"沉重之击"那组光圈图片（nail_charge_effect0005~0009）
-                if (_noelShadowEssence)
+                if (_noelShadowEssence || NailMasterCharged)
                 {
                     _noelChargeAuraTime += Time.deltaTime;
                 }
@@ -8318,7 +8559,9 @@ namespace KnightInCradle.CharmUi
                     _noelChargeAuraTime = 0f;
                 }
                 // 冲刺段的"缩小中"也要继续画光圈（此时已经松开护盾键，_noelShadowEssence 为 false）
-                EnsureNoelChargeAuraTicket(pr, _noelShadowEssence || _shadowDashPhase == ShadowDashPhase.Shrink);
+                EnsureNoelChargeAuraTicket(pr, _noelShadowEssence ||
+                                               _shadowDashPhase == ShadowDashPhase.Shrink ||
+                                               NailMasterCharged);
                 // 冲刺段：蓄力完成状态下**松开护盾键** → 进入缩小 → 发射
                 if (chargedBefore && !holding && armed && _shadowDashPhase == ShadowDashPhase.None)
                 {
@@ -8428,7 +8671,8 @@ namespace KnightInCradle.CharmUi
             }
             _noelChargeAuraMesh.clearSimple();
             PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
-            bool wanted = _noelShadowEssence || _shadowDashPhase == ShadowDashPhase.Shrink;
+            bool wanted = _noelShadowEssence || _shadowDashPhase == ShadowDashPhase.Shrink ||
+                          NailMasterCharged;
             if (pr == null || _heavyFocusAuraTex == null || !wanted || _shadowDashAuraScale <= 0.001f)
             {
                 MdOut = _noelChargeAuraMesh;

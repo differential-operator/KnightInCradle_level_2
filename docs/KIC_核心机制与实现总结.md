@@ -5086,4 +5086,49 @@ tick 里那次调用保留作为同帧即时生效。
 
 验证：`build=2026-09-25.20`，DLL SHA256 `D0FC68D684753998…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+## 55. 护符 35 骨钉大师的荣耀（诺艾尔侧，2026-09-25，build=2026-09-25.21）
+
+需求三条：
+1. 锁定诺艾尔的**魔法键**；
+2. 长按**攻击键**蓄力（粒子 + `nail_charge_effect` 沿用之前做过的那套），**蓄力期间可自由行动**，1 秒完成；
+3. 松开攻击键进入**旋风斩**：先 `attack_air1`、随后循环 `attack_air2`；此时上下左右键不再控制跳跃/蹲下/移动，
+   而是**直接平移**诺艾尔；持续 2 秒后播 `attack_air3`，然后恢复。
+
+### 55.1 键位与状态机
+
+AIC 的键位（反编译实证）：**攻击 = `SIMKEY.Z`**（`PR.isAtkO`）、**魔法 = `SIMKEY.X`**（`PR.isMagicO`，
+`M2PrSkill` 的 `magic_t` 蓄力就是靠它）。所以：
+
+- 需求1：`EV.lockPrInputManipulate` 前缀里对 **X 永远返回 false**（只要佩戴护符35且在诺艾尔模式）；
+- 需求2 的长按检测用 `pr.isAtkO(0)`（Z）。
+
+```
+None ──按住Z──► Charging(黄色粒子) ──≥1s──► Charged(+nail_charge_effect 光圈)
+  ▲                                            │
+  └────────── 松手（未蓄满则直接取消）──────────┘
+                                             松开Z
+                                               ▼
+        Spin(2s：attack_air1→attack_air2 循环，方向键平移) ──► SpinOutro(attack_air3) ──► None
+```
+
+### 55.2 各条落点
+
+| 需求 | 实现 |
+|---|---|
+| 蓄力粒子 / 光圈"照搬" | 直接复用护符33 那套：`SpawnNoelShadowParticles(count, false)`（向内收敛的黄色圆点，用同一批配置）+ `EnsureNoelChargeAuraTicket`（`nail_charge_effect0005~0009`，同一张光圈贴图与 20fps），只把"要不要显示光圈"的条件扩成 `_noelShadowEssence || Shrink || NailMasterCharged` |
+| 蓄力期间可自由行动 | 不锁任何输入（护符33 那套锁只在自己蓄力/冲刺时才生效） |
+| 旋风斩姿势 | 复用护符33 的 `PrAnimator.setPose` 前缀：旋风斩期间把请求的姿势改写成 `attack_air1 / attack_air2 / attack_air3`（名字默认就是**原版旋风斩**用的 `M2PrSkill.cs:807/867/909`），全部可在配置里改 |
+| 方向键改平移 | 旋风斩期间在同一个输入锁前缀里把 **L/R/T/B + JUMP** 判为"没按"（所以不会跳/蹲/走），同时每帧读原生输入 `IN.isRO/isLO/isTO/isBO`，用 `walkBy(FOCTYPE.WALK, dx, dy, checkwall:true)` 做**8 方向平移**（带墙检测），速度 `SpinMoveSpeed`（默认 6 格/秒，按"格/帧@60"换算） |
+| 空中悬停 | 旋风斩开始时 `killSpeedForce(...)` 清残余速度 + `addLockGravity(0f)` 锁重力（收尾时解锁），与原版旋风斩同一套做法 |
+| 2 秒后播放 attack_air3 | `SpinSeconds`(2) → 进 `SpinOutro`，只播 `attack_air3`，`SpinOutroSeconds`(0.3) 后解除全部状态 |
+
+配置（`[Charm35]`）：`ChargeSeconds`(1)、`SpinSeconds`(2)、`SpinIntroSeconds`(0.25)、
+`SpinOutroSeconds`(0.3)、`SpinMoveSpeed`(6)、`SpinPoseIntro`(`attack_air1`)、
+`SpinPoseLoop`(`attack_air2`)、`SpinPoseOutro`(`attack_air3`)。
+
+> 注：这一步只做"动作/手感"，**没有伤害**（需求里没提）；旋风斩的伤害/判定以后要加的话说一声。
+
+验证：`build=2026-09-25.21`，DLL SHA256 `9E95A14BEC0260D1…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。
 本地隐藏启动确认 `71 成功 / 0 失败`）。
