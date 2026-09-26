@@ -636,7 +636,8 @@ namespace KnightInCradle.CharmUi
 
             List<int> equipped = Controller.EquippedIds;
             // 满 11 槽或过载时不显示右侧空槽
-            int slotCount = Mathf.Max(equipped.Count + (Controller.TotalCost >= CharmDatabase.NotchCapacity ? 0 : 1), CharmDatabase.NotchCapacity);
+            int slotCount = equipped.Count +
+                (Controller.TotalCost >= CharmDatabase.NotchCapacity ? 0 : 1);
             Texture2D slotTex = GetTemplateTexture("charm_up_template");
             if (slotTex == null)
             {
@@ -704,46 +705,18 @@ namespace KnightInCradle.CharmUi
             Texture2D white = GetTemplateTexture("cost_white_template");
             Texture2D over = GetTemplateTexture("cost_overcharm_template");
 
-            // 需求（2026-09-26）：护符槽孔要多到 14 个 —— 布局里只有 11 个"空槽孔"图，
-            // 超出的部分用同一个贴图按相同的横向间距补画（这里只是画出来，是否亮由下面的 filled 决定）。
-            int holeCount = Mathf.Max(blacks.Count, CharmDatabase.NotchCapacity);
-            if (holeCount > blacks.Count)
-            {
-                Texture2D holeTex = GetTemplateTexture("cost_black_template");
-                if (holeTex == null)
-                {
-                    holeTex = GetTextureOfElementPathContaining("cost_black");
-                }
-                if (holeTex != null)
-                {
-                    Rect lastBlack = blacks[blacks.Count - 1];
-                    for (int i = blacks.Count; i < holeCount; i++)
-                    {
-                        var r = new Rect(lastBlack.x + spacing * (i - blacks.Count + 1),
-                            lastBlack.y, lastBlack.width, lastBlack.height);
-                        GUI.DrawTexture(r, holeTex, ScaleMode.StretchToFill, true);
-                    }
-                }
-            }
-
-            int filled = Mathf.Min(Controller.TotalCost, holeCount);
+            int filled = Mathf.Min(Controller.TotalCost, blacks.Count);
             if (white != null)
             {
                 for (int i = 0; i < filled; i++)
                 {
-                    Rect r = i < blacks.Count
-                        ? blacks[i]
-                        : new Rect(blacks[blacks.Count - 1].x + spacing * (i - blacks.Count + 1),
-                            blacks[blacks.Count - 1].y, blacks[blacks.Count - 1].width,
-                            blacks[blacks.Count - 1].height);
-                    GUI.DrawTexture(r, white, ScaleMode.StretchToFill, true);
+                    GUI.DrawTexture(blacks[i], white, ScaleMode.StretchToFill, true);
                 }
             }
-            int excess = Controller.TotalCost - holeCount;
+            int excess = Controller.TotalCost - blacks.Count;
             if (excess > 0 && over != null)
             {
-                Rect last = new Rect(blacks[blacks.Count - 1].x + spacing * (holeCount - blacks.Count),
-                    blacks[blacks.Count - 1].y, blacks[blacks.Count - 1].width, blacks[blacks.Count - 1].height);
+                Rect last = blacks[blacks.Count - 1];
                 for (int k = 0; k < excess; k++)
                 {
                     var r = new Rect(last.x + spacing * (k + 1), last.y, last.width, last.height);
