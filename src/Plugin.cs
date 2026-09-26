@@ -840,6 +840,28 @@ namespace KnightInCradle
                 "false=模组自己的手写物理（行走/跳跃/斜坡手感正常，默认，联机版用的就是这个值）；" +
                 "true=原生物理接管，已知会出现「跳跃失灵、走到平台边缘浮空（要在斜面上走一会才恢复）」，" +
                 "除非专门排查窄缝/过图问题，否则不要开");
+            ScaleConfig = Config.Bind("Visual", "Scale", 0.325f,
+                "小骑士显示缩放（1 = 原始大小）");
+            SeriousModePersistConfig = Config.Bind("Visual", "SeriousMode", false,
+                "认真模式全局开关（隐藏左侧立绘、画面居中）。默认 false=显示；按“。”切换后持久保存，进入游戏/读档保持");
+            OffsetYConfig = Config.Bind("Visual", "OffsetY", 0f,
+                "小骑士竖直偏移（像素，正值上移，用于脚底对齐）");
+            FacingInvertConfig = Config.Bind("Visual", "FacingInvert", false,
+                "朝向反向（如果左右脸反了改成 true）");
+            AnimSpeedConfig = Config.Bind("Visual", "AnimSpeed", 0.75f,
+                "动画播放速度倍率（越小越慢）");
+            DashSpeedConfig = Config.Bind("Dash", "DashSpeed", 0.25f,
+                "冲刺速度（地图单位/帧）");
+            DashTimeConfig = Config.Bind("Dash", "DashTime", 0.25f,
+                "冲刺持续时间（秒）");
+            ShadowRechargeConfig = Config.Bind("Dash", "ShadowRecharge", 1.5f,
+                "Shadow dash recharge seconds (cooldown before next shadow dash)");
+            DashVolumeConfig = Config.Bind("Dash", "DashVolume", 0.5f,
+                "普通冲刺音效音量（0~1）");
+            ShadowDashVolumeConfig = Config.Bind("Dash", "ShadowDashVolume", 1f,
+                "暗影冲刺音效音量（0~1）");
+            FeetAdjustConfig = Config.Bind("Visual", "FeetAdjust", 0f,
+                "脚底位置微调（像素，正值上移）");
             ResizeHostConfig = Config.Bind("General", "ResizeHostToKnight", true,
                 "骑士模式下把宿主（诺艾尔）的碰撞箱限制到小骑士尺寸。" +
                 "true=受击箱变成小骑士大小（默认）；false=保持诺艾尔原版体型（用于排查卡窄缝/受击距离问题）");
@@ -861,10 +883,22 @@ namespace KnightInCradle
             PvPDamageMulConfig = Config.Bind("Multiplayer", "PvPDamageMultiplier", 1f,
                 "小骑士攻击远端玩家（诺艾尔/另一名小骑士）时发包前的伤害倍率，用于抵消服务器/收包端的压缩。" +
                 "默认 2（假设被打五折）；实测掉血明显偏少就调大，例如 4");
+            AttackChainCancelConfig = Config.Bind("Combat", "AttackChainCancelPoint", 1f,
+                "普攻连击的后摇取消点（占一整刀时长的比例，0.3~1）。一刀播到这个比例后，" +
+                "上一刀期间按下的攻击会立刻接上（输入不会丢，只是提前起手）。" +
+                "1=不取消（默认）：两次攻击的间隔 = 一整刀 = 0.4 秒（佩戴快速劈砍 0.3 秒）；" +
+                "0.75≈挥砍可视帧播完就接刀，间隔缩短为 0.3 / 0.225 秒");
             DashAudio.Init(DashVolumeConfig, ShadowDashVolumeConfig);
             // 护符18 修长之钉：近战距离加成（判定与自绘弧带同一口径）
             // 护符19 骄傲印记：与修长之钉同一套做法，配置独立
             // 蓄力剑气：魔法霰弹及其变种改用 slash_effect_magic 贴图（三个护符共用同一张）
+            MagicSlashOnChargedConfig = Config.Bind("MagicSlash", "OnChargedAttack", true,
+                "诺艾尔蓄力释放（魔法霰弹及其变种）时，蜕变挽歌/修长之钉/骄傲印记的剑气贴图" +
+                "换成 slash_effect_magic（默认开）。关掉则一律用原来的贴图。");
+            MagicSlashScaleConfig = Config.Bind("MagicSlash", "Scale", 1f,
+                "magic 剑气的整体渲染大小倍率（宽高等比，默认 1；只影响蓄力释放的那张图）。");
+            MagicSlashHeightConfig = Config.Bind("MagicSlash", "HeightRatio", 1f,
+                "magic 剑气的渲染高度倍率（只改高度、不改长度，默认 1）。");
             // 护符21 苦痛荆棘（诺艾尔侧）
             // 护符22 巴尔德之壳（诺艾尔侧：咏唱时展开硬壳）
             // 护符23 吸虫之巢（诺艾尔侧）
@@ -882,6 +916,12 @@ namespace KnightInCradle
             // 效果8：亡者之怒期间的战斗加成
             // 羁绊（docs/护符加成描述.md 末尾那份）
             // 诺艾尔姿势浏览器（调试工具）
+            PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
+                "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
+            PoseBrowserPrevKeyConfig = Config.Bind("PoseBrowser", "PrevKey", "F7",
+                "姿势浏览器：切到上一个姿势（默认 F7）。");
+            PoseBrowserOffKeyConfig = Config.Bind("PoseBrowser", "OffKey", "F9",
+                "姿势浏览器：关闭浏览、恢复游戏自己的姿势（默认 F9）。");
             // 简单键位文件（BepInEx/plugins/KnightInCradle/键位.txt）：
             // 覆盖上面 Keybinds 分组里的键位，用记事本改完重启游戏生效。
             KeyFile.Load();
