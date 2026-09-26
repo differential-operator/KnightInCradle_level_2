@@ -54,6 +54,15 @@ namespace KnightInCradle.CharmUi
                         typeof(CharmSlotCrafting).GetMethod(nameof(RecipeResourcePostfix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
                 }
+                // 关键：配方脚本解析时就要能查到这三个物品（否则 %COMPLETION 找不到 → 整条配方被丢弃），
+                // 所以再在 RCP.initScript 的**前缀**里保证物品已注册（不依赖两个脚本的加载顺序）。
+                MethodInfo rcpInit = AccessTools.Method(typeof(RCP), "initScript");
+                if (rcpInit != null)
+                {
+                    harmony.Patch(rcpInit, prefix: new HarmonyMethod(
+                        typeof(CharmSlotCrafting).GetMethod(nameof(RcpInitPrefix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
+                }
                 MethodInfo checkUseable = AccessTools.Method(typeof(RCP.Recipe), "checkUseable",
                     new[] { typeof(System.Collections.Generic.List<RCP.RecipeIngredient>), typeof(ItemStorage[]), typeof(int) });
                 if (checkUseable != null)
@@ -71,6 +80,17 @@ namespace KnightInCradle.CharmUi
 
         /// <summary>物品脚本解析完之后注册三种护符槽物品。</summary>
         private static void ItemScriptPostfix()
+        {
+            EnsureItems();
+        }
+
+        /// <summary>配方脚本解析**之前**也要保证物品已经注册（`%COMPLETION` 要求物品存在）。</summary>
+        private static void RcpInitPrefix()
+        {
+            EnsureItems();
+        }
+
+        private static void EnsureItems()
         {
             try
             {
@@ -91,6 +111,8 @@ namespace KnightInCradle.CharmUi
                     "利用稀有金属对护符槽进行了强化，能够更好的容纳护符中的力量。", 61791, icon);
                 CreateItem(SolidKey, "坚固护符槽",
                     "凝聚了水晶力量的坚固护符槽。", 61792, icon);
+                KnightInCradlePlugin.PluginLog?.LogInfo(
+                    "[KIC][护符槽] 已注册物品：" + SimpleKey + " / " + FineKey + " / " + SolidKey);
             }
             catch (Exception ex)
             {
@@ -126,6 +148,12 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
+                // 调试：把前 80 次 TX.getResource 的 path 记下来，确认配方脚本的真实 path 字符串
+                if (_txPathLog < 80)
+                {
+                    _txPathLog++;
+                    KnightInCradlePlugin.PluginLog?.LogInfo("[KIC][护符槽] TX.getResource path=" + path);
+                }
                 if (_recipeInjected || __result == null || path == null)
                 {
                     return;
@@ -135,12 +163,18 @@ namespace KnightInCradle.CharmUi
                     return;
                 }
                 _recipeInjected = true;
+                EnsureItems();
                 __result += RecipeScript;
+                KnightInCradlePlugin.PluginLog?.LogInfo(
+                    "[KIC][护符槽] 已把 3 条护符槽配方追加到配方脚本（产物："
+                    + SimpleKey + " / " + FineKey + " / " + SolidKey + "）");
             }
             catch (Exception)
             {
             }
         }
+
+        private static int _txPathLog;
 
         private const string RecipeScript = @"
 
