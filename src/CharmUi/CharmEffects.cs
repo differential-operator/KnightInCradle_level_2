@@ -11530,6 +11530,13 @@ namespace KnightInCradle.CharmUi
         private static bool _noelFuryDying;
         /// <summary>本次"进入亡者之怒"是否已经放过圣光爆发（保证每次进入只放一次）。</summary>
         private static bool _noelFuryBurstFired;
+        /// <summary>
+        /// true = 亡者之怒已**锁死**（诺艾尔已经死亡）。
+        /// 需求（2026-09-26 追加）：死亡之后不再走阈值判定 —— 否则魔物补刀时
+        /// `TryTriggerNoelFury` 会照旧把 HP 抬回 30，等于"死后原地复活"。
+        /// 复活 / 回血到阈值之上（或卸下护符、切小骑士）时解锁。
+        /// </summary>
+        private static bool _noelFuryLocked;
 
         /// <summary>
         /// 护符20 效果3（2026-09-26）：亡者之怒期间，诺艾尔**免疫魔物的伤害/抓取/负面效果**，
@@ -11622,6 +11629,17 @@ namespace KnightInCradle.CharmUi
                 }
                 int threshold = KnightInCradlePlugin.FuryHpThreshold;
                 int hp = (int)PrHpField.GetValue(noel);
+                // 需求（2026-09-26 追加）：死亡之后锁住亡者之怒 —— HP 已经是 0（或刚判定死亡）时
+                // 直接返回，绝不再把 HP 写回阈值。
+                if (_noelFuryLocked || hp <= 0 || !noel.is_alive)
+                {
+                    if (hp <= 0 || !noel.is_alive)
+                    {
+                        _noelFuryLocked = true;
+                        _noelFuryActive = false;
+                    }
+                    return false;
+                }
                 if (hp - val >= threshold)
                 {
                     return false; // 这一下打不到阈值以下
@@ -11691,14 +11709,26 @@ namespace KnightInCradle.CharmUi
                 {
                     _noelFuryActive = false;
                     _noelFuryBurstFired = false;
+                    _noelFuryLocked = false;
                     _noelFuryBurstFree = 0f;
                     _noelFuryDrainTimer = 0f;
                     return;
                 }
-                bool wasActive = _noelFuryActive;
                 int hp = PrHpField != null ? (int)PrHpField.GetValue(pr) : 0;
+                // 需求（2026-09-26 追加）：**死亡之后锁住亡者之怒**。
+                // 死（HP 归零 / 非存活）即上锁；复活或回血到阈值之上（坐在长椅上也算）才解锁。
+                if (hp <= 0 || !pr.is_alive)
+                {
+                    _noelFuryLocked = true;
+                }
+                else if (_noelFuryLocked &&
+                         (hp > KnightInCradlePlugin.FuryHpThreshold || IsNoelOnBench(pr)))
+                {
+                    _noelFuryLocked = false;
+                }
+                bool wasActive = _noelFuryActive;
                 // 亡者之怒的"在状态中"判据：HP ≤ 阈值（回到阈值之上就结束）
-                _noelFuryActive = hp <= KnightInCradlePlugin.FuryHpThreshold;
+                _noelFuryActive = !_noelFuryLocked && hp <= KnightInCradlePlugin.FuryHpThreshold;
                 if (!_noelFuryActive)
                 {
                     _noelFuryBurstFired = false; // 脱离亡者之怒：下一次进入时再放一次爆发
@@ -11748,6 +11778,7 @@ namespace KnightInCradle.CharmUi
                 }
                 _noelFuryDrainTimer = 0f;
                 _noelFuryActive = false; // 先落状态，避免被自己这一发"魔物来源"判定卷住
+                _noelFuryLocked = true;  // 死亡即锁死亡者之怒：之后魔物补刀也不会再把 HP 抬回阈值
                 try
                 {
                     _noelFuryDying = true;
