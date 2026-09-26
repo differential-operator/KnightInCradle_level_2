@@ -4948,9 +4948,13 @@ namespace KnightInCradle.CharmUi
                 {
                     return; // 生成中的魔物不能打
                 }
-                int dmg = IsEquipped(CharmOwner.Noel, PowerId)
-                    ? KnightInCradlePlugin.NailMasterSpinHitDamageWithPower
-                    : KnightInCradlePlugin.NailMasterSpinHitDamage;
+                // 需求 2026-09-27：旋风斩每击固定伤害 —— 基础 20 / 坚固力量 30 / 亡者之怒 40
+                // （亡者之怒优先于坚固力量；两者同时满足时取亡者之怒那一档）
+                int dmg = _noelFuryActive
+                    ? KnightInCradlePlugin.NailMasterSpinHitDamageWithFury
+                    : (IsEquipped(CharmOwner.Noel, PowerId)
+                        ? KnightInCradlePlugin.NailMasterSpinHitDamageWithPower
+                        : KnightInCradlePlugin.NailMasterSpinHitDamage);
                 dmg = Mathf.Max(1, dmg);
                 var atk = new NelAttackInfo();
                 atk.fix_damage = true; // 固定伤害，不吃敌人减伤/其它乘区
