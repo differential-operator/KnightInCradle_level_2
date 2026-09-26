@@ -62,6 +62,9 @@ namespace KnightInCradle.CharmUi
                     harmony.Patch(rcpInit, prefix: new HarmonyMethod(
                         typeof(CharmSlotCrafting).GetMethod(nameof(RcpInitPrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
+                    harmony.Patch(rcpInit, postfix: new HarmonyMethod(
+                        typeof(CharmSlotCrafting).GetMethod(nameof(RcpInitPostfix),
+                            BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 MethodInfo checkUseable = AccessTools.Method(typeof(RCP.Recipe), "checkUseable",
                     new[] { typeof(System.Collections.Generic.List<RCP.RecipeIngredient>), typeof(ItemStorage[]), typeof(int) });
@@ -88,6 +91,39 @@ namespace KnightInCradle.CharmUi
         private static void RcpInitPrefix()
         {
             EnsureItems();
+        }
+
+        /// <summary>配方脚本解析完之后：把三条护符槽配方标记为"已发现/可显示"。</summary>
+        private static void RcpInitPostfix()
+        {
+            try
+            {
+                string[] keys = { "kic_notch_recipe_simple", "kic_notch_recipe_fine", "kic_notch_recipe_solid" };
+                for (int i = 0; i < keys.Length; i++)
+                {
+                    RCP.Recipe r = RCP.Get(keys[i]);
+                    if (r == null)
+                    {
+                        KnightInCradlePlugin.PluginLog?.LogWarning(
+                            "[KIC][护符槽] 配方没找到：" + keys[i]);
+                        continue;
+                    }
+                    r.debug_recipe = false;
+                    if (r.CInfo != null)
+                    {
+                        r.CInfo.obtain_flag = true; // 配方"已知" → 才会出现在炼金列表里
+                    }
+                    else
+                    {
+                        KnightInCradlePlugin.PluginLog?.LogWarning(
+                            "[KIC][护符槽] 配方 CInfo 为空：" + keys[i]);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                KnightInCradlePlugin.PluginLog?.LogWarning("[KIC][护符槽] 配方标记失败：" + ex.Message);
+            }
         }
 
         private static void EnsureItems()
