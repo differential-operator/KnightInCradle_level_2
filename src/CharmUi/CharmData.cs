@@ -225,11 +225,25 @@ namespace KnightInCradle.CharmUi
         /// </summary>
         public static bool IsLocked(int id)
         {
+            return IsLocked(id, CharmOwner.Noel);
+        }
+
+        /// <summary>同上，但区分是哪一套护符：小骑士那套暂时永远不算"未解锁"。</summary>
+        public static bool IsLocked(int id, CharmOwner owner)
+        {
             if (id == FixedCharmId || id == GgSelectorId)
             {
                 return false;
             }
-            return KnightInCradlePlugin.PreviewLockedCharmText;
+            if (KnightInCradlePlugin.PreviewLockedCharmText)
+            {
+                return true;
+            }
+            if (owner == CharmOwner.Knight)
+            {
+                return false; // 小骑士那套的解锁机制还没做
+            }
+            return !CharmUnlocks.IsUnlocked(id);
         }
     }
 }
