@@ -11449,7 +11449,16 @@ namespace KnightInCradle.CharmUi
                 // 需求：触发时 HP **直接设为阈值（默认 30）**（不是"回到不低于 30"）
                 PrHpField.SetValue(noel, threshold);
                 RefreshNoelHudHp();
-                TriggerNoelFury(noel);
+                // 需求（2026-09-26 澄清）：**只有"HP 从别的值降到 30"才算触发事件**
+                // （圣光爆发 + 全清负面）；已经正好是 30HP 时再挨打只保持 30，不重复爆发。
+                if (hp != threshold)
+                {
+                    TriggerNoelFury(noel);
+                }
+                else
+                {
+                    _noelFuryActive = true;
+                }
                 return true;
             }
             catch (Exception)
