@@ -748,7 +748,7 @@ namespace KnightInCradle.CharmUi
                 }
                 int cap = CharmDatabase.NotchCapacity;
                 int index = 0;
-                for (int i = 0; i < _data.elements.Count; i++)
+                for (int i = 0; i < _data.elements.Length; i++)
                 {
                     UiElementData el = _data.elements[i];
                     if (el.kind != "image" || el.image == null || string.IsNullOrEmpty(el.image.file) ||
