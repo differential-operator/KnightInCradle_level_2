@@ -850,7 +850,7 @@ namespace KnightInCradle
                 "下方护符网格每行列数（用于方向键导航）");
             ScaleConfig = Config.Bind("Visual", "Scale", 0.325f,
                 "小骑士显示缩放（1 = 原始大小）");
-            SeriousModePersistConfig = Config.Bind("Visual", "SeriousMode", false,
+            SeriousModePersistConfig = Config.Bind("Visual", "SeriousMode", true,
                 "认真模式全局开关（隐藏左侧立绘、画面居中）。默认 false=显示；按“。”切换后持久保存，进入游戏/读档保持");
             OffsetYConfig = Config.Bind("Visual", "OffsetY", 0f,
                 "小骑士竖直偏移（像素，正值上移，用于脚底对齐）");
@@ -898,7 +898,7 @@ namespace KnightInCradle
                 "0.75≈挥砍可视帧播完就接刀，间隔缩短为 0.3 / 0.225 秒");
             DashAudio.Init(DashVolumeConfig, ShadowDashVolumeConfig);
             // 护符18 修长之钉：近战距离加成（判定与自绘弧带同一口径）
-            LongNailReachPercentConfig = Config.Bind("Charm18", "LongNailReachPercent", 25,
+            LongNailReachPercentConfig = Config.Bind("Charm18", "LongNailReachPercent", 20,
                 "修长之钉：诺艾尔近战距离加成百分比（默认 25 = +25%；填 0 = 关闭）。" +
                 "判定距离按这个百分比放大，自绘的白色弧带只画'多出来的那一段'。");
             LongNailArcSpanDegConfig = Config.Bind("Charm18", "LongNailArcSpanDeg", 42f,
@@ -909,7 +909,7 @@ namespace KnightInCradle
             LongNailSlashScaleConfig = Config.Bind("Charm18", "LongNailSlashScale", 1f,
                 "修长之钉剑气整体渲染大小倍率（宽高等比，默认 1）。调大整体变大，调小整体变小；" +
                 "与 LongNailSlashLengthRatio 相乘。");
-            LongNailSlashHeightConfig = Config.Bind("Charm18", "LongNailSlashHeightRatio", 1f,
+            LongNailSlashHeightConfig = Config.Bind("Charm18", "LongNailSlashHeightRatio", 1.2f,
                 "修长之钉剑气渲染高度倍率（只改高度、不改长度，默认 1）。调大剑气更厚/更高，调小更扁。");
             // 护符19 骄傲印记：与修长之钉同一套做法，配置独立
             PrideReachPercentConfig = Config.Bind("Charm19", "PrideReachPercent", 35,
@@ -919,11 +919,11 @@ namespace KnightInCradle
                 "骄傲印记剑气长度 = 该招加成后触及距离 × 这个倍率（默认 1 = 与判定等长）。");
             PrideSlashScaleConfig = Config.Bind("Charm19", "PrideSlashScale", 1f,
                 "骄傲印记剑气整体渲染大小倍率（宽高等比，默认 1）。");
-            PrideSlashHeightConfig = Config.Bind("Charm19", "PrideSlashHeightRatio", 1f,
+            PrideSlashHeightConfig = Config.Bind("Charm19", "PrideSlashHeightRatio", 1.2f,
                 "骄傲印记剑气渲染高度倍率（只改高度、不改长度，默认 1）。");
-            PrideAlphaConfig = Config.Bind("Charm19", "PrideAlpha", 1f,
+            PrideAlphaConfig = Config.Bind("Charm19", "PrideAlpha", 1.5f,
                 "骄傲印记剑气亮度倍率（默认 1）。");
-            LongNailArcAlphaConfig = Config.Bind("Charm18", "LongNailArcAlpha", 1f,
+            LongNailArcAlphaConfig = Config.Bind("Charm18", "LongNailArcAlpha", 1.5f,
                 "修长之钉弧带的亮度倍率（默认 1）。小于 1 更淡，大于 1 更亮。");
             // 蓄力剑气：魔法霰弹及其变种改用 slash_effect_magic 贴图（三个护符共用同一张）
             MagicSlashOnChargedConfig = Config.Bind("MagicSlash", "OnChargedAttack", true,
@@ -940,7 +940,7 @@ namespace KnightInCradle
                 "蜕变挽歌：蓄力释放的剑气命中敌人时，是否补上原版魔法霰弹的击中动画/音效" +
                 "并清掉自己的蓄力（默认开）。剑气伤害不受这个开关影响：" +
                 "未蓄力=诺艾尔轻攻击的伤害，已蓄力=魔法霰弹的伤害。");
-            ElegyChargedDamageRatioConfig = Config.Bind("Charm10", "ElegyChargedDamageRatio", 0.3f,
+            ElegyChargedDamageRatioConfig = Config.Bind("Charm10", "ElegyChargedDamageRatio", 1f,
                 "蜕变挽歌：**蓄力释放**的剑气伤害倍率（默认 0.3 = 只造成魔法霰弹伤害的 30%）。" +
                 "未蓄力的剑气不受影响（那一路就是轻攻击的伤害）。");
             // 护符21 苦痛荆棘（诺艾尔侧）
@@ -951,11 +951,11 @@ namespace KnightInCradle
             // 护符22 巴尔德之壳（诺艾尔侧：咏唱时展开硬壳）
             BaldurShellScaleConfig = Config.Bind("Charm22", "ShellScale", 1f,
                 "巴尔德之壳：壳贴图的整体渲染大小倍率（宽高等比，默认 1 = 与小骑士的壳同尺寸）。");
-            BaldurShellWidthConfig = Config.Bind("Charm22", "ShellWidthRatio", 1f,
+            BaldurShellWidthConfig = Config.Bind("Charm22", "ShellWidthRatio", 0.9f,
                 "巴尔德之壳：只改渲染宽度（默认 1）。");
-            BaldurShellHeightConfig = Config.Bind("Charm22", "ShellHeightRatio", 1f,
+            BaldurShellHeightConfig = Config.Bind("Charm22", "ShellHeightRatio", 1.5f,
                 "巴尔德之壳：只改渲染高度（默认 1）。");
-            BaldurShellOffsetYConfig = Config.Bind("Charm22", "ShellOffsetY", 0f,
+            BaldurShellOffsetYConfig = Config.Bind("Charm22", "ShellOffsetY", -1f,
                 "巴尔德之壳：渲染位置上下微调（格；y 向下为正，负 = 向上，默认 0 = 诺艾尔身体中心）。");
             BaldurShellMaxBlocksConfig = Config.Bind("Charm22", "ShellMaxBlocks", 3,
                 "巴尔德之壳：最多能抵挡几次伤害（默认 3）。挡满后壳破碎，进入恢复时间。");
@@ -1031,13 +1031,13 @@ namespace KnightInCradle
                 "锋利之影：蓄力完成后诺艾尔中心那组光圈（同沉重之击）的额外缩放倍率（默认 1）。");
             ShadowDashShrinkSecondsConfig = Config.Bind("Charm33", "DashShrinkSeconds", 0.1f,
                 "锋利之影·冲刺：蓄力完成后松开护盾键，光圈向诺艾尔中心缩小的耗时（秒，默认 0.1）。");
-            ShadowDashFlashSecondsConfig = Config.Bind("Charm33", "DashFlashSeconds", 0.07f,
+            ShadowDashFlashSecondsConfig = Config.Bind("Charm33", "DashFlashSeconds", 0f,
                 "锋利之影·冲刺：两次白屏各自持续的时间（秒，默认 0.07）。");
-            ShadowDashBurstSecondsConfig = Config.Bind("Charm33", "DashBurstSeconds", 0.5f,
+            ShadowDashBurstSecondsConfig = Config.Bind("Charm33", "DashBurstSeconds", 0.2f,
                 "锋利之影·冲刺：发射图片的持续时间（秒，默认 0.5）。");
-            ShadowDashBurstSpeedConfig = Config.Bind("Charm33", "DashBurstSpeed", 8f,
+            ShadowDashBurstSpeedConfig = Config.Bind("Charm33", "DashBurstSpeed", 40f,
                 "锋利之影·冲刺：发射速度（格/秒，默认 8）。");
-            ShadowDashBurstScaleConfig = Config.Bind("Charm33", "DashBurstScale", 1f,
+            ShadowDashBurstScaleConfig = Config.Bind("Charm33", "DashBurstScale", 2f,
                 "锋利之影·冲刺：发射图片的缩放倍率（默认 1）。");
             ShadowDashBurstSpriteConfig = Config.Bind("Charm33", "DashBurstSprite", "dash_burst0000",
                 "锋利之影·冲刺：发射用的图片名（assets/hk/sprites 下的 png，不带扩展名）。");
@@ -1051,7 +1051,7 @@ namespace KnightInCradle
                 "锋利之影·冲刺：发射图片的水平位置偏移（格，正值 = 朝**前方**，默认 0）。");
             ShadowDashBurstOffsetYConfig = Config.Bind("Charm33", "DashBurstOffsetY", 0f,
                 "锋利之影·冲刺：发射图片的垂直位置偏移（格，y 向下为正，负值 = 上移，默认 0）。");
-            ShadowDashMpCostConfig = Config.Bind("Charm33", "DashMpCost", 70,
+            ShadowDashMpCostConfig = Config.Bind("Charm33", "DashMpCost", 60,
                 "锋利之影·冲刺：消耗的 MP（默认 100）；MP 不足则不冲刺。");
             ShadowDashDamageMultConfig = Config.Bind("Charm33", "DashDamageMult", 3f,
                 "锋利之影·冲刺：伤害倍率 —— 相对**当前轻攻击**（法杖带霰弹附魔时相对**当前魔法霰弹**）的伤害，默认 3。");
@@ -1072,11 +1072,11 @@ namespace KnightInCradle
                 "骨钉大师的荣耀：长按攻击键多少秒完成蓄力（默认 1）。");
             NailMasterSpinSecondsConfig = Config.Bind("Charm35", "SpinSeconds", 2f,
                 "骨钉大师的荣耀：旋风斩（松开攻击键后）的持续时间（秒，默认 2）。");
-            NailMasterSpinIntroSecondsConfig = Config.Bind("Charm35", "SpinIntroSeconds", 0.25f,
+            NailMasterSpinIntroSecondsConfig = Config.Bind("Charm35", "SpinIntroSeconds", 0.1f,
                 "骨钉大师的荣耀：起手动作播放多久后切到循环动作（秒，默认 0.25）。");
-            NailMasterSpinOutroSecondsConfig = Config.Bind("Charm35", "SpinOutroSeconds", 0.3f,
+            NailMasterSpinOutroSecondsConfig = Config.Bind("Charm35", "SpinOutroSeconds", 0.1f,
                 "骨钉大师的荣耀：收尾动作播放时长（秒，默认 0.3）。");
-            NailMasterSpinMoveSpeedConfig = Config.Bind("Charm35", "SpinMoveSpeed", 6f,
+            NailMasterSpinMoveSpeedConfig = Config.Bind("Charm35", "SpinMoveSpeed", 15f,
                 "骨钉大师的荣耀：旋风斩期间用方向键平移的速度（格/秒，默认 6）。");
             NailMasterSpinPoseIntroConfig = Config.Bind("Charm35", "SpinPoseIntro", "attack_air1",
                 "骨钉大师的荣耀：起手动作名（默认 attack_air1，原版旋风斩用的名字）。");
@@ -1094,11 +1094,11 @@ namespace KnightInCradle
                 "骨钉大师的荣耀·旋风斩：自绘圆形判定箱的半径（格，默认 2）。");
             NailMasterCircleOffsetXConfig = Config.Bind("Charm35", "SpinCircleOffsetX", 0f,
                 "骨钉大师的荣耀·旋风斩：圆心相对诺艾尔身体中心的水平偏移（格，正值 = 朝**前方**，默认 0）。");
-            NailMasterCircleOffsetYConfig = Config.Bind("Charm35", "SpinCircleOffsetY", 0f,
+            NailMasterCircleOffsetYConfig = Config.Bind("Charm35", "SpinCircleOffsetY", -1f,
                 "骨钉大师的荣耀·旋风斩：圆心相对诺艾尔身体中心的纵向偏移（格，y 向下为正，负值 = 上移，默认 0）。");
             NailMasterCircleHitSecondsConfig = Config.Bind("Charm35", "SpinCircleHitSeconds", 0.2f,
                 "骨钉大师的荣耀·旋风斩：敌人在圈内每停留多少秒再吃一次伤害（默认 0.2）。");
-            NailMasterCircleDebugConfig = Config.Bind("Charm35", "SpinCircleDebug", true,
+            NailMasterCircleDebugConfig = Config.Bind("Charm35", "SpinCircleDebug", false,
                 "骨钉大师的荣耀·旋风斩：是否把圆形判定箱画成绿色圆圈（调试用，默认开）。");
             // 护符36 编织者之歌
             WeaverGrubsongMpConfig = Config.Bind("Charm36", "GrubsongBondMp", 3f,
@@ -1141,7 +1141,7 @@ namespace KnightInCradle
                 "亡者之怒：是否显示屏幕四周红色滤镜（默认开，同小骑士那份）。");
             FuryGlowScaleConfig = Config.Bind("Charm20", "GlowScale", 3.2f,
                 "亡者之怒：诺艾尔中心红色闪烁的直径（格，默认 3.2，同小骑士那份）。");
-            FuryGlowOffsetYConfig = Config.Bind("Charm20", "GlowOffsetY", -0.5f,
+            FuryGlowOffsetYConfig = Config.Bind("Charm20", "GlowOffsetY", 0.5f,
                 "亡者之怒：中心红色闪烁的纵向偏移（格，正值 = 上移；默认 -0.5 = 向下半格，同小骑士那份）。");
             FuryGlowColorConfig = Config.Bind("Charm20", "GlowColor", "FF4026",
                 "亡者之怒：中心红色闪烁的颜色，十六进制 RRGGBB（默认 FF4026）。");
