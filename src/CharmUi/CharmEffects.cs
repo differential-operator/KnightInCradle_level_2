@@ -11727,7 +11727,8 @@ namespace KnightInCradle.CharmUi
 
         private static object _keyItObj;
         private static Array _keyInputs;
-        private static bool _keyInputsInit;
+        private static object _magicAct;
+        private static MethodInfo _magicActIsPressed;
 
         /// <summary>
         /// 读**游戏当前键位**下的"魔法键是否按住"（护符35 用）。
@@ -11738,41 +11739,39 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (!_keyInputsInit)
+                // 解析一次成功后缓存；失败则下一帧继续重试（AIC 的输入表可能晚于本补丁初始化）。
+                if (_magicActIsPressed == null)
                 {
-                    _keyInputsInit = true;
-                    Type kt = typeof(KEY);
-                    PropertyInfo pi = kt.GetProperty("IT",
-                        BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
-                    _keyItObj = pi != null ? pi.GetValue(null) : null;
-                    if (_keyItObj != null)
+                    // 真实名字（用反射 dump 游戏程序集确认过，反编译源码里的标识符被混淆过，不可信）：
+                    //   XX.IN.KA            → KEY 单例
+                    //   KEY.AInputs         → InputHolder[]
+                    //   InputHolder.Act     → UnityEngine.InputSystem.InputAction
+                    if (_keyItObj == null)
                     {
-                        FieldInfo fi = kt.GetField("AInputs",
-                            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (fi != null)
+                        FieldInfo kaF = AccessTools.Field(typeof(IN), "KA");
+                        _keyItObj = kaF != null ? kaF.GetValue(null) : null;
+                    }
+                    if (_keyItObj != null && _keyInputs == null)
+                    {
+                        FieldInfo fi = AccessTools.Field(typeof(KEY), "AInputs");
+                        _keyInputs = fi != null ? fi.GetValue(_keyItObj) as Array : null;
+                    }
+                    if (_keyInputs != null && _magicAct == null)
+                    {
+                        int idx = (int)KEY.IPT.X;
+                        if (idx >= 0 && idx < _keyInputs.Length)
                         {
-                            _keyInputs = fi.GetValue(_keyItObj) as Array;
+                            object holder = _keyInputs.GetValue(idx);
+                            FieldInfo actF = holder != null ? AccessTools.Field(holder.GetType(), "Act") : null;
+                            _magicAct = actF != null ? actF.GetValue(holder) : null;
                         }
                     }
+                    if (_magicAct != null)
+                    {
+                        _magicActIsPressed = _magicAct.GetType().GetMethod("IsPressed", Type.EmptyTypes);
+                    }
                 }
-                if (_keyInputs == null)
-                {
-                    return false;
-                }
-                object holder = _keyInputs.GetValue((int)KEY.IPT.X);
-                if (holder == null)
-                {
-                    return false;
-                }
-                FieldInfo actF = holder.GetType().GetField("Act",
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                object act = actF != null ? actF.GetValue(holder) : null;
-                if (act == null)
-                {
-                    return false;
-                }
-                MethodInfo m = act.GetType().GetMethod("IsPressed", Type.EmptyTypes);
-                return m != null && (bool)m.Invoke(act, null);
+                return _magicActIsPressed != null && (bool)_magicActIsPressed.Invoke(_magicAct, null);
             }
             catch (Exception)
             {
