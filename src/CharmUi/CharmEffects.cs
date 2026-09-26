@@ -11725,6 +11725,61 @@ namespace KnightInCradle.CharmUi
         private static bool _nmBurstHoldFired;
         private static int _nmBurstKeyDiag;
 
+        private static object _keyItObj;
+        private static Array _keyInputs;
+        private static bool _keyInputsInit;
+
+        /// <summary>
+        /// 读**游戏当前键位**下的"魔法键是否按住"（护符35 用）。
+        /// AIC 用新 Input System，绑定可被玩家改；这里反射走
+        /// `KEY.IT.AInputs[(int)KEY.IPT.X].Act.IsPressed()`，任何一步失败都返回 false（调用方会退回配置键名）。
+        /// </summary>
+        private static bool NoelMagicKeyHeldByGame()
+        {
+            try
+            {
+                if (!_keyInputsInit)
+                {
+                    _keyInputsInit = true;
+                    Type kt = typeof(KEY);
+                    PropertyInfo pi = kt.GetProperty("IT",
+                        BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                    _keyItObj = pi != null ? pi.GetValue(null) : null;
+                    if (_keyItObj != null)
+                    {
+                        FieldInfo fi = kt.GetField("AInputs",
+                            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (fi != null)
+                        {
+                            _keyInputs = fi.GetValue(_keyItObj) as Array;
+                        }
+                    }
+                }
+                if (_keyInputs == null)
+                {
+                    return false;
+                }
+                object holder = _keyInputs.GetValue((int)KEY.IPT.X);
+                if (holder == null)
+                {
+                    return false;
+                }
+                FieldInfo actF = holder.GetType().GetField("Act",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                object act = actF != null ? actF.GetValue(holder) : null;
+                if (act == null)
+                {
+                    return false;
+                }
+                MethodInfo m = act.GetType().GetMethod("IsPressed", Type.EmptyTypes);
+                return m != null && (bool)m.Invoke(act, null);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         /// <summary>
         /// 护符35 补充（需求 2026-09-27）：戴荣耀时魔法键被锁住，这里改成
         /// **长按魔法键**（`[Charm35] BurstMagicKey`，默认 X）达到 `BurstHoldSeconds`（默认 0.3 秒）
@@ -11757,7 +11812,11 @@ namespace KnightInCradle.CharmUi
                         }
                     }
                 }
-                bool held = KeyConfig.GetHeld(KnightInCradlePlugin.NailMasterBurstComboMagicKey, KeyCode.X);
+                // 优先读**游戏自己的按键绑定**（AIC 用新 Input System，玩家可以改键；
+                // 反射链：KEY.IT → AInputs[(int)KEY.IPT.X] → Act(InputAction).IsPressed()），
+                // 读不到时退回 mod 配置的键名。
+                bool held = NoelMagicKeyHeldByGame() ||
+                            KeyConfig.GetHeld(KnightInCradlePlugin.NailMasterBurstComboMagicKey, KeyCode.X);
                 if (!held)
                 {
                     _nmBurstHoldTimer = 0f;
