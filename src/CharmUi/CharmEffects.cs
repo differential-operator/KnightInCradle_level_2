@@ -8429,8 +8429,6 @@ namespace KnightInCradle.CharmUi
             // 每个补丁独立挂载并记录失败日志：任一补丁挂不上只会影响自身，
             // 不会像以前那样一个异常就让整个指南针静默失效（小部分玩家环境差异的常见原因）。
             PatchCompass(harmony);
-            // 炼金工坊：注册三种「护符槽」物品与配方（需求 2026-09-26）
-            CharmSlotCrafting.Apply(harmony);
             try
             {
                 // 护符2 蜂群集结：魔力草掉落的魔力魔物无法吸收（只能由诺艾尔吸收）

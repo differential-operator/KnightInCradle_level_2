@@ -37,6 +37,14 @@ namespace KnightInCradle.CharmUi
 
         public static void Apply(Harmony harmony)
         {
+            // 2026-09-26：改方案 —— 不用炼金自制护符槽了（AIC 的炼金列表是按存储区行反查的，
+            // 注入配方拿不到行，做不干净）。护符槽改成"按开箱数"计算，见
+            // `CharmDatabase.NotchCapacity = 3 + min(8, 开箱数 / 4)`。
+            // 这里整个 Apply 直接空转，保留文件只是为了少动工程结构。
+            if (true)
+            {
+                return;
+            }
             try
             {
                 MethodInfo readItem = AccessTools.Method(typeof(NelItem), "readItemScript", new[] { typeof(string) });
@@ -118,6 +126,23 @@ namespace KnightInCradle.CharmUi
                         KnightInCradlePlugin.PluginLog?.LogWarning(
                             "[KIC][护符槽] 配方 CInfo 为空：" + keys[i]);
                     }
+                    // 炼金列表列的是"配方伪物品"（键名 Recipe_<配方键>）的行（`UiCraftBase` 里
+                    // `TX.isStart(row.Data.key, "Recipe_", 0)` 那一支），所以要保证伪物品也在图鉴里有一笔。
+                    NelItem pseudo = NelItem.GetById("Recipe_" + keys[i], true);
+                    if (pseudo != null)
+                    {
+                        try
+                        {
+                            pseudo.obtain_count = 1;
+                        }
+                        catch (Exception)
+                        {
+                        }
+                    }
+                    KnightInCradlePlugin.PluginLog?.LogInfo(
+                        "[KIC][护符槽] 配方就绪 " + keys[i] + " rcp=" + (r != null) +
+                        " pseudo=" + (pseudo != null) + " obtain=" + (pseudo != null ? pseudo.obtain_count : -1) +
+                        " CInfo=" + (r.CInfo != null));
                 }
             }
             catch (Exception ex)

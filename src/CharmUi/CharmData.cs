@@ -1,4 +1,6 @@
-﻿using System;
+using System;
+using nel;
+using UnityEngine;
 
 namespace KnightInCradle.CharmUi
 {
@@ -26,7 +28,26 @@ namespace KnightInCradle.CharmUi
         /// 护符槽上限：11 = 初始 3 + 开宝箱最多 8（这两部分等解锁/宝箱系统上线后再做成动态），
         /// 再**加上**炼金做出来的护符槽（三种各 +1，见 `CharmSlotCrafting.CraftedSlotBonus`）。
         /// </summary>
-        public static int NotchCapacity => 11 + CharmSlotCrafting.CraftedSlotBonus;
+        public static int NotchCapacity => 3 + Mathf.Min(8, OpenedChestCount / 4);
+
+        /// <summary>
+        /// 已开启的宝箱总数（游戏自己的成就计数 `ACHIVE.MENT.treasure_total_obtain`，
+        /// 就是"所有地图上开过的宝箱数"）。
+        /// </summary>
+        public static int OpenedChestCount
+        {
+            get
+            {
+                try
+                {
+                    return (int)COOK.CurAchive.Get(ACHIVE.MENT.treasure_total_obtain);
+                }
+                catch (Exception)
+                {
+                    return 0;
+                }
+            }
+        }
 
         /// <summary>
         /// 已解锁的护符数量（"坚固护符槽"的制作条件用它）。
