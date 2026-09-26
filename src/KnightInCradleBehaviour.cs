@@ -20,8 +20,8 @@ namespace KnightInCradle
         /// 构建标记：每次部署时手动更新，日志 `[KIC][补丁] build=…` 会打印；
         /// 配合后面的 `dll=路径 (文件时间)` 可以立刻确认游戏实际加载的是哪一份 DLL。
         /// </summary>
-        // 2026-09-26.20：按 docs/护符加成描述.md 对齐加成范围（17/18/19）+ 补齐羁绊（8+36 / 26+34 / 28+29+30 / 14+33）
-        internal const string SelfBuildTag = "2026-09-26.20";
+        // 2026-09-26.21：按 docs/护符效果描述.md 重写诺艾尔护符界面的名称/费用/未解锁·解锁文案（解锁机制留待下一步）
+        internal const string SelfBuildTag = "2026-09-26.21";
 
         private static bool _harmonyApplied;
         private static bool _seriousInitApplied; // 启动时是否已应用过一次布局（防止残留居中布局）

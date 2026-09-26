@@ -328,6 +328,9 @@ namespace KnightInCradle
         internal static ConfigEntry<int> JoniBlueHeartMpBonusConfig;
         /// <summary>羁绊 14+33：佩戴法术扭曲者时锋利之影冲刺的 MP 消耗（默认 60）。</summary>
         internal static ConfigEntry<int> ShadowDashTwistedMpCostConfig;
+        // ---- 诺艾尔护符界面（文案预览）----
+        /// <summary>预览：把所有护符都当成"未解锁"，方便核对未解锁文案（默认关）。</summary>
+        internal static ConfigEntry<bool> PreviewLockedCharmTextConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -569,6 +572,8 @@ namespace KnightInCradle
             ShadowDashTwistedMpCostConfig != null
                 ? Mathf.Clamp(ShadowDashTwistedMpCostConfig.Value, 0, 9999)
                 : 60;
+        internal static bool PreviewLockedCharmText =>
+            PreviewLockedCharmTextConfig != null && PreviewLockedCharmTextConfig.Value;
         /// <summary>护符20 效果7：中心红色闪烁的颜色（十六进制 RRGGBB，默认 FF4026 = 小骑士那份的 (1, 0.25, 0.15)）。</summary>
         internal static Color FuryGlowColor
         {
@@ -1093,6 +1098,9 @@ namespace KnightInCradle
             ShadowDashTwistedMpCostConfig = Config.Bind("Charm33", "TwistedBondMpCost", 60,
                 "羁绊 14+33（法术扭曲者 + 锋利之影）：佩戴法术扭曲者时冲刺的 MP 消耗（默认 60；" +
                 "未佩戴时用 DashMpCost）。");
+            PreviewLockedCharmTextConfig = Config.Bind("CharmUi", "PreviewLockedText", false,
+                "护符界面文案预览：打开后所有护符都按「未解锁」显示，用来核对未解锁文本（默认关）。" +
+                "真正的解锁机制上线后这个开关就只当调试用。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
