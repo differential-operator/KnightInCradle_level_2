@@ -8436,6 +8436,7 @@ namespace KnightInCradle.CharmUi
             // 每个补丁独立挂载并记录失败日志：任一补丁挂不上只会影响自身，
             // 不会像以前那样一个异常就让整个指南针静默失效（小部分玩家环境差异的常见原因）。
             PatchCompass(harmony);
+            NusiWeakByCyclone.Apply(harmony); // 需求：护符35 时旋风斩也能把森之领主打进虚弱
             try
             {
                 // 护符2 蜂群集结：魔力草掉落的魔力魔物无法吸收（只能由诺艾尔吸收）
