@@ -5541,4 +5541,30 @@ MovRenderer，画在诺艾尔身后层 PR0，颜色纯绿（`(0,1,0,0.9)`），�
 
 验证：`build=2026-09-26.15`，DLL SHA256 `DB7913CE507BFA72…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `0 失败`）。
+
+### 58.9 效果4 / 效果5：回血退出、坐长椅退出
+
+需求：
+4. 亡者之怒期间**可以用道具或其它手段回血**，回血后 HP 超过阈值就**退出**亡者之怒；
+   之后再掉回阈值（哪怕正好 30）仍然能重新触发；
+5. 亡者之怒期间**坐在长椅上** → 退出亡者之怒并**回满 HP**。
+
+**效果4**：判据本来就是每帧按 `HP ≤ 阈值` 重算，所以道具/蜂蜜血之类的回血把 HP 抬过 30 就自动退出；
+这一版把它写成显式的"退出"路径：`wasActive && !active` 时调 `ReleaseNoelFuryForVanish()`
+（清 `_noelFuryActive` / `_noelFuryBurstFired` / 流失计时 / 免魔窗口），
+**只清本次激活痕迹、不上死亡锁** —— 于是掉回阈值时会重新走一次"进入"（含再放一次圣光爆发）。
+另外把 GaugeSaver 的自动回血只管在"亡者之怒期间"关掉（`FuryNoGsaverCurePrefix`），
+道具/技能那种**主动**回血完全不受影响（走的是 `PR.cureHp`）。
+
+顺带修一个 .14 引入的显示问题：`UIStatus.fineHpRatio(use_cushion:true)` 原本靠"cushion 非 0"
+驱动血条重画，我们把 `cushion_hp` 清零后那条路就断了 —— 亡者之怒期间回血时血条不会立刻变。
+现在 `FuryHideHpCushionPostfix` 在抹掉缓冲段的同时**自己置 `redraw_hp / redraw_bar_num`**。
+
+**效果5**：`TickNoelFuryCharm` 里检测 `IsNoelOnBench(pr)`（= `PR.isBenchState()`，
+覆盖 `BENCH / BENCH_LOADAFTER / BENCH_ONNIE`）：亡者之怒期间一坐到长椅上就
+`pr.cureHp(maxhp - hp)` 补满（走原版回血，HUD 与 GaugeSaver 一起同步），然后
+`ReleaseNoelFuryForVanish()` 退出。不依赖长椅菜单被打开那一刻。
+
+验证：`build=2026-09-26.16`，DLL SHA256 `0775FF4BAD7BA20D…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `0 失败`）。
 本地隐藏启动确认 `71 成功 / 0 失败`）。
