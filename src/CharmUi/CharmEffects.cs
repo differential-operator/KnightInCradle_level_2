@@ -6771,6 +6771,26 @@ namespace KnightInCradle.CharmUi
             return noel != null && ReferenceEquals(pr, noel);
         }
 
+        /// <summary>
+        /// 需求（2026-09-26 追加）：亡者之怒期间诺艾尔"碰到魔物不摔倒"（同稳定之体）。
+        /// = 佩戴稳定之体 **或** 正在亡者之怒（只对本地诺艾尔）。
+        /// 只用于**摔倒**相关的四个挂点（接触伤害标记 / DAMAGE_LT / RCenemy_sink / ENEMY_SINK）；
+        /// 稳定之体的风力与冰面免疫不走这里（亡者之怒没有那条需求）。
+        /// </summary>
+        private static bool IsKnockdownImmune(PR pr)
+        {
+            if (IsStableBodyApplied(pr))
+            {
+                return true;
+            }
+            if (!IsNoelFuryImmune || !(pr is PRNoel))
+            {
+                return false;
+            }
+            PRNoel noel = KnightInCradleBehaviour.GetPrPublic();
+            return noel != null && ReferenceEquals(pr, noel);
+        }
+
         /// <summary>风力②：风压等级直接为 0。</summary>
         private static bool StableBodyWindLevelPrefix(PR __instance, ref float __result)
         {
@@ -6825,7 +6845,7 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (__instance == null || Atk == null || !IsStableBodyApplied(__instance.Pr))
+                if (__instance == null || Atk == null || !IsKnockdownImmune(__instance.Pr))
                 {
                     return;
                 }
@@ -6853,7 +6873,7 @@ namespace KnightInCradle.CharmUi
                 }
                 if (_stableBodyContactFrame != Time.frameCount ||
                     !ReferenceEquals(__instance, _stableBodyContactPr) ||
-                    !IsStableBodyApplied(__instance))
+                    !IsKnockdownImmune(__instance))
                 {
                     return true;
                 }
@@ -6880,7 +6900,7 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                _stableBodyHitSinkScope = IsStableBodyApplied(__instance);
+                _stableBodyHitSinkScope = IsKnockdownImmune(__instance);
             }
             catch (Exception)
             {
@@ -6898,7 +6918,7 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (_stableBodyHitSinkScope && IsStableBodyApplied(__instance))
+                if (_stableBodyHitSinkScope && IsKnockdownImmune(__instance))
                 {
                     return false;
                 }
@@ -8467,6 +8487,24 @@ namespace KnightInCradle.CharmUi
                     harmony.Patch(mapDmg, prefix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(ThornsMapDamagePrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                // 护符20 亡者之怒（2026-09-26 追加）：期间删去 HP 缓冲条。
+                // 挂 UIStatus.fineHpRatio（受伤/治疗时唯一把 cushion_hp 加上去的入口）后缀。
+                MethodInfo uiFineHp = AccessTools.Method(typeof(UIStatus), "fineHpRatio",
+                    new[] { typeof(bool), typeof(bool) });
+                if (uiFineHp != null)
+                {
+                    try
+                    {
+                        harmony.Patch(uiFineHp, postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(FuryHideHpCushionPostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    catch (Exception ex)
+                    {
+                        KnightInCradlePlugin.PluginLog?.LogWarning(
+                            "[KIC][亡者之怒] UIStatus.fineHpRatio 补丁挂载失败：" + ex.Message);
+                    }
                 }
                 // 护符22 巴尔德之壳（诺艾尔侧）：壳展开期间拦截整次伤害结算，并计抵挡次数。
                 // 挂 M2PrADmg.applyDamage 的 6 参核心重载（玩家受伤总入口，在 NoDamage 判定之前）。
@@ -11441,6 +11479,8 @@ namespace KnightInCradle.CharmUi
         private static float _noelFuryDrainTimer;
         /// <summary>true = 这次 HP 归零是"亡者之怒的 HP 流失"造成的，受击被动一律跳过。</summary>
         private static bool _noelFuryDying;
+        /// <summary>本次"进入亡者之怒"是否已经放过圣光爆发（保证每次进入只放一次）。</summary>
+        private static bool _noelFuryBurstFired;
 
         /// <summary>
         /// 护符20 效果3（2026-09-26）：亡者之怒期间，诺艾尔**免疫魔物的伤害/抓取/负面效果**，
@@ -11568,6 +11608,7 @@ namespace KnightInCradle.CharmUi
         private static void TriggerNoelFury(PRNoel pr)
         {
             _noelFuryActive = true;
+            _noelFuryBurstFired = true;
             try
             {
                 pr.Ser?.CureAll(); // 清除所有状态（AIC 自己的"全解"）
@@ -11600,22 +11641,35 @@ namespace KnightInCradle.CharmUi
                 if (pr == null || IsKnightMode || !IsEquipped(CharmOwner.Noel, FuryId))
                 {
                     _noelFuryActive = false;
+                    _noelFuryBurstFired = false;
                     _noelFuryBurstFree = 0f;
                     _noelFuryDrainTimer = 0f;
                     return;
                 }
+                bool wasActive = _noelFuryActive;
                 int hp = PrHpField != null ? (int)PrHpField.GetValue(pr) : 0;
                 // 亡者之怒的"在状态中"判据：HP ≤ 阈值（回到阈值之上就结束）
                 _noelFuryActive = hp <= KnightInCradlePlugin.FuryHpThreshold;
                 if (!_noelFuryActive)
                 {
+                    _noelFuryBurstFired = false; // 脱离亡者之怒：下一次进入时再放一次爆发
                     _noelFuryDrainTimer = 0f;
                     return;
+                }
+                // 需求（2026-09-26 追加）：**进入**亡者之怒的那一瞬间就要释放一次圣光爆发。
+                // 进入有两条路：① 魔物把 HP 打到阈值以下 —— `TryTriggerNoelFury` 里当场放；
+                // ② HP 因别的原因落到阈值（最典型就是本护符自己的 HP 流失）—— 在这里补上。
+                // `_noelFuryBurstFired` 让"每次进入"只放一发，两条路都走到也不会连放。
+                if (!wasActive && !_noelFuryBurstFired)
+                {
+                    TriggerNoelFury(pr);
                 }
                 if (hp <= 0 || !pr.is_alive)
                 {
                     return; // 已经死亡：不再续无敌帧、不再流失
                 }
+                // 需求（2026-09-26 追加）：亡者之怒期间删去 HUD 上的 HP 缓冲条
+                HideNoelHpCushion();
                 // 效果3：亡者之怒期间持续续无敌帧（滚动续期 0.2 秒）
                 try
                 {
@@ -11671,6 +11725,44 @@ namespace KnightInCradle.CharmUi
         private static bool IsFuryBurstTiredSer(SER ser)
         {
             return ser == SER.BURST_TIRED || ser == SER.TIRED || ser == SER.OVERRUN_TIRED;
+        }
+
+        /// <summary>
+        /// 需求（2026-09-26 追加）：亡者之怒期间**删去 HP 缓冲条**。
+        /// AIC 的血条在受伤后会留一段颜色更浅的"残影"（`UIStatus.cushion_hp`），
+        /// 由 `UIStatus.Update` 每帧按 0.003/frame 慢慢收干（`UIStatus.cs:708-715`），
+        /// 玩家侧的观感就是"血条掉得比数字慢"。这里在亡者之怒期间把它一直清零。
+        /// 每帧清一次（见 `TickNoelFuryCharm`）+ 挂 `fineHpRatio` 后缀堵住"受伤那一帧刚加进去"。
+        /// </summary>
+        private static void HideNoelHpCushion()
+        {
+            try
+            {
+                UIStatus st = UIStatus.Instance;
+                if (st != null && st.cushion_hp != 0f)
+                {
+                    st.cushion_hp = 0f;
+                    st.redraw_hp = true;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>同上：`UIStatus.fineHpRatio` 后缀，受伤/治疗把缓冲条加回来的那一帧立刻清掉。</summary>
+        private static void FuryHideHpCushionPostfix(UIStatus __instance)
+        {
+            try
+            {
+                if (__instance != null && IsNoelFuryImmune)
+                {
+                    __instance.cushion_hp = 0f;
+                }
+            }
+            catch (Exception)
+            {
+            }
         }
     }
 }
