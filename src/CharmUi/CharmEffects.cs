@@ -11720,10 +11720,17 @@ namespace KnightInCradle.CharmUi
         private static bool IsNoelFuryImmune => _noelFuryActive;
 
         /// <summary>护符过载：诺艾尔当前过载了几个槽孔（已装护符总费用 - 槽孔上限）。</summary>
+        /// <summary>长按魔法键触发圣光爆发的计时/已触发标记（护符35）。</summary>
+        private static float _nmBurstHoldTimer;
+        private static bool _nmBurstHoldFired;
+        private static int _nmBurstKeyDiag;
+
         /// <summary>
-        /// 护符35 补充（需求 2026-09-27）：戴荣耀时魔法键是锁住的，这里加一个组合键 ——
-        /// **攻击键按住 + 魔法键按下** → 直接切进 `PR.STATE.BURST`（圣光爆发）。
+        /// 护符35 补充（需求 2026-09-27）：戴荣耀时魔法键被锁住，这里改成
+        /// **长按魔法键**（`[Charm35] BurstMagicKey`，默认 X）达到 `BurstHoldSeconds`（默认 0.3 秒）
+        /// → 直接切进 `PR.STATE.BURST`（圣光爆发）。一次按住只触发一次，松手后重新计数。
         /// 魔力消耗/后续流程全部走原版爆发（不享受亡者之怒那个免魔窗口）。
+        /// 附带诊断日志：35 在场时按下 Z/X/C/Space 会打印一次键名，方便确认实际魔法键是哪个。
         /// </summary>
         public static void TickNoelBurstCombo(PRNoel pr)
         {
@@ -11732,16 +11739,37 @@ namespace KnightInCradle.CharmUi
                 if (pr == null || !pr.is_alive || IsKnightMode || !NailMasterEquipped ||
                     !KnightInCradlePlugin.NailMasterBurstComboEnabled)
                 {
+                    _nmBurstHoldTimer = 0f;
+                    _nmBurstHoldFired = false;
                     return;
                 }
-                if (!KeyConfig.GetHeld(KnightInCradlePlugin.NailMasterBurstComboAttackKey, KeyCode.Z))
+                // 诊断：戴荣耀时把按下的候选键名打出来（最多 20 条），便于确认魔法键到底是哪个
+                if (_nmBurstKeyDiag < 20)
                 {
-                    return; // 要先按住攻击键
+                    KeyCode[] cand = { KeyCode.Z, KeyCode.X, KeyCode.C, KeyCode.Space, KeyCode.LeftShift };
+                    for (int i = 0; i < cand.Length; i++)
+                    {
+                        if (UnityEngine.Input.GetKeyDown(cand[i]))
+                        {
+                            _nmBurstKeyDiag++;
+                            KnightInCradlePlugin.PluginLog?.LogInfo(
+                                "[KIC][护符35] 按下按键：" + cand[i]);
+                        }
+                    }
                 }
-                if (!KeyConfig.GetPressed(KnightInCradlePlugin.NailMasterBurstComboMagicKey, KeyCode.X))
+                bool held = KeyConfig.GetHeld(KnightInCradlePlugin.NailMasterBurstComboMagicKey, KeyCode.X);
+                if (!held)
                 {
-                    return; // 再按下魔法键（每按一次触发一次）
+                    _nmBurstHoldTimer = 0f;
+                    _nmBurstHoldFired = false;
+                    return;
                 }
+                _nmBurstHoldTimer += Time.deltaTime;
+                if (_nmBurstHoldFired || _nmBurstHoldTimer < KnightInCradlePlugin.NailMasterBurstHoldSeconds)
+                {
+                    return;
+                }
+                _nmBurstHoldFired = true;
                 if (NoelPrStateIs(pr, PR.STATE.BURST))
                 {
                     return; // 已经在爆发中

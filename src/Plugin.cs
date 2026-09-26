@@ -346,6 +346,8 @@ namespace KnightInCradle
         internal static ConfigEntry<string> NailMasterBurstComboAttackKeyConfig;
         /// <summary>组合键里的魔法键（默认 X）。</summary>
         internal static ConfigEntry<string> NailMasterBurstComboMagicKeyConfig;
+        /// <summary>长按魔法键触发圣光爆发所需的秒数（默认 0.3）。</summary>
+        internal static ConfigEntry<float> NailMasterBurstHoldSecondsConfig;
         // ---- 诺艾尔护符界面（文案预览）----
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
@@ -608,6 +610,10 @@ namespace KnightInCradle
             NailMasterBurstComboEnabledConfig == null || NailMasterBurstComboEnabledConfig.Value;
         internal static ConfigEntry<string> NailMasterBurstComboAttackKey => NailMasterBurstComboAttackKeyConfig;
         internal static ConfigEntry<string> NailMasterBurstComboMagicKey => NailMasterBurstComboMagicKeyConfig;
+        internal static float NailMasterBurstHoldSeconds =>
+            NailMasterBurstHoldSecondsConfig != null
+                ? Mathf.Clamp(NailMasterBurstHoldSecondsConfig.Value, 0.05f, 3f)
+                : 0.3f;
         /// <summary>护符20 效果7：中心红色闪烁的颜色（十六进制 RRGGBB，默认 FF4026 = 小骑士那份的 (1, 0.25, 0.15)）。</summary>
         internal static Color FuryGlowColor
         {
@@ -1149,6 +1155,8 @@ namespace KnightInCradle
                 "护符35：组合键里的攻击键（默认 Z；键位名同 AIC 的按键名，如 Z/X/C/Space/LeftShift/Mouse0）。");
             NailMasterBurstComboMagicKeyConfig = Config.Bind("Charm35", "BurstComboMagicKey", "X",
                 "护符35：组合键里的魔法键（默认 X）。");
+            NailMasterBurstHoldSecondsConfig = Config.Bind("Charm35", "BurstHoldSeconds", 0.3f,
+                "护符35：长按魔法键多少秒后释放圣光爆发（默认 0.3）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
