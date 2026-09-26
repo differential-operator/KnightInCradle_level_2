@@ -7518,9 +7518,14 @@ namespace KnightInCradle.CharmUi
         /// （`M2PrADmg.applyHpDamageSimple` → `GSaver.applyHpDamage` → `Pr.applyHpDamage`），
         /// 只对本地诺艾尔生效，敌人/其它可攻击物不受影响。
         /// </summary>
-        private static bool SturdyHpDamagePrefix(M2Attackable __instance, ref int val)
+        private static bool SturdyHpDamagePrefix(M2Attackable __instance, AttackInfo Atk, ref int val)
         {
             if (!(__instance is PRNoel noel) || val <= 0)
+            {
+                return true;
+            }
+            // 护符20 亡者之怒：魔物攻击若会把 HP 打到低于阈值 → 回到阈值 + 触发（效果1）
+            if (TryTriggerNoelFury(noel, Atk, ref val))
             {
                 return true;
             }
@@ -8337,6 +8342,23 @@ namespace KnightInCradle.CharmUi
                     }
                     // 护符34 乌恩之形：不会被魔物抓取/吞下 + 蹲下时禁止魔物锁定
                     MethodInfo prInitAbsorb = AccessTools.Method(typeof(PR), "initAbsorb");
+                    // 护符20 亡者之怒：自动"圣光爆发"期间跳过魔力消耗
+                    MethodInfo burstMp = AccessTools.Method(typeof(PR), "applyBurstMpDamage",
+                        new[] { typeof(int) });
+                    if (burstMp != null)
+                    {
+                        try
+                        {
+                            harmony.Patch(burstMp, prefix: new HarmonyMethod(
+                                typeof(CharmEffects).GetMethod(nameof(FuryBurstMpDamagePrefix),
+                                    BindingFlags.Static | BindingFlags.NonPublic)));
+                        }
+                        catch (Exception ex)
+                        {
+                            KnightInCradlePlugin.PluginLog?.LogWarning(
+                                "[KIC][亡者之怒] applyBurstMpDamage 补丁挂载失败：" + ex.Message);
+                        }
+                    }
                     if (prInitAbsorb != null)
                     {
                         try
@@ -9570,6 +9592,11 @@ namespace KnightInCradle.CharmUi
                 if (NoelSpinInvincible && IsUnnGrabSer(ser))
                 {
                     __result = null; // 旋风斩无敌帧：同样不会被抓（被寄生/虫墙/被吃住/强力抓取/蜘蛛网）
+                    return false;
+                }
+                if (_noelFuryBurstFree > 0f && IsFuryBurstTiredSer(ser))
+                {
+                    __result = null; // 亡者之怒的自动圣光爆发：不导致自己眩晕
                     return false;
                 }
                 return true;
@@ -11376,6 +11403,123 @@ namespace KnightInCradle.CharmUi
             catch (Exception)
             {
             }
+        }
+        // ==================== 护符20 亡者之怒（诺艾尔侧） ====================
+        /// <summary>亡者之怒是否处于"已触发"状态（HP ≤ 阈值；供后续伤害加成用）。</summary>
+        public static bool NoelFuryActive => _noelFuryActive;
+        private static bool _noelFuryActive;
+        /// <summary>本次自动"圣光爆发"的免魔/免眩晕剩余时间（秒）。</summary>
+        private static float _noelFuryBurstFree;
+
+        /// <summary>
+        /// 护符20 效果1（2026-09-26）：**魔物攻击**若会把诺艾尔的 HP 打到低于
+        /// `Charm20/HpThreshold`（默认 30），则这一次伤害不结算、HP 立即回到该阈值，并触发亡者之怒。
+        /// 只认魔物攻击（`Atk.Caster` / `Atk.AttackFrom` 是 `NelEnemy`）；地图伤害/自伤不触发。
+        /// 佩戴乔尼的祝福时 HP 不参与结算，本条不生效（与护符30 的机制冲突，用户要求暂不处理）。
+        /// </summary>
+        private static bool TryTriggerNoelFury(PRNoel noel, AttackInfo Atk, ref int val)
+        {
+            try
+            {
+                if (IsKnightMode || noel == null || !IsEquipped(CharmOwner.Noel, FuryId))
+                {
+                    return false;
+                }
+                if (JoniBlessingActive(noel))
+                {
+                    return false; // 乔尼：HP 不是池子
+                }
+                // `applyHpDamage` 的形参类型是基类 `AttackInfo`，出手者字段在 `NelAttackInfo` 上
+                NelAttackInfo nAtk = Atk as NelAttackInfo;
+                if (!(nAtk != null && (nAtk.Caster is NelEnemy || nAtk.AttackFrom is NelEnemy)))
+                {
+                    return false; // 只认"魔物攻击"
+                }
+                if (PrHpField == null || PrMaxHpField == null)
+                {
+                    return false;
+                }
+                int threshold = KnightInCradlePlugin.FuryHpThreshold;
+                int hp = (int)PrHpField.GetValue(noel);
+                if (hp - val >= threshold)
+                {
+                    return false; // 这一下打不到阈值以下
+                }
+                val = 0; // 伤害不结算
+                PrHpField.SetValue(noel, Mathf.Max(hp, threshold)); // 立即回到 30HP
+                RefreshNoelHudHp();
+                TriggerNoelFury(noel);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 护符20 效果2：触发瞬间 ① 清除身上所有负面状态（`Ser.CureAll()`）；② 自动释放一次
+        /// **不消耗魔力、不导致眩晕**的"圣光爆发"（`PR.STATE.BURST`；免魔/免眩晕由
+        /// `FuryBurstMpDamagePrefix` 与 `M2Ser.Add` 前缀在该窗口内放行）。
+        /// 已经在爆发状态中时不重复触发（避免连续受击刷屏）。
+        /// </summary>
+        private static void TriggerNoelFury(PRNoel pr)
+        {
+            _noelFuryActive = true;
+            try
+            {
+                pr.Ser?.CureAll(); // 清除所有状态（AIC 自己的"全解"）
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (!NoelPrStateIs(pr, PR.STATE.BURST))
+                {
+                    _noelFuryBurstFree = KnightInCradlePlugin.FuryBurstSeconds;
+                    pr.changeState(PR.STATE.BURST);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>每帧推进（挂进 `TickNoelCharmEffects`）：维护亡者之怒状态与自动爆发的免魔窗口。</summary>
+        public static void TickNoelFuryCharm(PRNoel pr)
+        {
+            try
+            {
+                if (_noelFuryBurstFree > 0f)
+                {
+                    _noelFuryBurstFree = Mathf.Max(0f, _noelFuryBurstFree - Time.deltaTime);
+                }
+                if (pr == null || IsKnightMode || !IsEquipped(CharmOwner.Noel, FuryId))
+                {
+                    _noelFuryActive = false;
+                    _noelFuryBurstFree = 0f;
+                    return;
+                }
+                int hp = PrHpField != null ? (int)PrHpField.GetValue(pr) : 0;
+                // 亡者之怒的"在状态中"判据：HP ≤ 阈值（回到阈值之上就结束）
+                _noelFuryActive = hp <= KnightInCradlePlugin.FuryHpThreshold;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>自动圣光爆发期间：跳过魔力消耗（`PR.applyBurstMpDamage`）。</summary>
+        private static bool FuryBurstMpDamagePrefix()
+        {
+            return !(_noelFuryBurstFree > 0f && !IsKnightMode);
+        }
+
+        /// <summary>自动圣光爆发期间：拒绝"爆发眩晕"类状态（免眩晕）。</summary>
+        private static bool IsFuryBurstTiredSer(SER ser)
+        {
+            return ser == SER.BURST_TIRED || ser == SER.TIRED || ser == SER.OVERRUN_TIRED;
         }
     }
 }
