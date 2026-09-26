@@ -9580,9 +9580,27 @@ namespace KnightInCradle.CharmUi
             }
             // 冲刺消耗 MP（默认 70）：不足则不冲刺（音效/白闪/伤害都不发生）
             // 羁绊 14+33：佩戴法术扭曲者时改成 `TwistedBondMpCost`（默认 60）。
-            int cost = IsEquipped(CharmOwner.Noel, SpellTwisterId)
-                ? KnightInCradlePlugin.ShadowDashTwistedMpCost
-                : KnightInCradlePlugin.ShadowDashMpCost;
+            // 需求 2026-09-27：蓄力完成时**法杖没有附魔魔法霰弹**的话，只消耗 30MP。
+            // 判据与冲刺伤害同源：`IsNoelMagicChanting`（手里握着魔法蓄力 = 附了霰弹）。
+            bool dashEnchanted = false;
+            try
+            {
+                dashEnchanted = pr != null && IsNoelMagicChanting(pr);
+            }
+            catch (Exception)
+            {
+            }
+            int cost;
+            if (!dashEnchanted)
+            {
+                cost = KnightInCradlePlugin.ShadowDashMpCostNoEnchant;
+            }
+            else
+            {
+                cost = IsEquipped(CharmOwner.Noel, SpellTwisterId)
+                    ? KnightInCradlePlugin.ShadowDashTwistedMpCost
+                    : KnightInCradlePlugin.ShadowDashMpCost;
+            }
             if (cost > 0 && pr != null)
             {
                 try
