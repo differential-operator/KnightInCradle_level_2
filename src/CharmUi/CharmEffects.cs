@@ -11446,7 +11446,8 @@ namespace KnightInCradle.CharmUi
                     return false; // 这一下打不到阈值以下
                 }
                 val = 0; // 伤害不结算
-                PrHpField.SetValue(noel, Mathf.Max(hp, threshold)); // 立即回到 30HP
+                // 需求：触发时 HP **直接设为阈值（默认 30）**（不是"回到不低于 30"）
+                PrHpField.SetValue(noel, threshold);
                 RefreshNoelHudHp();
                 TriggerNoelFury(noel);
                 return true;
