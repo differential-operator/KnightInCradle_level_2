@@ -20,8 +20,8 @@ namespace KnightInCradle
         /// 构建标记：每次部署时手动更新，日志 `[KIC][补丁] build=…` 会打印；
         /// 配合后面的 `dll=路径 (文件时间)` 可以立刻确认游戏实际加载的是哪一份 DLL。
         /// </summary>
-        // 2026-09-26.15：护符20 亡者之怒 —— 死亡后锁死触发（魔物补刀不再把 HP 抬回 30）
-        internal const string SelfBuildTag = "2026-09-26.15";
+        // 2026-09-26.16：护符20 亡者之怒 效果4/5 —— 回血超过阈值即退出（可再次触发）、坐长椅退出并回满
+        internal const string SelfBuildTag = "2026-09-26.16";
 
         private static bool _harmonyApplied;
         private static bool _seriousInitApplied; // 启动时是否已应用过一次布局（防止残留居中布局）

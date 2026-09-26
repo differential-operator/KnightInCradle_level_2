@@ -11696,6 +11696,19 @@ namespace KnightInCradle.CharmUi
             }
         }
 
+        /// <summary>
+        /// 收尾"退出亡者之怒"的状态：清掉激活标记、爆发已放标记与流失计时。
+        /// 注意**不**上死亡锁 —— 需求（2026-09-26）效果4 明确：退出之后 HP 再掉到 30 还要能重新触发。
+        /// 长椅退出（效果5）与"被回血抬到阈值之上"（效果4）都走这里 / 同一套清理。
+        /// </summary>
+        private static void ReleaseNoelFuryForVanish()
+        {
+            _noelFuryActive = false;
+            _noelFuryBurstFired = false;
+            _noelFuryDrainTimer = 0f;
+            _noelFuryBurstFree = 0f;
+        }
+
         /// <summary>每帧推进（挂进 `TickNoelCharmEffects`）：维护亡者之怒状态与自动爆发的免魔窗口。</summary>
         public static void TickNoelFuryCharm(PRNoel pr)
         {
@@ -11726,13 +11739,42 @@ namespace KnightInCradle.CharmUi
                 {
                     _noelFuryLocked = false;
                 }
+                // 需求（2026-09-26 追加）效果5：亡者之怒期间**坐在长椅上** → 退出亡者之怒并回满 HP。
+                // （AIC 的长椅本来就会把 HP/MP 补满，这里主动补一次是为了不依赖"长椅菜单被打开"那一刻；
+                // 补满后 hp > 阈值，亡者之怒自然结束。）
+                if (!_noelFuryLocked && _noelFuryActive && hp > 0 && IsNoelOnBench(pr))
+                {
+                    try
+                    {
+                        int maxhp = PrMaxHpField != null ? (int)PrMaxHpField.GetValue(pr) : hp;
+                        if (hp < maxhp)
+                        {
+                            pr.cureHp(maxhp - hp); // 走原版回血：HUD、GaugeSaver 一起同步
+                        }
+                        RefreshNoelHudHp();
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    ReleaseNoelFuryForVanish();
+                    return;
+                }
                 bool wasActive = _noelFuryActive;
                 // 亡者之怒的"在状态中"判据：HP ≤ 阈值（回到阈值之上就结束）
                 _noelFuryActive = !_noelFuryLocked && hp <= KnightInCradlePlugin.FuryHpThreshold;
                 if (!_noelFuryActive)
                 {
-                    _noelFuryBurstFired = false; // 脱离亡者之怒：下一次进入时再放一次爆发
-                    _noelFuryDrainTimer = 0f;
+                    // 需求（2026-09-26 追加）效果4：亡者之怒期间用道具/其它手段把 HP 回到阈值之上就**退出**，
+                    // 之后再掉回阈值（哪怕正好 30）还能重新触发 —— 所以这里只清"本次激活"的痕迹，不上死亡锁。
+                    if (wasActive)
+                    {
+                        ReleaseNoelFuryForVanish();
+                    }
+                    else
+                    {
+                        _noelFuryBurstFired = false;
+                        _noelFuryDrainTimer = 0f;
+                    }
                     return;
                 }
                 // 需求（2026-09-26 追加）：**进入**亡者之怒的那一瞬间就要释放一次圣光爆发。
@@ -11876,7 +11918,16 @@ namespace KnightInCradle.CharmUi
             {
                 if (__instance != null && IsNoelFuryImmune)
                 {
-                    __instance.cushion_hp = 0f;
+                    // 缓冲段被抹掉的同时必须**自己置重绘标记**：
+                    // `UIStatus.fineHpRatio(use_cushion:true)` 本来只靠"cushion 非 0"去驱动血条重画，
+                    // 我们把 cushion 清零之后那条路就断了 —— 不补标记的话，
+                    // 亡者之怒期间道具回血/自己扣血的**条**不会立刻变（数字也不会）。
+                    if (__instance.cushion_hp != 0f)
+                    {
+                        __instance.cushion_hp = 0f;
+                        __instance.redraw_hp = true;
+                        __instance.redraw_bar_num = true;
+                    }
                 }
             }
             catch (Exception)
