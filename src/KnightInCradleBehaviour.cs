@@ -20,8 +20,8 @@ namespace KnightInCradle
         /// 构建标记：每次部署时手动更新，日志 `[KIC][补丁] build=…` 会打印；
         /// 配合后面的 `dll=路径 (文件时间)` 可以立刻确认游戏实际加载的是哪一份 DLL。
         /// </summary>
-        // 2026-09-26.37：护符槽配方标记为"已知"（CInfo.obtain_flag）→ 才会出现在炼金列表里
-        internal const string SelfBuildTag = "2026-09-26.37";
+        // 2026-09-27.1：护符槽配方标记为"已知"（CInfo.obtain_flag）→ 才会出现在炼金列表里
+        internal const string SelfBuildTag = "2026-09-27.1";
 
         private static bool _harmonyApplied;
         private static bool _seriousInitApplied; // 启动时是否已应用过一次布局（防止残留居中布局）
@@ -467,7 +467,6 @@ namespace KnightInCradle
                 CharmEffects.TickNoelNailMasterCharm(pr);
                 CharmEffects.TickNoelWeaversongCharm(pr);
                 CharmEffects.TickNoelFuryCharm(pr);
-                CharmUnlocks.Tick(pr); // 护符解锁条件（1 任性的指南针：开启 10 把椅子）
                 CharmEffects.TickNoelFuryVisual(pr); // 护符20 效果7：中心红色闪烁（红边在 OnGUI）
                 CharmEffects.TickCollectorAutoPickup(pr.x, pr.mbottom);
             }

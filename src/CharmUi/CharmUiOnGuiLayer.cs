@@ -814,12 +814,6 @@ namespace KnightInCradle.CharmUi
             {
                 desc = "这个护符是持有者的一部分，不能卸下。";
             }
-            else if (CharmDatabase.IsLocked(id, Controller != null ? Controller.Owner : CharmOwner.Noel))
-            {
-                // 未解锁：第一行是【未解锁】标记，换行之后是解锁条件
-                // （文案见 docs/护符效果描述.md 的"未解锁"行）
-                desc = "【未解锁】\n" + (cd.LockedText ?? "？？？");
-            }
             Color old = GUI.color;
             GUI.color = Color.white;
             if (TryGetTaggedElement("detail_name", out UiElementData nameEl, out Rect nameRect) &&
