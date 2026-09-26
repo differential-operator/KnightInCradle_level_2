@@ -4292,6 +4292,31 @@ namespace KnightInCradle.CharmUi
             return noel != null && ReferenceEquals(pr, noel);
         }
 
+        /// <summary>
+        /// 受伤反应状态（摔倒 / 后仰 / 撞墙 / 被撞倒）。亡者之怒期间一律不进入：
+        /// ① 亡者之怒本来就免疫全部魔物伤害，不该再摔倒；
+        /// ② 这些状态是**伤害管线在 HP 结算之后**才切的（`M2PrADmg.applyDamage` :1315 / :1380），
+        ///    而圣光爆发是在 HP 结算**当中**切进 `STATE.BURST` 的 —— 不挡掉就会被它们顶掉，
+        ///    表现就是"触发了亡者之怒但看不到圣光爆发"。
+        /// </summary>
+        private static bool IsDamageReactionState(PR.STATE s)
+        {
+            switch (s)
+            {
+                case PR.STATE.DAMAGE:
+                case PR.STATE.DAMAGE_L:
+                case PR.STATE.DAMAGE_LT:
+                case PR.STATE.DAMAGE_LT_KIRIMOMI:
+                case PR.STATE.DAMAGE_L_LAND:
+                case PR.STATE.DAMAGE_L_HITWALL:
+                case PR.STATE.DAMAGE_L_DOWN_ABSORBAFTER:
+                case PR.STATE.ENEMY_SINK:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         /// <summary>诺艾尔是否处于"蹲下/爬行"（蹲着左右移动就是爬行）。</summary>
         public static bool IsNoelCrouchOrCrawl(PRNoel pr)
         {
@@ -6867,6 +6892,13 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
+                // 护符20 亡者之怒（2026-09-26 追加）：期间不进入任何"受伤反应"状态。
+                // 触发那一帧我们是先切 `STATE.BURST`（圣光爆发）、伤害管线随后才切摔倒/后仰，
+                // 不挡掉的话爆发会被瞬间顶掉（这就是"血量卡在 30 但看不到圣光爆发"的原因）。
+                if (IsNoelFuryImmune && __instance is PRNoel && IsDamageReactionState(_state))
+                {
+                    return false;
+                }
                 if (_state != PR.STATE.DAMAGE_LT && _state != PR.STATE.DAMAGE_LT_KIRIMOMI)
                 {
                     return true;
@@ -8504,6 +8536,23 @@ namespace KnightInCradle.CharmUi
                     {
                         KnightInCradlePlugin.PluginLog?.LogWarning(
                             "[KIC][亡者之怒] UIStatus.fineHpRatio 补丁挂载失败：" + ex.Message);
+                    }
+                }
+                // 护符20 亡者之怒（2026-09-26 追加）：期间关闭 GaugeSaver 的"缓冲回血"。
+                MethodInfo gsaverCure = AccessTools.Method(typeof(DIFF), "cureHpFromGSaver",
+                    new[] { typeof(PR), typeof(float).MakeByRefType(), typeof(float).MakeByRefType() });
+                if (gsaverCure != null)
+                {
+                    try
+                    {
+                        harmony.Patch(gsaverCure, prefix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(FuryNoGsaverCurePrefix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    catch (Exception ex)
+                    {
+                        KnightInCradlePlugin.PluginLog?.LogWarning(
+                            "[KIC][亡者之怒] DIFF.cureHpFromGSaver 补丁挂载失败：" + ex.Message);
                     }
                 }
                 // 护符22 巴尔德之壳（诺艾尔侧）：壳展开期间拦截整次伤害结算，并计抵挡次数。
@@ -10603,7 +10652,7 @@ namespace KnightInCradle.CharmUi
         private static bool NoelMushroomMistImmune(PR pr, MistManager.MistKind kind, MistAttackInfo atk)
         {
             return pr is PRNoel && !IsKnightMode &&
-                   IsEquipped(CharmOwner.Noel, MushroomId) && IsMushroomMist(kind, atk);
+                   (IsEquipped(CharmOwner.Noel, MushroomId) || IsNoelFuryImmune) && IsMushroomMist(kind, atk);
         }
 
         /// <summary>护符32：诺艾尔免疫蘑菇雾气（`PR.applyGasDamage` 的两个重载各拦一次）。</summary>
@@ -11669,7 +11718,7 @@ namespace KnightInCradle.CharmUi
                     return; // 已经死亡：不再续无敌帧、不再流失
                 }
                 // 需求（2026-09-26 追加）：亡者之怒期间删去 HUD 上的 HP 缓冲条
-                HideNoelHpCushion();
+                HideNoelHpCushion(pr);
                 // 效果3：亡者之怒期间持续续无敌帧（滚动续期 0.2 秒）
                 try
                 {
@@ -11734,7 +11783,7 @@ namespace KnightInCradle.CharmUi
         /// 玩家侧的观感就是"血条掉得比数字慢"。这里在亡者之怒期间把它一直清零。
         /// 每帧清一次（见 `TickNoelFuryCharm`）+ 挂 `fineHpRatio` 后缀堵住"受伤那一帧刚加进去"。
         /// </summary>
-        private static void HideNoelHpCushion()
+        private static void HideNoelHpCushion(PRNoel pr)
         {
             try
             {
@@ -11747,6 +11796,45 @@ namespace KnightInCradle.CharmUi
             }
             catch (Exception)
             {
+            }
+            try
+            {
+                // 真正"看起来在回血"的那条更长：AIC 的 **GaugeSaver**（`PR.GSaver.GsHp`）。
+                // 它把"受损前的 HP"记成一份可以慢慢恢复的额度：`hp < sval` 时
+                // `GsItem.run` 会周期性调 `Pr.cureHp(1)`（`PrGaugeSaver.cs:444-465`），
+                // 同时 HUD 还会把 `sval - hp` 画成血条后面那段浅色残影。
+                // 亡者之怒期间把 sval 钉在当前 HP 上：残影段消失，回血额度也归零。
+                if (pr != null && pr.GSaver != null && pr.GSaver.GsHp != null)
+                {
+                    pr.GSaver.GsHp.debugSetValue(pr.get_hp());
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// 同上：亡者之怒期间**关闭 GaugeSaver 的回血**。
+        /// `PrGaugeSaver.GsItem.run` 每当锁时结束就调一次 `DIFF.cureHpFromGSaver`，
+        /// 返回 true 就 `cureHp(1)` —— 只要缓冲额度还在，就会一直把 HP 顶回来，
+        /// 本护符"每 2 秒 -1HP"的流失永远追不上。这里在亡者之怒期间直接返回 false：
+        /// 既不加回血，也不让缓冲额度继续涨（连带把"卡在 30HP 回不上也掉不下去"一起修掉）。
+        /// </summary>
+        private static bool FuryNoGsaverCurePrefix(PR Pr)
+        {
+            try
+            {
+                if (Pr == null || !IsNoelFuryImmune)
+                {
+                    return true;
+                }
+                PRNoel noel = KnightInCradleBehaviour.GetPrPublic();
+                return !(noel != null && ReferenceEquals(Pr, noel));
+            }
+            catch (Exception)
+            {
+                return true;
             }
         }
 

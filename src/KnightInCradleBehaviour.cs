@@ -20,8 +20,8 @@ namespace KnightInCradle
         /// 构建标记：每次部署时手动更新，日志 `[KIC][补丁] build=…` 会打印；
         /// 配合后面的 `dll=路径 (文件时间)` 可以立刻确认游戏实际加载的是哪一份 DLL。
         /// </summary>
-        // 2026-09-26.13：护符20 亡者之怒 追加 —— 进入亡者之怒瞬间必放圣光爆发、期间删去 HP 缓冲条、碰怪不摔倒
-        internal const string SelfBuildTag = "2026-09-26.13";
+        // 2026-09-26.14：护符20 亡者之怒 修正 —— 爆发不再被受伤状态顶掉；关掉 GaugeSaver 缓冲回血（HP 缓冲条）；免疫蘑菇雾气
+        internal const string SelfBuildTag = "2026-09-26.14";
 
         private static bool _harmonyApplied;
         private static bool _seriousInitApplied; // 启动时是否已应用过一次布局（防止残留居中布局）
