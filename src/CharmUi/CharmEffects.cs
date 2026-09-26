@@ -751,11 +751,10 @@ namespace KnightInCradle.CharmUi
         public const int BlueHeart2HpDelta = -60;
         public const int BlueHeart2MpDelta = 100;
         /// <summary>
-        /// 28 生命血之心 + 29 生命血核心 + 30 乔尼的祝福 **三件同时佩戴**时的额外魔力上限
-        /// （2026-09-24 追加需求）。
+        /// 28 生命血之心 + 29 生命血核心 + 30 乔尼的祝福 **三件同时佩戴**时的额外魔力上限。
+        /// 数值改由配置 `[Charm30] BlueHeartTripleMpBonus` 给出（默认 70，
+        /// 对齐 `docs/护符加成描述.md` 末尾的羁绊列表）。
         /// </summary>
-        public const int JoniBlueHeartMpBonus = 90;
-
         /// <summary>基础上限寄存键（COOK SF，随存档序列化）：用来区分"存档里已经带上加成了"。</summary>
         private const string HeartBaseMaxHpKey = "kic_noel_heart_base";
         private const string HeartBaseMaxMpKey = "kic_noel_heart_base_mp";
@@ -828,7 +827,7 @@ namespace KnightInCradle.CharmUi
                     // 三件同时佩戴，再额外 +90 魔力上限。
                     if (blue1 && blue2)
                     {
-                        mpDelta += JoniBlueHeartMpBonus;
+                        mpDelta += KnightInCradlePlugin.JoniBlueHeartMpBonus;
                     }
                 }
                 int targetMp = Mathf.Max(1, _noelHeartBaseMaxMp + mpDelta);
@@ -1211,6 +1210,24 @@ namespace KnightInCradle.CharmUi
                     }
                     // 蓄力释放的剑气命中 → 补一次"魔法霰弹击中"的动画/音效，并清掉蓄力
                     TriggerNoelElegyShotgun(pr, enemy, b);
+                    // 表格：**附魔剑气**也要算"魔法命中"→ 灵魂捕手(+6) / 噬魂者(+15) 回魔
+                    //（未附魔的剑气不算魔法，不回魔）
+                    if (b.Magic)
+                    {
+                        float mpGain = 0f;
+                        if (IsEquipped(CharmOwner.Noel, SoulCatcherId))
+                        {
+                            mpGain += SoulCatcherMp;
+                        }
+                        if (IsEquipped(CharmOwner.Noel, SoulEaterId))
+                        {
+                            mpGain += SoulEaterMp;
+                        }
+                        if (mpGain > 0f && KnightInCradleBehaviour.GrantNoelMana(mpGain))
+                        {
+                            RefreshNoelHudMp();
+                        }
+                    }
                     return;
                 }
                 // ---- 兜底：拿不到攻击包数据时沿用旧的固定真实伤害 ----
@@ -1580,7 +1597,9 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                int dmg = Mathf.Max(1, Mathf.FloorToInt(damage * KnightInCradlePlugin.ThornsDamageMult + 0.5f));
+                // 表格：苦痛荆棘吃 13 坚固力量 / 16 沉重之击(会心) / 20 亡者之怒 的伤害加成（不吃萨满）
+                int dmg = Mathf.Max(1, Mathf.FloorToInt(
+                    damage * KnightInCradlePlugin.ThornsDamageMult * NoelSideDamageMult(true) + 0.5f));
                 float radius = KnightInCradlePlugin.ThornsRadius;
                 float mx = mp.pixel2ux(noel.x * mp.CLEN);
                 float my = mp.pixel2uy(noel.y * mp.CLEN);
@@ -2596,6 +2615,13 @@ namespace KnightInCradle.CharmUi
                 {
                     return; // 生成中的魔物不能打（否则它渲染会永久消失）
                 }
+                // 表格：防御者纹章吃 5 萨满之石 / 16 沉重之击(会心) / 20 亡者之怒；不吃 13 坚固力量。
+                float mult = NoelSideDamageMult(false);
+                if (IsEquipped(CharmOwner.Noel, ShamanId))
+                {
+                    mult *= ShamanDamageMult;
+                }
+                dmg = Mathf.Max(1, Mathf.FloorToInt(dmg * mult + 0.5f));
                 var atk = new NelAttackInfo();
                 atk.hpdmg0 = dmg;
                 atk.hpdmg_current = dmg;
@@ -3742,9 +3768,11 @@ namespace KnightInCradle.CharmUi
         /// <summary>当前每只吸虫的伤害：带萨满之石 9，否则 7。</summary>
         private static int NoelFlukeDamageNow()
         {
-            return IsEquipped(CharmOwner.Noel, ShamanId)
+            // 表格：吸虫吃 5 萨满（7→9 的独立规则）、16 沉重之击(会心)、20 亡者之怒；不吃 13 坚固力量。
+            int baseDmg = IsEquipped(CharmOwner.Noel, ShamanId)
                 ? KnightInCradlePlugin.NestFlukeDamageWithShaman
                 : KnightInCradlePlugin.NestFlukeDamage;
+            return Mathf.Max(1, Mathf.FloorToInt(baseDmg * NoelSideDamageMult(false) + 0.5f));
         }
 
         /// <summary>
@@ -4372,11 +4400,40 @@ namespace KnightInCradle.CharmUi
                 if (perSecond <= 0f || pr == null || !pr.is_alive || !UnnFriendlyActive())
                 {
                     _unnCrouchHealAccum = 0f;
+                    _unnCrouchMpAccum = 0f;
                     return;
                 }
                 if (PrMaxHpField == null || PrHpField == null)
                 {
                     return;
+                }
+                // 羁绊 26+34（快速聚集 + 乌恩之形）：蹲下/爬行时**也按同样速率回魔**。
+                // 与 HP 分开累加：HP 满的时候也要继续回魔。
+                if (IsEquipped(CharmOwner.Noel, FastGatherId) && PrMpField != null && PrMaxMpField != null)
+                {
+                    int maxMpBond = (int)PrMaxMpField.GetValue(pr);
+                    int mpNow = (int)PrMpField.GetValue(pr);
+                    if (maxMpBond > 0 && mpNow < maxMpBond)
+                    {
+                        _unnCrouchMpAccum += perSecond * Time.deltaTime;
+                        int gainMp = Mathf.FloorToInt(_unnCrouchMpAccum);
+                        if (gainMp > 0)
+                        {
+                            _unnCrouchMpAccum -= gainMp;
+                            if (KnightInCradleBehaviour.GrantNoelMana(gainMp))
+                            {
+                                RefreshNoelHudMp();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        _unnCrouchMpAccum = 0f;
+                    }
+                }
+                else
+                {
+                    _unnCrouchMpAccum = 0f;
                 }
                 int maxHp = (int)PrMaxHpField.GetValue(pr);
                 int hp = (int)PrHpField.GetValue(pr);
@@ -4410,6 +4467,8 @@ namespace KnightInCradle.CharmUi
         }
 
         private static float _unnCrouchHealAccum;
+        /// <summary>羁绊 26+34：蹲下/爬行回复魔力的累加器（与 HP 那份分开算）。</summary>
+        private static float _unnCrouchMpAccum;
 
         // ==================== 护符35 骨钉大师的荣耀（诺艾尔侧） ====================
         private enum NailMasterPhase
@@ -5006,6 +5065,25 @@ namespace KnightInCradle.CharmUi
         // 做法与小骑士那套一致：3 只小编织者贴地跟随、随机乱跑、偶尔跳，
         // 周期性朝附近敌人发射蛛丝（3 真伤）；近身则每 5 秒一次近战（15 真伤）。
         // 羁绊：**同时携带幼虫之歌**时，小蜘蛛每次命中 → 回复 WeaverGrubsongMp（默认 3）MP。
+
+        /// <summary>
+        /// 羁绊 8+36（飞毛腿 + 编织者之歌）：小编织者的攻击间隔缩放。
+        /// 同时佩戴飞毛腿时返回 `[Charm36] RunnerBondCooldownScale`（默认 0.75 = 攻速约 +33%），
+        /// 否则 1（不变）。
+        /// </summary>
+        private static float NoelWeaverBondCooldownScale()
+        {
+            try
+            {
+                return !IsKnightMode && IsEquipped(CharmOwner.Noel, RunnerId)
+                    ? KnightInCradlePlugin.WeaverRunnerBondCooldownScale
+                    : 1f;
+            }
+            catch (Exception)
+            {
+                return 1f;
+            }
+        }
         private const int WeaverCount = 3;
         private const float WeaverRespawnDelay = 3f;     // 过图后等待（秒）再生成
         private const int WeaverThreadDamage = 3;        // 蛛丝命中伤害
@@ -5199,7 +5277,7 @@ namespace KnightInCradle.CharmUi
                             w.State = 1;
                             w.AnimTime = 0f;
                             w.Target = null;
-                            w.AttackCd = WeaverAttackInterval;
+                            w.AttackCd = WeaverAttackInterval * NoelWeaverBondCooldownScale();
                         }
                         continue;
                     }
@@ -5214,7 +5292,7 @@ namespace KnightInCradle.CharmUi
                             w.State = 1;
                             w.AnimTime = 0f;
                             w.Target = null;
-                            w.MeleeCd = WeaverMeleeInterval;
+                            w.MeleeCd = WeaverMeleeInterval * NoelWeaverBondCooldownScale();
                         }
                         continue;
                     }
@@ -6270,10 +6348,15 @@ namespace KnightInCradle.CharmUi
         private static M2RenderTicket _noelLongNailArcTicket;
         private static Map2d _noelLongNailArcMap;
 
-        /// <summary>修长之钉覆盖的招式（近战判定包 kind）：轻攻击/凌空横斩、魔法霰弹、会心重击。</summary>
+        /// <summary>
+        /// 修长之钉/骄傲印记覆盖的招式（近战判定包 kind）：轻攻击、凌空横斩（同一 kind = PR_PUNCH）
+        /// 与魔法霰弹（PR_SHOTGUN / 附魔凌空横斩）。
+        /// 按 `docs/护符加成描述.md` 的表格：18/19 只勾了"轻攻击 / 魔法霰弹 / 凌空横斩 / 附魔凌空横斩"，
+        /// **会心重击（PR_SMASH）没有勾**，所以这里不再包含 SMASH。
+        /// </summary>
         private static bool IsLongNailKind(MGKIND kind)
         {
-            return kind == MGKIND.PR_PUNCH || kind == MGKIND.PR_SHOTGUN || kind == MGKIND.PR_SMASH;
+            return kind == MGKIND.PR_PUNCH || kind == MGKIND.PR_SHOTGUN;
         }
 
         /// <summary>是否佩戴了"加长近战"类护符（18 修长之钉 / 19 骄傲印记）。</summary>
@@ -6698,7 +6781,12 @@ namespace KnightInCradle.CharmUi
         /// <summary>`PR.state`（protected 字段）的快速读取器，用于判断"当前是不是挥击状态"。</summary>
         private static AccessTools.FieldRef<PR, PR.STATE> _prStateRef;
 
-        /// <summary>诺艾尔的"挥击/技艺状态"白名单（快速劈砍只在这些状态里加速）。</summary>
+        /// <summary>
+        /// 诺艾尔的"挥击/技艺状态"白名单（快速劈砍 17 / 亡者之怒 20 的攻速只在这些状态里加速）。
+        /// 按 `docs/护符加成描述.md` 的表格：17 勾了 轻攻击 / 魔法霰弹 / 凌空横斩(+附魔) /
+        /// 会心重击(+附魔) / 轮舞斩击(+附魔)，**没有**勾 旋风斩击 / 彗星俯冲（也列了 突进冲击、滑铲则完全不提），
+        /// 所以这里把 WHEEL / COMET / DASHPUNCH / SLIDING 去掉。
+        /// </summary>
         private static bool IsNoelAttackState(PR pr)
         {
             try
@@ -6716,15 +6804,8 @@ namespace KnightInCradle.CharmUi
                     case PR.STATE.PUNCH:
                     case PR.STATE.AIRPUNCH:
                     case PR.STATE.AIRPUNCH_SHOTGUN:
-                    case PR.STATE.WHEEL:
-                    case PR.STATE.WHEEL_SHOTGUN:
-                    case PR.STATE.COMET:
-                    case PR.STATE.COMET_SHOTGUN:
-                    case PR.STATE.DASHPUNCH:
-                    case PR.STATE.DASHPUNCH_SHOTGUN:
                     case PR.STATE.SMASH:
                     case PR.STATE.SMASH_SHOTGUN:
-                    case PR.STATE.SLIDING:
                     case PR.STATE.EVADECOUNTER:
                     case PR.STATE.EVADECOUNTER_SHOTGUN:
                         return true;
@@ -7017,6 +7098,34 @@ namespace KnightInCradle.CharmUi
         /// 诺艾尔侧的"最终伤害乘区"（萨满之石 × 坚固力量 × 会心），`CircleCast` 前缀与
         /// 蜕变挽歌剑气的"霰弹命中"结算共用，保证两条路给同一个倍率。
         /// </summary>
+        /// <summary>
+        /// 诺艾尔**辅助伤害源**（苦痛荆棘反击 / 吸虫 / 防御者纹章法阵）的伤害乘区，
+        /// 按 `docs/护符加成描述.md` 的表格逐项对齐：
+        /// ・13 坚固力量：苦痛荆棘勾了、吸虫与法阵没勾 → 由 `powerKind` 控制；
+        /// ・16 沉重之击（会心 +40%）：三者都勾 → 一律生效；
+        /// ・20 亡者之怒（+75%）：三者都勾 → 一律生效；
+        /// ・5 萨满之石：只有法阵勾了（吸虫走"7→9"的独立规则）→ 由调用方自己乘。
+        /// 注意这里**不含**护符35（骨钉大师 ×5）与护符27（深聚下一击），
+        /// 避免辅助伤害把深聚的"下一击"额度吃掉。
+        /// </summary>
+        private static float NoelSideDamageMult(bool powerKind)
+        {
+            float mult = 1f;
+            if (powerKind && IsEquipped(CharmOwner.Noel, PowerId))
+            {
+                mult *= PowerDamageMult;
+            }
+            if (IsHeavyFocusActive)
+            {
+                mult *= HeavyBlowFocusMult;
+            }
+            if (_noelFuryActive)
+            {
+                mult *= KnightInCradlePlugin.FuryDamageMult;
+            }
+            return mult;
+        }
+
         private static float NoelFinalDamageMult(MGKIND kind, bool shotgunFlavored)
         {
             float mult = 1f;
@@ -9464,8 +9573,11 @@ namespace KnightInCradle.CharmUi
             {
                 return; // 冲刺期间不能再次冲刺
             }
-            // 冲刺消耗 MP（默认 100）：不足则不冲刺（音效/白闪/伤害都不发生）
-            int cost = KnightInCradlePlugin.ShadowDashMpCost;
+            // 冲刺消耗 MP（默认 70）：不足则不冲刺（音效/白闪/伤害都不发生）
+            // 羁绊 14+33：佩戴法术扭曲者时改成 `TwistedBondMpCost`（默认 60）。
+            int cost = IsEquipped(CharmOwner.Noel, SpellTwisterId)
+                ? KnightInCradlePlugin.ShadowDashTwistedMpCost
+                : KnightInCradlePlugin.ShadowDashMpCost;
             if (cost > 0 && pr != null)
             {
                 try

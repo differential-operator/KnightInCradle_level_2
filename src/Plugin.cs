@@ -321,6 +321,14 @@ namespace KnightInCradle
         /// <summary>造成伤害时附加的真实伤害（默认 10）。</summary>
         internal static ConfigEntry<int> FuryTrueDamageConfig;
 
+        // ---- 羁绊（docs/护符加成描述.md 末尾那份）----
+        /// <summary>羁绊 8+36：佩戴飞毛腿时小编织者的攻击间隔缩放（默认 0.75 = 攻速 +33%）。</summary>
+        internal static ConfigEntry<float> WeaverRunnerBondCooldownScaleConfig;
+        /// <summary>羁绊 28+29+30：生命血之心 + 生命血核心 + 乔尼的祝福 三件齐时的额外魔力上限（默认 70）。</summary>
+        internal static ConfigEntry<int> JoniBlueHeartMpBonusConfig;
+        /// <summary>羁绊 14+33：佩戴法术扭曲者时锋利之影冲刺的 MP 消耗（默认 60）。</summary>
+        internal static ConfigEntry<int> ShadowDashTwistedMpCostConfig;
+
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
         internal static ConfigEntry<string> PoseBrowserNextKeyConfig;
@@ -432,7 +440,7 @@ namespace KnightInCradle
                 ? Mathf.Clamp(ShadowDashBurstOffsetYConfig.Value, -20f, 20f)
                 : 0f;
         internal static int ShadowDashMpCost =>
-            ShadowDashMpCostConfig != null ? Mathf.Clamp(ShadowDashMpCostConfig.Value, 0, 9999) : 100;
+            ShadowDashMpCostConfig != null ? Mathf.Clamp(ShadowDashMpCostConfig.Value, 0, 9999) : 70;
         internal static float ShadowDashDamageMult =>
             ShadowDashDamageMultConfig != null
                 ? Mathf.Clamp(ShadowDashDamageMultConfig.Value, 0.1f, 20f)
@@ -551,6 +559,16 @@ namespace KnightInCradle
             FuryDamageMultConfig != null ? Mathf.Clamp(FuryDamageMultConfig.Value, 1f, 50f) : 1.75f;
         internal static int FuryTrueDamage =>
             FuryTrueDamageConfig != null ? Mathf.Clamp(FuryTrueDamageConfig.Value, 0, 9999) : 10;
+        internal static float WeaverRunnerBondCooldownScale =>
+            WeaverRunnerBondCooldownScaleConfig != null
+                ? Mathf.Clamp(WeaverRunnerBondCooldownScaleConfig.Value, 0.05f, 1f)
+                : 0.75f;
+        internal static int JoniBlueHeartMpBonus =>
+            JoniBlueHeartMpBonusConfig != null ? Mathf.Clamp(JoniBlueHeartMpBonusConfig.Value, 0, 9999) : 70;
+        internal static int ShadowDashTwistedMpCost =>
+            ShadowDashTwistedMpCostConfig != null
+                ? Mathf.Clamp(ShadowDashTwistedMpCostConfig.Value, 0, 9999)
+                : 60;
         /// <summary>护符20 效果7：中心红色闪烁的颜色（十六进制 RRGGBB，默认 FF4026 = 小骑士那份的 (1, 0.25, 0.15)）。</summary>
         internal static Color FuryGlowColor
         {
@@ -961,7 +979,7 @@ namespace KnightInCradle
                 "锋利之影·冲刺：发射图片的水平位置偏移（格，正值 = 朝**前方**，默认 0）。");
             ShadowDashBurstOffsetYConfig = Config.Bind("Charm33", "DashBurstOffsetY", 0f,
                 "锋利之影·冲刺：发射图片的垂直位置偏移（格，y 向下为正，负值 = 上移，默认 0）。");
-            ShadowDashMpCostConfig = Config.Bind("Charm33", "DashMpCost", 100,
+            ShadowDashMpCostConfig = Config.Bind("Charm33", "DashMpCost", 70,
                 "锋利之影·冲刺：消耗的 MP（默认 100）；MP 不足则不冲刺。");
             ShadowDashDamageMultConfig = Config.Bind("Charm33", "DashDamageMult", 3f,
                 "锋利之影·冲刺：伤害倍率 —— 相对**当前轻攻击**（法杖带霰弹附魔时相对**当前魔法霰弹**）的伤害，默认 3。");
@@ -1066,6 +1084,15 @@ namespace KnightInCradle
                 "亡者之怒：诺艾尔造成的伤害倍率（默认 1.75 = 提升 75%，与萨满/坚固力量/会心同一乘区连乘）。");
             FuryTrueDamageConfig = Config.Bind("Charm20", "TrueDamage", 10,
                 "亡者之怒：诺艾尔造成伤害时附加的真实伤害（默认 10；0 = 关闭）。");
+            // 羁绊（docs/护符加成描述.md 末尾那份）
+            WeaverRunnerBondCooldownScaleConfig = Config.Bind("Charm36", "RunnerBondCooldownScale", 0.75f,
+                "羁绊 8+36（飞毛腿 + 编织者之歌）：同时佩戴时小编织者的攻击间隔缩放" +
+                "（默认 0.75 = 攻速约 +33%；1 = 不加快）。");
+            JoniBlueHeartMpBonusConfig = Config.Bind("Charm30", "BlueHeartTripleMpBonus", 70,
+                "羁绊 28+29+30（生命血之心 + 生命血核心 + 乔尼的祝福）：三件齐时**额外**获得的魔力上限（默认 70）。");
+            ShadowDashTwistedMpCostConfig = Config.Bind("Charm33", "TwistedBondMpCost", 60,
+                "羁绊 14+33（法术扭曲者 + 锋利之影）：佩戴法术扭曲者时冲刺的 MP 消耗（默认 60；" +
+                "未佩戴时用 DashMpCost）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
