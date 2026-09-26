@@ -7106,6 +7106,8 @@ namespace KnightInCradle.CharmUi
         private sealed class ShamanBoostState
         {
             public int Hp0;
+            /// <summary>原 `hpdmg_current`（固定伤害会一起改掉，后缀要还原）。</summary>
+            public int Cur;
             /// <summary>原 `fix_damage`（护符35 的固定伤害会把它设成 true，后缀要还原）。</summary>
             public bool Fix;
         }
@@ -7636,8 +7638,10 @@ namespace KnightInCradle.CharmUi
                 {
                     // 固定 20/25：同时把 `fix_damage` 打开，否则游戏还会按自己的伤害发布率/
                     // 敌人减伤再打折（实测 20 会显示成 13 左右）。
-                    var stFixed = new ShamanBoostState { Hp0 = Atk.hpdmg0, Fix = Atk.fix_damage };
+                    var stFixed = new ShamanBoostState { Hp0 = Atk.hpdmg0, Cur = Atk.hpdmg_current, Fix = Atk.fix_damage };
                     Atk.hpdmg0 = KnightInCradlePlugin.NailMasterFixedDamage;
+                    // 关键：`AttackInfo._hpdmg` 取的是 `hpdmg_current`（>=0 时优先），只改 hpdmg0 不生效
+                    Atk.hpdmg_current = KnightInCradlePlugin.NailMasterFixedDamage;
                     Atk.fix_damage = true;
                     __state = stFixed;
                     return;
@@ -7668,6 +7672,7 @@ namespace KnightInCradle.CharmUi
                     return;
                 }
                 Atk.hpdmg0 = __state.Hp0;
+                Atk.hpdmg_current = __state.Cur;
                 Atk.fix_damage = __state.Fix;
             }
             catch (Exception)
