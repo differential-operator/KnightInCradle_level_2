@@ -5518,4 +5518,27 @@ MovRenderer，画在诺艾尔身后层 PR0，颜色纯绿（`(0,1,0,0.9)`），�
 
 验证：`build=2026-09-26.14`，DLL SHA256 `99F1CF5DF0DF326C…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `0 失败`；唯一的 HarmonyX 警告是既有的 `isNoDamageActive` 提示）。
+
+### 58.8 【修正】诺艾尔死亡后锁死亡者之怒
+
+反馈：**死亡之后要把亡者之怒的触发锁住**，否则 HP 又回到 30。
+
+原因：死亡时 HP = 0，而"在亡者之怒中"的判据是 `HP ≤ 阈值(30)` —— 0 也成立。
+于是魔物对尸体补刀时 `TryTriggerNoelFury` 照样判定 `hp - val < 30`：
+`val = 0`、`PrHpField = 阈值`，**死了又被写回 30HP**（看起来像原地复活）。
+
+改法：新增 `_noelFuryLocked` 锁。
+
+| 时机 | 处理 |
+|---|---|
+| `TickNoelFuryCharm` 里 `hp <= 0` 或 `!pr.is_alive` | `_noelFuryLocked = true`，并把 `_noelFuryActive` 直接判为 false |
+| 本护符自己的 HP 流失把她扣死那一刻 | 调 `applyHpDamage` **之前**就置 `_noelFuryLocked = true`（同帧补刀也不受影响） |
+| `TryTriggerNoelFury` 开头 | `_noelFuryLocked` 或 `hp <= 0` / 非存活 → 直接 return false（并顺手置锁），**绝不写回阈值** |
+| 解锁 | `hp > 阈值`（复活 / 回满）**或** 坐在长椅上（`IsNoelOnBench`）；卸下护符 / 切小骑士时也会清锁 |
+
+锁定期间 `NoelFuryActive` 为 false，所以"全免疫 + 每 2 秒 -1HP"也一并停下，
+死亡就是死亡，等复活后 HP 回到阈值之上才会重新开始计。
+
+验证：`build=2026-09-26.15`，DLL SHA256 `DB7913CE507BFA72…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `0 失败`）。
 本地隐藏启动确认 `71 成功 / 0 失败`）。
