@@ -5424,4 +5424,32 @@ MovRenderer，画在诺艾尔身后层 PR0，颜色纯绿（`(0,1,0,0.9)`），�
 只要 HP 恰好是 30 就不再重复放爆发。）
 
 验证：`build=2026-09-26.11`，DLL SHA256 `D58BE646F9BAF442…`（两份安装已同步；只覆盖 DLL）。
+
+### 58.5 效果3 / 效果4：亡者之怒期间的全免疫 + HP 自流失
+
+需求：
+3. 亡者之怒期间，诺艾尔免疫**来自魔物的所有伤害、抓取以及负面效果**，也免疫**地图上所有危险格**
+   （尖刺、荆棘、虫墙等）；
+4. 亡者之怒期间 HP 随时间减少：**每 2 秒 −1HP**，HP 为 0 时死亡。
+
+实现分五处，全部以 `IsNoelFuryImmune`（= `_noelFuryActive`，HP ≤ 阈值）为开关、只作用于本地诺艾尔：
+
+| # | 挂点 | 作用 |
+|---|---|---|
+| ① | `PR.addNoDamage(NDMG._ALL, 0.2f)`（每帧滚动续期） | 走 AIC 原生无敌帧，挡掉游戏自己那层判定（普攻 / 地图伤害 / 各类键值） |
+| ② | `M2PrADmg.applyDamage` 前缀（`JoniSturdyLockDamagePrefix`，签名补上 `NelAttackInfo Atk`） | **只对"来源是魔物"的伤害**（`Atk.Caster` / `Atk.AttackFrom` 是 `NelEnemy`）整次作废，避免漏网路径（`force=true` 会绕过 ①） |
+| ③ | `PR.applyDamageFromMap` 前缀（`ThornsMapDamagePrefix`，与护符21 共用） | 亡者之怒期间**所有** `MAPDMG` 危险格直接返回 null；护符21 仍只管 `MAPDMG.SPIKE` |
+| ④ | `M2Ser.Add` 前缀（`NoelDashSerAddPrefix`） | `IsNoelNegativeSer(ser)` 白名单（中毒/麻痹/束缚/虫墙/睡眠/被抓/被吃/眩晕…）一律拒绝 |
+| ⑤ | `PR.initAbsorb`（`UnnInitAbsorbPrefix`）、`PR.canPullByWorm`（`GrubsongCanPullByWormPrefix`） | 免疫被吞下、免疫虫墙拉扯 |
+
+效果4 在 `TickNoelFuryCharm` 里推进：计时到 `DrainSeconds`（默认 2 秒）就 `hp -= DrainAmount`（默认 1）
+并刷 HUD；HP 减到 ≤ 0 时用 `pr.applyHpDamage(9999, true, null)` 走**原版强制死亡**
+（与护符30 乔尼"魔力池打空 → 死亡"同一写法；`force=true` 会绕过 ① 自己也挂上的无敌帧）。
+这条致死调用由 `_noelFuryDying` 标记，`SturdyHpDamagePrefix` 见到就直接放行，
+不再触发幼虫之歌回魔 / 苦痛荆棘反击 / 亡者之怒自身的阈值改写。已经死亡（`hp <= 0`）时不再续无敌帧、不再流失。
+
+配置（`[Charm20]`）：`DrainSeconds`(2)、`DrainAmount`(1)。
+
+验证：`build=2026-09-26.12`，DLL SHA256 `F2C2FEA409FDB37D…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `71 成功 / 0 失败`）。
 本地隐藏启动确认 `71 成功 / 0 失败`）。
