@@ -330,6 +330,13 @@ namespace KnightInCradle
         internal static ConfigEntry<int> ShadowDashTwistedMpCostConfig;
         /// <summary>护符33：蓄力完成时**没有附魔魔法霰弹**的冲刺 MP 消耗（默认 30）。</summary>
         internal static ConfigEntry<int> ShadowDashMpCostNoEnchantConfig;
+        // ---- 护符界面：布局只有 11 个槽孔图，上限 14 时补画多出来的 3 个 ----
+        /// <summary>补画的槽孔相对"按间距推算位置"的横向偏移（像素，默认 0）。</summary>
+        internal static ConfigEntry<float> CharmExtraHoleOffsetXConfig;
+        /// <summary>补画的槽孔纵向偏移（像素，正值 = 下移，默认 0）。</summary>
+        internal static ConfigEntry<float> CharmExtraHoleOffsetYConfig;
+        /// <summary>补画槽孔的间距倍率（默认 1 = 与布局原有间距一致）。</summary>
+        internal static ConfigEntry<float> CharmExtraHoleSpacingScaleConfig;
         // ---- 诺艾尔护符界面（文案预览）----
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
@@ -576,6 +583,14 @@ namespace KnightInCradle
             ShadowDashMpCostNoEnchantConfig != null
                 ? Mathf.Clamp(ShadowDashMpCostNoEnchantConfig.Value, 0, 9999)
                 : 30;
+        internal static float CharmExtraHoleOffsetX =>
+            CharmExtraHoleOffsetXConfig != null ? CharmExtraHoleOffsetXConfig.Value : 0f;
+        internal static float CharmExtraHoleOffsetY =>
+            CharmExtraHoleOffsetYConfig != null ? CharmExtraHoleOffsetYConfig.Value : 0f;
+        internal static float CharmExtraHoleSpacingScale =>
+            CharmExtraHoleSpacingScaleConfig != null
+                ? Mathf.Clamp(CharmExtraHoleSpacingScaleConfig.Value, 0.2f, 5f)
+                : 1f;
         /// <summary>护符20 效果7：中心红色闪烁的颜色（十六进制 RRGGBB，默认 FF4026 = 小骑士那份的 (1, 0.25, 0.15)）。</summary>
         internal static Color FuryGlowColor
         {
@@ -1102,6 +1117,12 @@ namespace KnightInCradle
                 "未佩戴时用 DashMpCost）。");
             ShadowDashMpCostNoEnchantConfig = Config.Bind("Charm33", "DashMpCostNoEnchant", 30,
                 "护符33 锋利之影：蓄力完成时**法杖没有附魔魔法霰弹**的情况下，冲刺只消耗这么多 MP（默认 30）。");
+            CharmExtraHoleOffsetXConfig = Config.Bind("CharmUi", "ExtraHoleOffsetX", 0f,
+                "护符界面：布局只有 11 个槽孔图，上限超过 11 时补画的槽孔相对推算位置的横向偏移（像素，默认 0）。");
+            CharmExtraHoleOffsetYConfig = Config.Bind("CharmUi", "ExtraHoleOffsetY", 0f,
+                "护符界面：补画的槽孔纵向偏移（像素，正值 = 下移，默认 0）。");
+            CharmExtraHoleSpacingScaleConfig = Config.Bind("CharmUi", "ExtraHoleSpacingScale", 1f,
+                "护符界面：补画槽孔的间距倍率（默认 1 = 与原有槽孔间距一致）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
