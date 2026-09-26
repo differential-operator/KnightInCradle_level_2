@@ -630,11 +630,11 @@ namespace KnightInCradle
         internal static int NailMasterSpinHitDamage =>
             NailMasterSpinHitDamageConfig != null
                 ? Mathf.Clamp(NailMasterSpinHitDamageConfig.Value, 1, 9999)
-                : 10;
+                : 30;
         internal static int NailMasterSpinHitDamageWithPower =>
             NailMasterSpinHitDamageWithPowerConfig != null
                 ? Mathf.Clamp(NailMasterSpinHitDamageWithPowerConfig.Value, 1, 9999)
-                : 13;
+                : 40;
         /// <summary>护符20 效果7：中心红色闪烁的颜色（十六进制 RRGGBB，默认 FF4026 = 小骑士那份的 (1, 0.25, 0.15)）。</summary>
         internal static Color FuryGlowColor
         {
@@ -1180,9 +1180,9 @@ namespace KnightInCradle
                 "护符35：组合键里的魔法键（默认 X）。");
             NailMasterBurstHoldSecondsConfig = Config.Bind("Charm35", "BurstHoldSeconds", 0.3f,
                 "护符35：长按魔法键多少秒后释放圣光爆发（默认 0.3）。");
-            NailMasterSpinHitDamageConfig = Config.Bind("Charm35", "SpinHitDamage", 10,
+            NailMasterSpinHitDamageConfig = Config.Bind("Charm35", "SpinHitDamage", 30,
                 "护符35 骨钉大师的荣耀：旋风斩每击造成的固定伤害（默认 10，不再读取轻攻击）。");
-            NailMasterSpinHitDamageWithPowerConfig = Config.Bind("Charm35", "SpinHitDamageWithPower", 13,
+            NailMasterSpinHitDamageWithPowerConfig = Config.Bind("Charm35", "SpinHitDamageWithPower", 40,
                 "护符35：同时携带护符13 坚固力量时，旋风斩每击的固定伤害（默认 13）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
