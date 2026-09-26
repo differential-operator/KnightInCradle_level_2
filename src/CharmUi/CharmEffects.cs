@@ -11720,6 +11720,39 @@ namespace KnightInCradle.CharmUi
         private static bool IsNoelFuryImmune => _noelFuryActive;
 
         /// <summary>护符过载：诺艾尔当前过载了几个槽孔（已装护符总费用 - 槽孔上限）。</summary>
+        /// <summary>
+        /// 护符35 补充（需求 2026-09-27）：戴荣耀时魔法键是锁住的，这里加一个组合键 ——
+        /// **攻击键按住 + 魔法键按下** → 直接切进 `PR.STATE.BURST`（圣光爆发）。
+        /// 魔力消耗/后续流程全部走原版爆发（不享受亡者之怒那个免魔窗口）。
+        /// </summary>
+        public static void TickNoelBurstCombo(PRNoel pr)
+        {
+            try
+            {
+                if (pr == null || !pr.is_alive || IsKnightMode || !NailMasterEquipped ||
+                    !KnightInCradlePlugin.NailMasterBurstComboEnabled)
+                {
+                    return;
+                }
+                if (!KeyConfig.GetHeld(KnightInCradlePlugin.NailMasterBurstComboAttackKey, KeyCode.Z))
+                {
+                    return; // 要先按住攻击键
+                }
+                if (!KeyConfig.GetPressed(KnightInCradlePlugin.NailMasterBurstComboMagicKey, KeyCode.X))
+                {
+                    return; // 再按下魔法键（每按一次触发一次）
+                }
+                if (NoelPrStateIs(pr, PR.STATE.BURST))
+                {
+                    return; // 已经在爆发中
+                }
+                pr.changeState(PR.STATE.BURST);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         public static int NoelOverchargeCount
         {
             get

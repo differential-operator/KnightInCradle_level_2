@@ -339,6 +339,13 @@ namespace KnightInCradle
         internal static ConfigEntry<float> CharmExtraHoleSpacingScaleConfig;
         /// <summary>护符过载：每超出 1 个槽孔，诺艾尔受到的伤害提高的比例（默认 0.25 = +25%）。</summary>
         internal static ConfigEntry<float> OverchargeDamagePerSlotConfig;
+        // ---- 护符35：同时按攻击键 + 魔法键 → 圣光爆发（因为戴荣耀会锁魔法键）----
+        /// <summary>是否启用"攻击+魔法"组合键放圣光爆发（默认开）。</summary>
+        internal static ConfigEntry<bool> NailMasterBurstComboEnabledConfig;
+        /// <summary>组合键里的攻击键（默认 Z）。</summary>
+        internal static ConfigEntry<string> NailMasterBurstComboAttackKeyConfig;
+        /// <summary>组合键里的魔法键（默认 X）。</summary>
+        internal static ConfigEntry<string> NailMasterBurstComboMagicKeyConfig;
         // ---- 诺艾尔护符界面（文案预览）----
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
@@ -597,6 +604,10 @@ namespace KnightInCradle
             OverchargeDamagePerSlotConfig != null
                 ? Mathf.Clamp(OverchargeDamagePerSlotConfig.Value, 0f, 10f)
                 : 0.25f;
+        internal static bool NailMasterBurstComboEnabled =>
+            NailMasterBurstComboEnabledConfig == null || NailMasterBurstComboEnabledConfig.Value;
+        internal static ConfigEntry<string> NailMasterBurstComboAttackKey => NailMasterBurstComboAttackKeyConfig;
+        internal static ConfigEntry<string> NailMasterBurstComboMagicKey => NailMasterBurstComboMagicKeyConfig;
         /// <summary>护符20 效果7：中心红色闪烁的颜色（十六进制 RRGGBB，默认 FF4026 = 小骑士那份的 (1, 0.25, 0.15)）。</summary>
         internal static Color FuryGlowColor
         {
@@ -1131,6 +1142,13 @@ namespace KnightInCradle
                 "护符界面：补画槽孔的间距倍率（默认 1 = 与原有槽孔间距一致）。");
             OverchargeDamagePerSlotConfig = Config.Bind("CharmUi", "OverchargeDamagePerSlot", 0.25f,
                 "护符过载：每超出 1 个槽孔，诺艾尔受到的伤害提高的比例（默认 0.25 = +25%）。");
+            NailMasterBurstComboEnabledConfig = Config.Bind("Charm35", "BurstComboEnabled", true,
+                "护符35 骨钉大师的荣耀：同时按「攻击键 + 魔法键」可以释放圣光爆发（默认开；" +
+                "因为戴荣耀时魔法键是锁住的）。");
+            NailMasterBurstComboAttackKeyConfig = Config.Bind("Charm35", "BurstComboAttackKey", "Z",
+                "护符35：组合键里的攻击键（默认 Z；键位名同 AIC 的按键名，如 Z/X/C/Space/LeftShift/Mouse0）。");
+            NailMasterBurstComboMagicKeyConfig = Config.Bind("Charm35", "BurstComboMagicKey", "X",
+                "护符35：组合键里的魔法键（默认 X）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
