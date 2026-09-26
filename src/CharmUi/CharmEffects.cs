@@ -7727,6 +7727,8 @@ namespace KnightInCradle.CharmUi
             {
                 return true;
             }
+            // 护符过载（需求 2026-09-27）：诺艾尔每过载 1 个槽孔，受到的伤害 +25%
+            val = ApplyNoelOverchargeDamage(val);
             // 护符20 效果4：亡者之怒的 HP 流失把自己耗死时的收尾调用 —— 直接走原版结算，
             // 不再触发受击被动（幼虫之歌回魔 / 苦痛荆棘反击 / 亡者之怒自身的阈值改写）。
             if (_noelFuryDying)
@@ -11715,6 +11717,55 @@ namespace KnightInCradle.CharmUi
         /// ④ `M2Ser.Add` 前缀：负面状态一律拒绝；`PR.initAbsorb` / `canPullByWorm` 拦吞下与虫墙拉扯。
         /// </summary>
         private static bool IsNoelFuryImmune => _noelFuryActive;
+
+        /// <summary>护符过载：诺艾尔当前过载了几个槽孔（已装护符总费用 - 槽孔上限）。</summary>
+        public static int NoelOverchargeCount
+        {
+            get
+            {
+                try
+                {
+                    IReadOnlyList<int> eq = CharmSave.EquippedSnapshotFor(CharmOwner.Noel);
+                    if (eq == null)
+                    {
+                        return 0;
+                    }
+                    int total = 0;
+                    for (int i = 0; i < eq.Count; i++)
+                    {
+                        CharmData cd = CharmDatabase.Get(eq[i]);
+                        if (cd != null && cd.Cost > 0)
+                        {
+                            total += cd.Cost;
+                        }
+                    }
+                    return Mathf.Max(0, total - CharmDatabase.NotchCapacity);
+                }
+                catch (Exception)
+                {
+                    return 0;
+                }
+            }
+        }
+
+        /// <summary>把这次的受伤量按"过载格数 × 每格加成"放大（向上取整，至少 +1）。</summary>
+        private static int ApplyNoelOverchargeDamage(int val)
+        {
+            try
+            {
+                int n = NoelOverchargeCount;
+                if (n <= 0 || val <= 0)
+                {
+                    return val;
+                }
+                float mult = 1f + KnightInCradlePlugin.OverchargeDamagePerSlot * n;
+                return Mathf.Max(val + 1, Mathf.CeilToInt(val * mult));
+            }
+            catch (Exception)
+            {
+                return val;
+            }
+        }
 
         /// <summary>该伤害包是不是"魔物的攻击"（不是地图伤害/自伤/模组调用）。</summary>
         private static bool IsEnemySourceAttack(AttackInfo Atk)

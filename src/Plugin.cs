@@ -337,6 +337,8 @@ namespace KnightInCradle
         internal static ConfigEntry<float> CharmExtraHoleOffsetYConfig;
         /// <summary>补画槽孔的间距倍率（默认 1 = 与布局原有间距一致）。</summary>
         internal static ConfigEntry<float> CharmExtraHoleSpacingScaleConfig;
+        /// <summary>护符过载：每超出 1 个槽孔，诺艾尔受到的伤害提高的比例（默认 0.25 = +25%）。</summary>
+        internal static ConfigEntry<float> OverchargeDamagePerSlotConfig;
         // ---- 诺艾尔护符界面（文案预览）----
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
@@ -591,6 +593,10 @@ namespace KnightInCradle
             CharmExtraHoleSpacingScaleConfig != null
                 ? Mathf.Clamp(CharmExtraHoleSpacingScaleConfig.Value, 0.2f, 5f)
                 : 1f;
+        internal static float OverchargeDamagePerSlot =>
+            OverchargeDamagePerSlotConfig != null
+                ? Mathf.Clamp(OverchargeDamagePerSlotConfig.Value, 0f, 10f)
+                : 0.25f;
         /// <summary>护符20 效果7：中心红色闪烁的颜色（十六进制 RRGGBB，默认 FF4026 = 小骑士那份的 (1, 0.25, 0.15)）。</summary>
         internal static Color FuryGlowColor
         {
@@ -1123,6 +1129,8 @@ namespace KnightInCradle
                 "护符界面：补画的槽孔纵向偏移（像素，正值 = 下移，默认 0）。");
             CharmExtraHoleSpacingScaleConfig = Config.Bind("CharmUi", "ExtraHoleSpacingScale", 1f,
                 "护符界面：补画槽孔的间距倍率（默认 1 = 与原有槽孔间距一致）。");
+            OverchargeDamagePerSlotConfig = Config.Bind("CharmUi", "OverchargeDamagePerSlot", 0.25f,
+                "护符过载：每超出 1 个槽孔，诺艾尔受到的伤害提高的比例（默认 0.25 = +25%）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
