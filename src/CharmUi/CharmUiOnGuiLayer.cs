@@ -636,8 +636,7 @@ namespace KnightInCradle.CharmUi
 
             List<int> equipped = Controller.EquippedIds;
             // 满 11 槽或过载时不显示右侧空槽
-            int slotCount = equipped.Count +
-                (Controller.TotalCost >= CharmDatabase.NotchCapacity ? 0 : 1);
+            int slotCount = Mathf.Max(equipped.Count + (Controller.TotalCost >= CharmDatabase.NotchCapacity ? 0 : 1), CharmDatabase.NotchCapacity);
             Texture2D slotTex = GetTemplateTexture("charm_up_template");
             if (slotTex == null)
             {

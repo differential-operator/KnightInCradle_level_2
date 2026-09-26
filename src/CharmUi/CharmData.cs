@@ -28,7 +28,9 @@ namespace KnightInCradle.CharmUi
         /// 护符槽上限：11 = 初始 3 + 开宝箱最多 8（这两部分等解锁/宝箱系统上线后再做成动态），
         /// 再**加上**炼金做出来的护符槽（三种各 +1，见 `CharmSlotCrafting.CraftedSlotBonus`）。
         /// </summary>
-        public static int NotchCapacity => 3 + Mathf.Min(8, OpenedChestCount / 4);
+        /// <summary>护符槽上限（含基础 3、开箱最多 +8、预留 +3 = 14）。</summary>
+        public const int MaxNotchCapacity = 14;
+        public static int NotchCapacity => 3 + Mathf.Min(MaxNotchCapacity - 3, OpenedChestCount / 4);
 
         /// <summary>
         /// 已开启的宝箱总数（游戏自己的成就计数 `ACHIVE.MENT.treasure_total_obtain`，
