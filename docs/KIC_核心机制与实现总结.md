@@ -5452,4 +5452,33 @@ MovRenderer，画在诺艾尔身后层 PR0，颜色纯绿（`(0,1,0,0.9)`），�
 
 验证：`build=2026-09-26.12`，DLL SHA256 `F2C2FEA409FDB37D…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `71 成功 / 0 失败`）。
+
+### 58.6 追加三条：进入即爆发 / 删去 HP 缓冲条 / 碰怪不摔倒
+
+需求（2026-09-26 追加）：
+1. **触发亡者之怒的瞬间要释放一次圣光爆发**；
+2. 触发之后**删去诺艾尔 HP 的缓冲条**；
+3. 触发之后**碰到魔物不会摔倒**（同稳定之体）。
+
+**① 进入即爆发**：原来只有"魔物攻击把 HP 打到阈值以下"这一路会放爆发，
+而本护符自己的 HP 流失同样能把 HP 带到 30（例：31 → 30），那一次不会放。
+现在改成**状态迁移驱动**：`TickNoelFuryCharm` 里记住上一帧的 `_noelFuryActive`，
+出现 `false → true`（即"进入"亡者之怒）就调一次 `TriggerNoelFury`（`Ser.CureAll()` + `changeState(BURST)`）。
+`_noelFuryBurstFired` 标记保证**每次进入只放一发**（魔物那条路是当场放的，两条路都走到也不会连放）；
+离开亡者之怒（HP 回到阈值之上 / 卸下护符 / 切小骑士）时清除该标记，下次进入重新放。
+
+**② 删去 HP 缓冲条**：AIC 血条受伤后留的那段浅色残影是 `UIStatus.cushion_hp`，
+由 `UIStatus.Update` 每帧 `VALWALK(…, 0.003f*fcnt)` 慢慢收干（`UIStatus.cs:708-715`）。
+亡者之怒期间把它一直清零：`TickNoelFuryCharm` 每帧调 `HideNoelHpCushion()`，
+另挂 `UIStatus.fineHpRatio(bool,bool)` **后缀** —— 那是受伤/治疗时唯一把 `cushion_hp` 加回去的入口，
+在那一帧立刻清掉，避免"掉血瞬间还是闪出一条缓冲"。
+
+**③ 碰怪不摔倒**：直接复用护符15 稳定之体的四个摔倒挂点，抽出一个公共判据
+`IsKnockdownImmune(pr)` = 佩戴稳定之体 **或** 亡者之怒（只对本地诺艾尔）：
+`M2PrADmg.applyDamage`（接触伤害标记）、`PR.changeState`（跳过 `DAMAGE_LT`）、
+`PR.moveByHitCheck`（走路/跑动撞怪这一路）、`PR.addEnemySink`（跳过 `ENEMY_SINK`）。
+稳定之体的**风力 / 冰面**免疫仍只跟护符15 走，亡者之怒不带这两条（需求没要求）。
+
+验证：`build=2026-09-26.13`，DLL SHA256 `533B95F91504D338…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `0 失败`、无 KIC 警告）。
 本地隐藏启动确认 `71 成功 / 0 失败`）。
