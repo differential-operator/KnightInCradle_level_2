@@ -4520,6 +4520,24 @@ namespace KnightInCradle.CharmUi
         public static bool NailMasterEquipped =>
             !IsKnightMode && IsEquipped(CharmOwner.Noel, NailMasterId);
 
+        /// <summary>护符35 的"固定伤害"覆盖哪些招式（自己的骨钉系攻击，不含法术）。</summary>
+        private static bool IsNailMasterFixedKind(MGKIND kind)
+        {
+            switch (kind)
+            {
+                case MGKIND.PR_PUNCH:
+                case MGKIND.PR_SHOTGUN:
+                case MGKIND.PR_WHEEL:
+                case MGKIND.PR_COMET:
+                case MGKIND.PR_DASHPUNCH:
+                case MGKIND.PR_SMASH:
+                case MGKIND.PR_EVADECOUNTER:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         /// <summary>蓄力完成状态（决定是否画 nail_charge_effect 光圈）。</summary>
         public static bool NailMasterCharged => _nmPhase == NailMasterPhase.Charged;
 
@@ -4898,7 +4916,11 @@ namespace KnightInCradle.CharmUi
             }
         }
 
-        /// <summary>旋风斩命中一次：伤害 = **当前轻攻击**的伤害（与护符33 冲刺同一个取法与乘区）。</summary>
+        /// <summary>
+        /// 旋风斩命中一次。需求 2026-09-27 改版：**不再读取轻攻击**，每击固定
+        /// `[Charm35] SpinHitDamage`（默认 10）伤害；佩戴护符13 坚固力量时改用
+        /// `SpinHitDamageWithPower`（默认 13）。走真伤（`fix_damage`），不吃其它乘区二次放大。
+        /// </summary>
         private static void ApplyNailMasterSpinHit(PRNoel pr, NelEnemy enemy)
         {
             try
@@ -4907,29 +4929,16 @@ namespace KnightInCradle.CharmUi
                 {
                     return; // 生成中的魔物不能打
                 }
-                NelAttackInfo src = _dashPunchAtk; // 全局缓存的"最近一次轻攻击"攻击包
-                float ratio = _dashPunchRatio;
-                int baseDmg = src != null && src.hpdmg0 > 0
-                    ? src.hpdmg0
-                    : KnightInCradlePlugin.ShadowDashFallbackDamage;
-                float mult = NoelFinalDamageMult(MGKIND.PR_PUNCH, false);
-                int dmg = Mathf.Max(1, Mathf.FloorToInt(baseDmg * mult + 0.5f));
-                NelAttackInfo atk;
-                if (src != null)
-                {
-                    atk = new NelAttackInfo(src);
-                }
-                else
-                {
-                    atk = new NelAttackInfo();
-                    atk.fix_damage = true;
-                    ratio = 1f;
-                }
+                int dmg = IsEquipped(CharmOwner.Noel, PowerId)
+                    ? KnightInCradlePlugin.NailMasterSpinHitDamageWithPower
+                    : KnightInCradlePlugin.NailMasterSpinHitDamage;
+                dmg = Mathf.Max(1, dmg);
+                var atk = new NelAttackInfo();
+                atk.fix_damage = true; // 固定伤害，不吃敌人减伤/其它乘区
                 atk.Caster = pr;
                 atk.hpdmg0 = dmg;
-                atk.hpdmg_current = -1000;
+                atk.hpdmg_current = dmg;
                 atk._apply_knockback_current = true;
-                atk.shuffleHpMpDmg(enemy, ratio, 1f, dmg, atk.mpdmg0);
                 atk.CenterXy(enemy.x, enemy.y, 0f);
                 enemy.applyDamage(atk, false);
             }
@@ -7134,12 +7143,10 @@ namespace KnightInCradle.CharmUi
         private static float NoelFinalDamageMult(MGKIND kind, bool shotgunFlavored)
         {
             float mult = 1f;
-            // 护符35 骨钉大师的荣耀：佩戴时诺艾尔造成的伤害 ×5
-            //（该护符锁了魔法键，此时她的伤害都是无附魔的）
-            if (IsEquipped(CharmOwner.Noel, NailMasterId))
-            {
-                mult *= KnightInCradlePlugin.NailMasterDamageMult;
-            }
+            // 护符35 骨钉大师的荣耀（需求 2026-09-27 改）：不再用倍率，
+            // 而是把每一击的伤害**固定**成 20（携带坚固力量时 25），
+            // 具体在命中处（`ShamanCircleCastPrefix` / 旋风斩判定）直接写 `hpdmg0`，
+            // 所以这里不再乘任何系数。
             if (IsEquipped(CharmOwner.Noel, ShamanId) &&
                 (IsPlayerMagicKind(kind) || shotgunFlavored))
             {
@@ -7622,6 +7629,14 @@ namespace KnightInCradle.CharmUi
                 // 两者同时满足就连乘 —— 于是"装了萨满之石的魔法霰弹及其变种" = ×1.25 ×1.25
                 // 另含护符16 沉重之击：进入"会心"后诺艾尔造成的伤害 +40%（不限定招式），同样连乘。
                 float mult = NoelFinalDamageMult(Mg.kind, IsNoelShotgunFlavored(Mg));
+                // 护符35：佩戴荣耀时每一击固定伤害（默认 20，携带坚固力量 25），不再读轻攻击
+                if (IsEquipped(CharmOwner.Noel, NailMasterId) && IsNailMasterFixedKind(Mg.kind))
+                {
+                    var stFixed = new ShamanBoostState { Hp0 = Atk.hpdmg0 };
+                    Atk.hpdmg0 = KnightInCradlePlugin.NailMasterFixedDamage;
+                    __state = stFixed;
+                    return;
+                }
                 if (mult <= 1f)
                 {
                     return;

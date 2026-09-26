@@ -256,6 +256,10 @@ namespace KnightInCradle
         internal static ConfigEntry<float> NailMasterTapSecondsConfig;
         /// <summary>佩戴骨钉大师的荣耀时，诺艾尔造成伤害的倍率（默认 5）。</summary>
         internal static ConfigEntry<float> NailMasterDamageMultConfig;
+        /// <summary>护符35：每击固定伤害（默认 20）。</summary>
+        internal static ConfigEntry<int> NailMasterFixedDamageConfig;
+        /// <summary>护符35：携带坚固力量护符时每击固定伤害（默认 25）。</summary>
+        internal static ConfigEntry<int> NailMasterFixedDamageWithPowerConfig;
         // ---- 护符35 旋风斩：自绘圆形判定箱 ----
         /// <summary>圆形判定箱半径（格，默认 2）。</summary>
         internal static ConfigEntry<float> NailMasterCircleRadiusConfig;
@@ -348,6 +352,10 @@ namespace KnightInCradle
         internal static ConfigEntry<string> NailMasterBurstComboMagicKeyConfig;
         /// <summary>长按魔法键触发圣光爆发所需的秒数（默认 0.3）。</summary>
         internal static ConfigEntry<float> NailMasterBurstHoldSecondsConfig;
+        /// <summary>护符35 旋风斩：每击固定伤害（默认 10）。</summary>
+        internal static ConfigEntry<int> NailMasterSpinHitDamageConfig;
+        /// <summary>护符35 旋风斩：携带护符13 坚固力量时的每击固定伤害（默认 13）。</summary>
+        internal static ConfigEntry<int> NailMasterSpinHitDamageWithPowerConfig;
         // ---- 诺艾尔护符界面（文案预览）----
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
@@ -512,6 +520,11 @@ namespace KnightInCradle
             NailMasterTapSecondsConfig != null
                 ? Mathf.Clamp(NailMasterTapSecondsConfig.Value, 0.02f, 1f)
                 : 0.18f;
+        internal static int NailMasterFixedDamage =>
+            IsEquippedNoelPower() ? (NailMasterFixedDamageWithPowerConfig != null ? Mathf.Clamp(NailMasterFixedDamageWithPowerConfig.Value, 0, 9999) : 25)
+            : (NailMasterFixedDamageConfig != null ? Mathf.Clamp(NailMasterFixedDamageConfig.Value, 0, 9999) : 20);
+        private static bool IsEquippedNoelPower() => KnightInCradle.CharmUi.CharmEffects.IsEquipped(KnightInCradle.CharmUi.CharmOwner.Noel, 13);
+
         internal static float NailMasterDamageMult =>
             NailMasterDamageMultConfig != null
                 ? Mathf.Clamp(NailMasterDamageMultConfig.Value, 0.1f, 50f)
@@ -614,6 +627,14 @@ namespace KnightInCradle
             NailMasterBurstHoldSecondsConfig != null
                 ? Mathf.Clamp(NailMasterBurstHoldSecondsConfig.Value, 0.05f, 3f)
                 : 0.3f;
+        internal static int NailMasterSpinHitDamage =>
+            NailMasterSpinHitDamageConfig != null
+                ? Mathf.Clamp(NailMasterSpinHitDamageConfig.Value, 1, 9999)
+                : 10;
+        internal static int NailMasterSpinHitDamageWithPower =>
+            NailMasterSpinHitDamageWithPowerConfig != null
+                ? Mathf.Clamp(NailMasterSpinHitDamageWithPowerConfig.Value, 1, 9999)
+                : 13;
         /// <summary>护符20 效果7：中心红色闪烁的颜色（十六进制 RRGGBB，默认 FF4026 = 小骑士那份的 (1, 0.25, 0.15)）。</summary>
         internal static Color FuryGlowColor
         {
@@ -1060,6 +1081,8 @@ namespace KnightInCradle
             NailMasterTapSecondsConfig = Config.Bind("Charm35", "TapSeconds", 0.18f,
                 "骨钉大师的荣耀：攻击键按住不超过这个秒数算「点按」——点按时会**补发**凌空横斩/突进冲击，" +
                 "超过则视为长按（走蓄力）。默认 0.18。");
+            NailMasterFixedDamageConfig = Config.Bind("Charm35", "FixedDamage", 20, "护符35 骨钉大师的荣耀：每击固定伤害（默认 20；携带坚固力量时用 FixedDamageWithPower）。");
+            NailMasterFixedDamageWithPowerConfig = Config.Bind("Charm35", "FixedDamageWithPower", 25, "护符35：携带坚固力量护符时的每击固定伤害（默认 25）。");
             NailMasterDamageMultConfig = Config.Bind("Charm35", "DamageMult", 5f,
                 "骨钉大师的荣耀：佩戴时诺艾尔造成伤害的倍率（默认 5）。" +
                 "因为该护符屏蔽了魔法键，此时她的伤害都是无附魔的。");
@@ -1157,6 +1180,10 @@ namespace KnightInCradle
                 "护符35：组合键里的魔法键（默认 X）。");
             NailMasterBurstHoldSecondsConfig = Config.Bind("Charm35", "BurstHoldSeconds", 0.3f,
                 "护符35：长按魔法键多少秒后释放圣光爆发（默认 0.3）。");
+            NailMasterSpinHitDamageConfig = Config.Bind("Charm35", "SpinHitDamage", 10,
+                "护符35 骨钉大师的荣耀：旋风斩每击造成的固定伤害（默认 10，不再读取轻攻击）。");
+            NailMasterSpinHitDamageWithPowerConfig = Config.Bind("Charm35", "SpinHitDamageWithPower", 13,
+                "护符35：同时携带护符13 坚固力量时，旋风斩每击的固定伤害（默认 13）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
