@@ -167,6 +167,11 @@ namespace KnightInCradle.CharmUi
             }
             if (owner == CharmOwner.Noel)
             {
+                // 未解锁的护符不生效（防止旧存档里"锁着却还戴着"的残留状态继续生效）
+                if (CharmDatabase.IsLocked(id, CharmOwner.Noel))
+                {
+                    return false;
+                }
                 return CharmSave.HasEquipped(CharmOwner.Noel, id);
             }
             return IsEquipped(id);

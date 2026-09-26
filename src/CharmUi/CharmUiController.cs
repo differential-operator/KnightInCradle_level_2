@@ -825,6 +825,11 @@ namespace KnightInCradle.CharmUi
             {
                 return;
             }
+            // 未解锁的护符不能佩戴（需求 2026-09-26；小骑士那套暂时全部视为已解锁）
+            if (!_equippedIds.Contains(id) && CharmDatabase.IsLocked(id, Owner))
+            {
+                return;
+            }
 
             if (_equippedIds.Contains(id))
             {
