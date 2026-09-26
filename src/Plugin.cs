@@ -840,6 +840,14 @@ namespace KnightInCradle
                 "false=模组自己的手写物理（行走/跳跃/斜坡手感正常，默认，联机版用的就是这个值）；" +
                 "true=原生物理接管，已知会出现「跳跃失灵、走到平台边缘浮空（要在斜面上走一会才恢复）」，" +
                 "除非专门排查窄缝/过图问题，否则不要开");
+            CharmUiScale = Config.Bind("CharmUi", "Scale", 1f,
+                "护符 UI 整体缩放倍率（画面太大调小，太小调大）");
+            CharmUiOffsetX = Config.Bind("CharmUi", "OffsetX", 0f,
+                "护符 UI 水平偏移（屏幕像素，正值向右）");
+            CharmUiOffsetY = Config.Bind("CharmUi", "OffsetY", 0f,
+                "护符 UI 垂直偏移（屏幕像素，正值向下）");
+            CharmUiColumns = Config.Bind("CharmUi", "Columns", 10,
+                "下方护符网格每行列数（用于方向键导航）");
             ScaleConfig = Config.Bind("Visual", "Scale", 0.325f,
                 "小骑士显示缩放（1 = 原始大小）");
             SeriousModePersistConfig = Config.Bind("Visual", "SeriousMode", false,
@@ -890,7 +898,33 @@ namespace KnightInCradle
                 "0.75≈挥砍可视帧播完就接刀，间隔缩短为 0.3 / 0.225 秒");
             DashAudio.Init(DashVolumeConfig, ShadowDashVolumeConfig);
             // 护符18 修长之钉：近战距离加成（判定与自绘弧带同一口径）
+            LongNailReachPercentConfig = Config.Bind("Charm18", "LongNailReachPercent", 25,
+                "修长之钉：诺艾尔近战距离加成百分比（默认 25 = +25%；填 0 = 关闭）。" +
+                "判定距离按这个百分比放大，自绘的白色弧带只画'多出来的那一段'。");
+            LongNailArcSpanDegConfig = Config.Bind("Charm18", "LongNailArcSpanDeg", 42f,
+                "修长之钉弧带的圆周张角（±度，默认 42 = 总张角 84°）。调小 → 弧变短，只留身前一小段。");
+            LongNailArcWidthRatioConfig = Config.Bind("Charm18", "LongNailSlashLengthRatio", 1f,
+                "修长之钉剑气长度 = 该招加成后触及距离 × 这个倍率（默认 1 = 与判定等长）。" +
+                "调大剑气更长、调小更短；剑气用的是 HK 长钉样式贴图。");
+            LongNailSlashScaleConfig = Config.Bind("Charm18", "LongNailSlashScale", 1f,
+                "修长之钉剑气整体渲染大小倍率（宽高等比，默认 1）。调大整体变大，调小整体变小；" +
+                "与 LongNailSlashLengthRatio 相乘。");
+            LongNailSlashHeightConfig = Config.Bind("Charm18", "LongNailSlashHeightRatio", 1f,
+                "修长之钉剑气渲染高度倍率（只改高度、不改长度，默认 1）。调大剑气更厚/更高，调小更扁。");
             // 护符19 骄傲印记：与修长之钉同一套做法，配置独立
+            PrideReachPercentConfig = Config.Bind("Charm19", "PrideReachPercent", 35,
+                "骄傲印记：诺艾尔近战距离加成百分比（默认 35 = +35%）。" +
+                "与修长之钉同时佩戴时两个百分比相加（25+35=60%）。");
+            PrideSlashLengthRatioConfig = Config.Bind("Charm19", "PrideSlashLengthRatio", 1f,
+                "骄傲印记剑气长度 = 该招加成后触及距离 × 这个倍率（默认 1 = 与判定等长）。");
+            PrideSlashScaleConfig = Config.Bind("Charm19", "PrideSlashScale", 1f,
+                "骄傲印记剑气整体渲染大小倍率（宽高等比，默认 1）。");
+            PrideSlashHeightConfig = Config.Bind("Charm19", "PrideSlashHeightRatio", 1f,
+                "骄傲印记剑气渲染高度倍率（只改高度、不改长度，默认 1）。");
+            PrideAlphaConfig = Config.Bind("Charm19", "PrideAlpha", 1f,
+                "骄傲印记剑气亮度倍率（默认 1）。");
+            LongNailArcAlphaConfig = Config.Bind("Charm18", "LongNailArcAlpha", 1f,
+                "修长之钉弧带的亮度倍率（默认 1）。小于 1 更淡，大于 1 更亮。");
             // 蓄力剑气：魔法霰弹及其变种改用 slash_effect_magic 贴图（三个护符共用同一张）
             MagicSlashOnChargedConfig = Config.Bind("MagicSlash", "OnChargedAttack", true,
                 "诺艾尔蓄力释放（魔法霰弹及其变种）时，蜕变挽歌/修长之钉/骄傲印记的剑气贴图" +
@@ -899,22 +933,257 @@ namespace KnightInCradle
                 "magic 剑气的整体渲染大小倍率（宽高等比，默认 1；只影响蓄力释放的那张图）。");
             MagicSlashHeightConfig = Config.Bind("MagicSlash", "HeightRatio", 1f,
                 "magic 剑气的渲染高度倍率（只改高度、不改长度，默认 1）。");
+            ElegyChargedAttackConfig = Config.Bind("Charm10", "ElegyOnChargedAttack", true,
+                "蜕变挽歌：蓄力释放（魔法霰弹及其变种）时是否也发射剑气（默认开）。" +
+                "关掉则只有不蓄力的轻攻击会发射剑气。");
+            ElegyShotgunOnHitConfig = Config.Bind("Charm10", "ElegyShotgunOnHit", true,
+                "蜕变挽歌：蓄力释放的剑气命中敌人时，是否补上原版魔法霰弹的击中动画/音效" +
+                "并清掉自己的蓄力（默认开）。剑气伤害不受这个开关影响：" +
+                "未蓄力=诺艾尔轻攻击的伤害，已蓄力=魔法霰弹的伤害。");
+            ElegyChargedDamageRatioConfig = Config.Bind("Charm10", "ElegyChargedDamageRatio", 0.3f,
+                "蜕变挽歌：**蓄力释放**的剑气伤害倍率（默认 0.3 = 只造成魔法霰弹伤害的 30%）。" +
+                "未蓄力的剑气不受影响（那一路就是轻攻击的伤害）。");
             // 护符21 苦痛荆棘（诺艾尔侧）
+            ThornsDamageMultConfig = Config.Bind("Charm21", "ThornsDamageMult", 2f,
+                "苦痛荆棘：受到伤害时，对周围敌人造成的伤害 = 这次受到的伤害 × 这个倍率（默认 2）。");
+            ThornsRadiusConfig = Config.Bind("Charm21", "ThornsRadius", 3f,
+                "苦痛荆棘：反击的圆形半径（格，默认 3）。");
             // 护符22 巴尔德之壳（诺艾尔侧：咏唱时展开硬壳）
+            BaldurShellScaleConfig = Config.Bind("Charm22", "ShellScale", 1f,
+                "巴尔德之壳：壳贴图的整体渲染大小倍率（宽高等比，默认 1 = 与小骑士的壳同尺寸）。");
+            BaldurShellWidthConfig = Config.Bind("Charm22", "ShellWidthRatio", 1f,
+                "巴尔德之壳：只改渲染宽度（默认 1）。");
+            BaldurShellHeightConfig = Config.Bind("Charm22", "ShellHeightRatio", 1f,
+                "巴尔德之壳：只改渲染高度（默认 1）。");
+            BaldurShellOffsetYConfig = Config.Bind("Charm22", "ShellOffsetY", 0f,
+                "巴尔德之壳：渲染位置上下微调（格；y 向下为正，负 = 向上，默认 0 = 诺艾尔身体中心）。");
+            BaldurShellMaxBlocksConfig = Config.Bind("Charm22", "ShellMaxBlocks", 3,
+                "巴尔德之壳：最多能抵挡几次伤害（默认 3）。挡满后壳破碎，进入恢复时间。");
+            BaldurShellRecoverSecondsConfig = Config.Bind("Charm22", "ShellRecoverSeconds", 10f,
+                "巴尔德之壳：破碎后多久才能再次展开（秒，默认 10）。");
+            BaldurShellBehindNoelConfig = Config.Bind("Charm22", "ShellBehindNoel", true,
+                "巴尔德之壳：壳是否画在**诺艾尔图层之后**（默认 true = 在诺艾尔身后）。" +
+                "改成 false 就回到小骑士那种『画在人前』的效果。");
             // 护符23 吸虫之巢（诺艾尔侧）
+            NestArrowFlukeCountConfig = Config.Bind("Charm23", "ArrowFlukeCount", 10,
+                "吸虫之巢：纯白之箭改放几只吸虫（默认 10）。");
+            NestFireballFlukeCountConfig = Config.Bind("Charm23", "FireballFlukeCount", 16,
+                "吸虫之巢：聚能火球改放几只吸虫（默认 16）。");
+            NestFlukeDamageConfig = Config.Bind("Charm23", "FlukeDamage", 7,
+                "吸虫之巢：每只吸虫的伤害（真伤，默认 7）。");
+            NestFlukeDamageShamanConfig = Config.Bind("Charm23", "FlukeDamageWithShaman", 9,
+                "吸虫之巢：同时佩戴萨满之石时每只吸虫的伤害（默认 9）。");
+            NestFlukeSpeedMultConfig = Config.Bind("Charm23", "FlukeSpeedMult", 1.25f,
+                "吸虫之巢：吸虫**发射初速度**的倍率（默认 1.25 = 小骑士原速的 1.25 倍）。" +
+                "只影响发射瞬间的水平/垂直初速，落地弹跳速度不变。");
+            NestFlukeDoubleHitChanceConfig = Config.Bind("Charm23", "FlukeDoubleHitChance", 0.25f,
+                "吸虫之巢：吸虫命中敌人后再造成一次同样伤害的概率（默认 0.25 = 25%）。");
             // 护符25 发光子宫（诺艾尔侧）
+            UterusSpawnIntervalConfig = Config.Bind("Charm25", "SpawnInterval", 2f,
+                "发光子宫：每隔几秒生成一只小剑山（默认 2）。");
+            UterusSpawnMpConfig = Config.Bind("Charm25", "SpawnMpCost", 10,
+                "发光子宫：每生成一只小剑山消耗的 MP（默认 10）；MP 不足时不生成。");
+            UterusMaxCountConfig = Config.Bind("Charm25", "MaxCount", 4,
+                "发光子宫：同时存在的小剑山上限（默认 4）。");
+            UterusExplosionDamageConfig = Config.Bind("Charm25", "ExplosionDamage", 30,
+                "发光子宫：小剑山命中敌人时造成的范围伤害（默认 30，真伤）。");
+            UterusExplosionSizeConfig = Config.Bind("Charm25", "ExplosionSize", 6f,
+                "发光子宫：范围伤害的判定框边长（格，默认 6 = 以命中点为中心 6×6 格）。");
+            UterusSpikeScaleConfig = Config.Bind("Charm25", "SpikeScale", 0.11f,
+                "发光子宫：小剑山贴图的渲染缩放（默认 0.11 = 原 0.22 的一半）。");
+            UterusSpikeFpsConfig = Config.Bind("Charm25", "SpikeFps", 12f,
+                "发光子宫：小剑山循环动画帧率（spike_1~spike_8 循环，默认 12）。");
             // 护符24 防御者纹章（诺艾尔侧）
+            ShelterCircleRadiusConfig = Config.Bind("Charm24", "CircleRadius", 3f,
+                "防御者纹章：法阵实心圆半径（格，默认 3，同小骑士）。");
+            ShelterCircleDamageConfig = Config.Bind("Charm24", "CircleDamage", 10,
+                "防御者纹章：法阵单次伤害（默认 10；进入立刻一次，之后每 1 秒一次）。");
             // 护符26 快速聚集（诺艾尔侧）
+            FastGatherChantSpeedConfig = Config.Bind("Charm26", "ChantSpeedMult", 1.25f,
+                "快速聚集：诺艾尔**魔法咏唱速度**倍率（默认 1.25 = +25%）。" +
+                "只加快咏唱/蓄力的推进速度，不改变魔法威力与耗魔总量。");
             // 护符27 深度聚集（诺艾尔侧）
+            DeepGatherChantTimeConfig = Config.Bind("Charm27", "ChantTimeMult", 1.5f,
+                "深度聚集：诺艾尔**魔法咏唱时间**倍率（默认 1.5 = 咏唱时间 +50%）。" +
+                "只改读条时长，不改魔法威力与耗魔（耗魔仍按蓄力量结算）。");
+            DeepGatherNextDamageConfig = Config.Bind("Charm27", "NextDamageMult", 1.25f,
+                "深度聚集：**蓄力完成后**，下一次造成伤害的倍率（默认 1.25 = +25%）。" +
+                "作用于法术、魔法霰弹及其变种；命中一次后即消耗。");
             // 护符33 锋利之影（诺艾尔侧）效果2：长按护盾键 → 咏唱姿势 + 金色粒子
+            ShadowChantHoldSecondsConfig = Config.Bind("Charm33", "ChantHoldSeconds", 0.25f,
+                "锋利之影：长按**护盾键**多少秒后开始播放咏唱姿势与金色粒子（默认 0.25）。");
+            ShadowChantPoseConfig = Config.Bind("Charm33", "ChantPose", "chant",
+                "锋利之影：长按护盾键时播放的姿势名（默认 chant）。");
+            ShadowChantParticlesPerFrameConfig = Config.Bind("Charm33", "ParticlesPerFrame", 1,
+                "锋利之影：每帧生成的圆形粒子数（默认 1）。0 = 不生成粒子。");
+            ShadowChantParticleSpeedScaleConfig = Config.Bind("Charm33", "ParticleSpeedScale", 1f,
+                "锋利之影：粒子向诺艾尔中心收敛的速度倍率（默认 1）。");
+            ShadowChantParticleColorConfig = Config.Bind("Charm33", "ParticleColor", "FFF200",
+                "锋利之影：粒子颜色，十六进制 RRGGBB（默认 FFF200）。");
+            ShadowChantCenterOffsetYConfig = Config.Bind("Charm33", "ParticleCenterOffsetY", -1f,
+                "锋利之影：粒子收敛目标相对诺艾尔身体中心的纵向偏移（格；y 向下为正，" +
+                "负值 = 上移。默认 -1 = 中心上方 1 格）。");
+            ShadowEssenceHoldSecondsConfig = Config.Bind("Charm33", "EssenceHoldSeconds", 1f,
+                "锋利之影：长按**冲刺键**多少秒后触发精华阶段（屏幕四周白闪 + 粒子从中心向外扩散，默认 1）。");
+            ShadowEssenceHoldKeyConfig = Config.Bind("Charm33", "EssenceHoldKey", "",
+                "锋利之影：触发精华阶段用的键（留空 = 用 Keybinds/Dash 那个键位）。");
+            ShadowChargeAuraScaleConfig = Config.Bind("Charm33", "ChargeAuraScale", 1f,
+                "锋利之影：蓄力完成后诺艾尔中心那组光圈（同沉重之击）的额外缩放倍率（默认 1）。");
+            ShadowDashShrinkSecondsConfig = Config.Bind("Charm33", "DashShrinkSeconds", 0.1f,
+                "锋利之影·冲刺：蓄力完成后松开护盾键，光圈向诺艾尔中心缩小的耗时（秒，默认 0.1）。");
+            ShadowDashFlashSecondsConfig = Config.Bind("Charm33", "DashFlashSeconds", 0.07f,
+                "锋利之影·冲刺：两次白屏各自持续的时间（秒，默认 0.07）。");
+            ShadowDashBurstSecondsConfig = Config.Bind("Charm33", "DashBurstSeconds", 0.5f,
+                "锋利之影·冲刺：发射图片的持续时间（秒，默认 0.5）。");
+            ShadowDashBurstSpeedConfig = Config.Bind("Charm33", "DashBurstSpeed", 8f,
+                "锋利之影·冲刺：发射速度（格/秒，默认 8）。");
+            ShadowDashBurstScaleConfig = Config.Bind("Charm33", "DashBurstScale", 1f,
+                "锋利之影·冲刺：发射图片的缩放倍率（默认 1）。");
+            ShadowDashBurstSpriteConfig = Config.Bind("Charm33", "DashBurstSprite", "dash_burst0000",
+                "锋利之影·冲刺：发射用的图片名（assets/hk/sprites 下的 png，不带扩展名）。");
+            ShadowDashBurstBackOffsetConfig = Config.Bind("Charm33", "DashBurstBackOffset", 0.5f,
+                "锋利之影·冲刺：诺艾尔隐藏期间「跟在图片后」的距离（格，默认 0.5）。");
+            ShadowDashBurstWidthRatioConfig = Config.Bind("Charm33", "DashBurstWidthRatio", 1f,
+                "锋利之影·冲刺：发射图片**宽度**额外倍率（默认 1；与 DashBurstScale 相乘）。");
+            ShadowDashBurstHeightRatioConfig = Config.Bind("Charm33", "DashBurstHeightRatio", 1f,
+                "锋利之影·冲刺：发射图片**高度**额外倍率（默认 1；与 DashBurstScale 相乘）。");
+            ShadowDashBurstOffsetXConfig = Config.Bind("Charm33", "DashBurstOffsetX", 0f,
+                "锋利之影·冲刺：发射图片的水平位置偏移（格，正值 = 朝**前方**，默认 0）。");
+            ShadowDashBurstOffsetYConfig = Config.Bind("Charm33", "DashBurstOffsetY", 0f,
+                "锋利之影·冲刺：发射图片的垂直位置偏移（格，y 向下为正，负值 = 上移，默认 0）。");
+            ShadowDashMpCostConfig = Config.Bind("Charm33", "DashMpCost", 70,
+                "锋利之影·冲刺：消耗的 MP（默认 100）；MP 不足则不冲刺。");
+            ShadowDashDamageMultConfig = Config.Bind("Charm33", "DashDamageMult", 3f,
+                "锋利之影·冲刺：伤害倍率 —— 相对**当前轻攻击**（法杖带霰弹附魔时相对**当前魔法霰弹**）的伤害，默认 3。");
+            ShadowDashHitboxWConfig = Config.Bind("Charm33", "DashHitboxWidth", 2f,
+                "锋利之影·冲刺：沿路径的伤害判定箱宽度（格，默认 2）。");
+            ShadowDashHitboxHConfig = Config.Bind("Charm33", "DashHitboxHeight", 2f,
+                "锋利之影·冲刺：沿路径的伤害判定箱高度（格，默认 2）。");
+            ShadowDashFallbackDamageConfig = Config.Bind("Charm33", "DashFallbackDamage", 15,
+                "锋利之影·冲刺：拿不到攻击包数据时的兜底基础伤害（默认 15，会再乘 DashDamageMult）。");
+            ShadowDashInstantConfig = Config.Bind("Charm33", "DashInstantWithDashmaster", true,
+                "锋利之影·冲刺：**同时佩戴冲刺大师**时，按一下护盾键即可直接冲刺（无需先蓄力）。" +
+                "冲刺进行中不会再触发（默认开）。");
             // 护符34 乌恩之形
+            UnnCrouchHealPerSecondConfig = Config.Bind("Charm34", "CrouchHealPerSecond", 5f,
+                "乌恩之形：蹲下/爬行时每秒回复的生命值（默认 5；0 = 不回血）。");
             // 护符35 骨钉大师的荣耀
+            NailMasterChargeSecondsConfig = Config.Bind("Charm35", "ChargeSeconds", 1f,
+                "骨钉大师的荣耀：长按攻击键多少秒完成蓄力（默认 1）。");
+            NailMasterSpinSecondsConfig = Config.Bind("Charm35", "SpinSeconds", 2f,
+                "骨钉大师的荣耀：旋风斩（松开攻击键后）的持续时间（秒，默认 2）。");
+            NailMasterSpinIntroSecondsConfig = Config.Bind("Charm35", "SpinIntroSeconds", 0.25f,
+                "骨钉大师的荣耀：起手动作播放多久后切到循环动作（秒，默认 0.25）。");
+            NailMasterSpinOutroSecondsConfig = Config.Bind("Charm35", "SpinOutroSeconds", 0.3f,
+                "骨钉大师的荣耀：收尾动作播放时长（秒，默认 0.3）。");
+            NailMasterSpinMoveSpeedConfig = Config.Bind("Charm35", "SpinMoveSpeed", 6f,
+                "骨钉大师的荣耀：旋风斩期间用方向键平移的速度（格/秒，默认 6）。");
+            NailMasterSpinPoseIntroConfig = Config.Bind("Charm35", "SpinPoseIntro", "attack_air1",
+                "骨钉大师的荣耀：起手动作名（默认 attack_air1，原版旋风斩用的名字）。");
+            NailMasterSpinPoseLoopConfig = Config.Bind("Charm35", "SpinPoseLoop", "attack_air2",
+                "骨钉大师的荣耀：循环动作名（默认 attack_air2）。");
+            NailMasterSpinPoseOutroConfig = Config.Bind("Charm35", "SpinPoseOutro", "attack_air3",
+                "骨钉大师的荣耀：收尾动作名（默认 attack_air3）。");
+            NailMasterTapSecondsConfig = Config.Bind("Charm35", "TapSeconds", 0.18f,
+                "骨钉大师的荣耀：攻击键按住不超过这个秒数算「点按」——点按时会**补发**凌空横斩/突进冲击，" +
+                "超过则视为长按（走蓄力）。默认 0.18。");
+            NailMasterDamageMultConfig = Config.Bind("Charm35", "DamageMult", 5f,
+                "骨钉大师的荣耀：佩戴时诺艾尔造成伤害的倍率（默认 5）。" +
+                "因为该护符屏蔽了魔法键，此时她的伤害都是无附魔的。");
+            NailMasterCircleRadiusConfig = Config.Bind("Charm35", "SpinCircleRadius", 2f,
+                "骨钉大师的荣耀·旋风斩：自绘圆形判定箱的半径（格，默认 2）。");
+            NailMasterCircleOffsetXConfig = Config.Bind("Charm35", "SpinCircleOffsetX", 0f,
+                "骨钉大师的荣耀·旋风斩：圆心相对诺艾尔身体中心的水平偏移（格，正值 = 朝**前方**，默认 0）。");
+            NailMasterCircleOffsetYConfig = Config.Bind("Charm35", "SpinCircleOffsetY", 0f,
+                "骨钉大师的荣耀·旋风斩：圆心相对诺艾尔身体中心的纵向偏移（格，y 向下为正，负值 = 上移，默认 0）。");
+            NailMasterCircleHitSecondsConfig = Config.Bind("Charm35", "SpinCircleHitSeconds", 0.2f,
+                "骨钉大师的荣耀·旋风斩：敌人在圈内每停留多少秒再吃一次伤害（默认 0.2）。");
+            NailMasterCircleDebugConfig = Config.Bind("Charm35", "SpinCircleDebug", true,
+                "骨钉大师的荣耀·旋风斩：是否把圆形判定箱画成绿色圆圈（调试用，默认开）。");
             // 护符36 编织者之歌
+            WeaverGrubsongMpConfig = Config.Bind("Charm36", "GrubsongBondMp", 3f,
+                "编织者之歌：**同时携带幼虫之歌**时，小蜘蛛每次攻击命中回复的 MP（默认 3）。");
+            WeaverRenderOffsetYConfig = Config.Bind("Charm36", "RenderOffsetY", 0.4f,
+                "编织者之歌：小蜘蛛渲染的纵向偏移（格，正值 = 上移；默认 0.4，同小骑士那份）。" +
+                "如果看到小蜘蛛陷在地面里，把它调大即可。");
+            WeaverRenderScaleConfig = Config.Bind("Charm36", "RenderScale", 0.28f,
+                "编织者之歌：小蜘蛛渲染缩放（默认 0.28，同小骑士那份）。");
             // 护符20 亡者之怒
+            FuryHpThresholdConfig = Config.Bind("Charm20", "HpThreshold", 30,
+                "亡者之怒：触发基准 HP（默认 30）。被魔物攻击若会把 HP 打到低于该值，" +
+                "则立即回到该值并触发亡者之怒。");
+            FuryBurstSecondsConfig = Config.Bind("Charm20", "AutoBurstSeconds", 3f,
+                "亡者之怒：触发时自动释放的「圣光爆发」在这段时间内**不消耗魔力、不导致眩晕**（秒，默认 3）。");
+            FuryDrainSecondsConfig = Config.Bind("Charm20", "DrainSeconds", 2f,
+                "亡者之怒：处于亡者之怒期间 HP 流失的间隔（秒，默认 2 = 每 2 秒掉 1HP，掉到 0 死亡）。");
+            FuryDrainAmountConfig = Config.Bind("Charm20", "DrainAmount", 1,
+                "亡者之怒：每次流失的 HP 数量（默认 1）。");
             // 效果6：亡者之怒期间播放"森之领主虚弱"那段 BGM
+            FuryBgmEnabledConfig = Config.Bind("Charm20", "BgmEnabled", true,
+                "亡者之怒：触发后是否播放「森之领主」虚弱阶段的那段 BGM（默认开）。" +
+                "只在战斗中播放，战斗结束 / 脱离战斗 / 亡者之怒结束就淡回原来的 BGM。");
+            FuryBgmSheetConfig = Config.Bind("Charm20", "BgmSheet", "BGM_battle_nusi",
+                "亡者之怒 BGM：sheet 键（StreamingAssets\\BGM_<key>.acb 里的数据，默认 BGM_battle_nusi）。");
+            FuryBgmCueConfig = Config.Bind("Charm20", "BgmCue", "BGM_battle_nusi",
+                "亡者之怒 BGM：cue 名（默认 BGM_battle_nusi）。");
+            FuryBgmBlockConfig = Config.Bind("Charm20", "BgmBlock", "D",
+                "亡者之怒 BGM：从哪个块开始（默认 D —— 原版森之领主**第一次**被 burst 打虚弱时跳的块；" +
+                "想听第三次以后的那段改成 F）。");
+            FuryBgmOverrideConfig = Config.Bind("Charm20", "BgmOverride", "mainbattle",
+                "亡者之怒 BGM：块转移 override 键（默认 mainbattle，对应 D 块；用 F 块时改成 challenge_1）。" +
+                "留空 = 用默认转移表。");
+            FuryBgmFadeInMsConfig = Config.Bind("Charm20", "BgmFadeInMs", 240,
+                "亡者之怒 BGM：切进来的淡出时长（毫秒，默认 240）。");
+            FuryBgmFadeOutMsConfig = Config.Bind("Charm20", "BgmFadeOutMs", 800,
+                "亡者之怒 BGM：退出时淡回原 BGM 的时长（毫秒，默认 800）。");
             // 效果7：亡者之怒的红色视觉
+            FuryVignetteConfig = Config.Bind("Charm20", "Vignette", true,
+                "亡者之怒：是否显示屏幕四周红色滤镜（默认开，同小骑士那份）。");
+            FuryGlowScaleConfig = Config.Bind("Charm20", "GlowScale", 3.2f,
+                "亡者之怒：诺艾尔中心红色闪烁的直径（格，默认 3.2，同小骑士那份）。");
+            FuryGlowOffsetYConfig = Config.Bind("Charm20", "GlowOffsetY", -0.5f,
+                "亡者之怒：中心红色闪烁的纵向偏移（格，正值 = 上移；默认 -0.5 = 向下半格，同小骑士那份）。");
+            FuryGlowColorConfig = Config.Bind("Charm20", "GlowColor", "FF4026",
+                "亡者之怒：中心红色闪烁的颜色，十六进制 RRGGBB（默认 FF4026）。");
+            FuryGlowAlphaConfig = Config.Bind("Charm20", "GlowAlpha", 0.75f,
+                "亡者之怒：中心红色闪烁的峰值透明度（0~1，默认 0.75，同小骑士那份）。");
             // 效果8：亡者之怒期间的战斗加成
+            FuryAttackSpeedMultConfig = Config.Bind("Charm20", "AttackSpeedMult", 1.25f,
+                "亡者之怒：攻击速度倍率（默认 1.25 = 提升 25%，逻辑同护符17 快速劈砍）。");
+            FuryChantSpeedMultConfig = Config.Bind("Charm20", "ChantSpeedMult", 1.25f,
+                "亡者之怒：咏唱速度倍率（默认 1.25 = 提升 25%，逻辑同护符26 快速聚集）。");
+            FuryDamageMultConfig = Config.Bind("Charm20", "DamageMult", 1.75f,
+                "亡者之怒：诺艾尔造成的伤害倍率（默认 1.75 = 提升 75%，与萨满/坚固力量/会心同一乘区连乘）。");
+            FuryTrueDamageConfig = Config.Bind("Charm20", "TrueDamage", 10,
+                "亡者之怒：诺艾尔造成伤害时附加的真实伤害（默认 10；0 = 关闭）。");
             // 羁绊（docs/护符加成描述.md 末尾那份）
+            WeaverRunnerBondCooldownScaleConfig = Config.Bind("Charm36", "RunnerBondCooldownScale", 0.75f,
+                "羁绊 8+36（飞毛腿 + 编织者之歌）：同时佩戴时小编织者的攻击间隔缩放" +
+                "（默认 0.75 = 攻速约 +33%；1 = 不加快）。");
+            JoniBlueHeartMpBonusConfig = Config.Bind("Charm30", "BlueHeartTripleMpBonus", 70,
+                "羁绊 28+29+30（生命血之心 + 生命血核心 + 乔尼的祝福）：三件齐时**额外**获得的魔力上限（默认 70）。");
+            ShadowDashTwistedMpCostConfig = Config.Bind("Charm33", "TwistedBondMpCost", 60,
+                "羁绊 14+33（法术扭曲者 + 锋利之影）：佩戴法术扭曲者时冲刺的 MP 消耗（默认 60；" +
+                "未佩戴时用 DashMpCost）。");
+            ShadowDashMpCostNoEnchantConfig = Config.Bind("Charm33", "DashMpCostNoEnchant", 30,
+                "护符33 锋利之影：蓄力完成时**法杖没有附魔魔法霰弹**的情况下，冲刺只消耗这么多 MP（默认 30）。");
+            CharmExtraHoleOffsetXConfig = Config.Bind("CharmUi", "ExtraHoleOffsetX", 0f,
+                "护符界面：布局只有 11 个槽孔图，上限超过 11 时补画的槽孔相对推算位置的横向偏移（像素，默认 0）。");
+            CharmExtraHoleOffsetYConfig = Config.Bind("CharmUi", "ExtraHoleOffsetY", 0f,
+                "护符界面：补画的槽孔纵向偏移（像素，正值 = 下移，默认 0）。");
+            CharmExtraHoleSpacingScaleConfig = Config.Bind("CharmUi", "ExtraHoleSpacingScale", 1f,
+                "护符界面：补画槽孔的间距倍率（默认 1 = 与原有槽孔间距一致）。");
+            OverchargeDamagePerSlotConfig = Config.Bind("CharmUi", "OverchargeDamagePerSlot", 0.25f,
+                "护符过载：每超出 1 个槽孔，诺艾尔受到的伤害提高的比例（默认 0.25 = +25%）。");
+            NailMasterBurstComboEnabledConfig = Config.Bind("Charm35", "BurstComboEnabled", true,
+                "护符35 骨钉大师的荣耀：同时按「攻击键 + 魔法键」可以释放圣光爆发（默认开；" +
+                "因为戴荣耀时魔法键是锁住的）。");
+            NailMasterBurstComboAttackKeyConfig = Config.Bind("Charm35", "BurstComboAttackKey", "Z",
+                "护符35：组合键里的攻击键（默认 Z；键位名同 AIC 的按键名，如 Z/X/C/Space/LeftShift/Mouse0）。");
+            NailMasterBurstComboMagicKeyConfig = Config.Bind("Charm35", "BurstComboMagicKey", "X",
+                "护符35：组合键里的魔法键（默认 X）。");
+            NailMasterBurstHoldSecondsConfig = Config.Bind("Charm35", "BurstHoldSeconds", 0.3f,
+                "护符35：长按魔法键多少秒后释放圣光爆发（默认 0.3）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
