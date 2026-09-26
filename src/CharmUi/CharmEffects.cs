@@ -2351,7 +2351,9 @@ namespace KnightInCradle.CharmUi
                 }
                 bool fastGather = IsEquipped(CharmOwner.Noel, FastGatherId);
                 bool deepGather = IsEquipped(CharmOwner.Noel, DeepGatherId);
-                if (!fastGather && !deepGather)
+                // 护符20 效果8：亡者之怒期间咏唱速度 +25%（走与快速聚集同一条 `getCastingTimeScale`）
+                bool fury = _noelFuryActive;
+                if (!fastGather && !deepGather && !fury)
                 {
                     return;
                 }
@@ -2368,6 +2370,10 @@ namespace KnightInCradle.CharmUi
                 if (fastGather)
                 {
                     __result *= KnightInCradlePlugin.FastGatherChantSpeedMult;
+                }
+                if (fury)
+                {
+                    __result *= KnightInCradlePlugin.FuryChantSpeedMult;
                 }
                 if (deepGather)
                 {
@@ -6752,7 +6758,10 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (IsKnightMode || !IsEquipped(CharmOwner.Noel, FastSlashId))
+                // 护符20 效果8：亡者之怒期间攻击速度 +25%（走与快速劈砍同一条 `PR.baseTS`）
+                bool fury = _noelFuryActive;
+                bool charm = IsEquipped(CharmOwner.Noel, FastSlashId);
+                if (IsKnightMode || (!charm && !fury))
                 {
                     return;
                 }
@@ -6761,7 +6770,14 @@ namespace KnightInCradle.CharmUi
                 {
                     return;
                 }
-                __result *= FastSlashSpeedMult;
+                if (charm)
+                {
+                    __result *= FastSlashSpeedMult;
+                }
+                if (fury)
+                {
+                    __result *= KnightInCradlePlugin.FuryAttackSpeedMult;
+                }
             }
             catch (Exception)
             {
@@ -7022,6 +7038,11 @@ namespace KnightInCradle.CharmUi
             if (IsHeavyFocusActive)
             {
                 mult *= HeavyBlowFocusMult;
+            }
+            // 护符20 效果8：亡者之怒期间诺艾尔造成的伤害 +75%（与上面几项同一乘区连乘）
+            if (_noelFuryActive)
+            {
+                mult *= KnightInCradlePlugin.FuryDamageMult;
             }
             // 护符27 深度聚集：蓄力完成后的"下一次伤害 +25%"（法术 / 魔法霰弹 / 霰弹变种）
             mult = ApplyDeepGatherNextDamage(kind, shotgunFlavored, mult);
@@ -7473,7 +7494,7 @@ namespace KnightInCradle.CharmUi
                 if (IsKnightMode ||
                     !(IsEquipped(CharmOwner.Noel, ShamanId) || IsEquipped(CharmOwner.Noel, PowerId) ||
                       IsEquipped(CharmOwner.Noel, HeavyBlowId) || IsEquipped(CharmOwner.Noel, DeepGatherId) ||
-                      IsEquipped(CharmOwner.Noel, NailMasterId))) // 护符35 的 ×5 也走这个乘区
+                      IsEquipped(CharmOwner.Noel, NailMasterId) || _noelFuryActive)) // 护符35 的 ×5 也走这个乘区
                 {
                     // 注意：护符27 深度聚集的"下一击 +25%"也走这个乘区，
                     // 所以它的佩戴状态必须一起放行，否则只戴深聚时这里会直接早退（= 加成不生效）。
@@ -8478,6 +8499,18 @@ namespace KnightInCradle.CharmUi
                     harmony.Patch(sturdyDmg, prefix: new HarmonyMethod(
                         typeof(CharmEffects).GetMethod(nameof(SturdyHpDamagePrefix),
                             BindingFlags.Static | BindingFlags.NonPublic)));
+                    // 护符20 效果8：诺艾尔造成伤害时附加 10 点真伤（同一个挂点的**后缀**）
+                    try
+                    {
+                        harmony.Patch(sturdyDmg, postfix: new HarmonyMethod(
+                            typeof(CharmEffects).GetMethod(nameof(FuryTrueDamagePostfix),
+                                BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    catch (Exception ex)
+                    {
+                        KnightInCradlePlugin.PluginLog?.LogWarning(
+                            "[KIC][亡者之怒] 附加真伤补丁挂载失败：" + ex.Message);
+                    }
                 }
                 // 护符30 乔尼的祝福（诺艾尔侧）：回血改成回魔（HP 条不动）
                 // 注意挂的是 PR 的 override（PR.cureHp 覆盖了 M2Attackable 的同名方法）
@@ -11857,6 +11890,58 @@ namespace KnightInCradle.CharmUi
         }
 
         // ==================== 护符20 效果7：亡者之怒的红色视觉（屏幕红边 + 中心红闪） ====================
+        /// <summary>true = 正在结算"亡者之怒附加的真伤"，避免自己触发的追加伤害再次追加。</summary>
+        private static bool _noelFuryTrueDmgApplying;
+
+        /// <summary>
+        /// 效果8（2026-09-26）：诺艾尔**造成伤害时**额外附加 `FuryTrueDamage`（默认 10）点真实伤害。
+        ///
+        /// 挂点：`M2Attackable.applyHpDamage(int, bool, AttackInfo)` 的**后缀** —— 所有魔物受伤
+        /// 最后都会走到这里（`NelEnemy.applyHpDamage(4 参)` 只是转发到它，`NelEnemy.cs:2249-2252`），
+        /// 而逐个挂敌人的 3 参 `applyDamage` 是没用的（26 个子类各自 override，虚分派不会走基类）。
+        /// 判据：`__result > 0`（这一下真的掉了血）+ 攻击包的 `Caster`/`AttackFrom` 是本地诺艾尔
+        /// （与蘑菇孢子那份同一个口径）+ 诺艾尔模式 + 亡者之怒激活。
+        /// 追加伤害用 `force = true`、`Atk = null` 打出去：不吃敌人减伤/浮动（真伤），
+        /// 也不会因为 `Caster` 为空而再触发一次本方法（另配 `_noelFuryTrueDmgApplying` 兜底防递归）。
+        /// </summary>
+        private static void FuryTrueDamagePostfix(M2Attackable __instance, AttackInfo Atk, int __result)
+        {
+            try
+            {
+                if (_noelFuryTrueDmgApplying || __result <= 0 || Atk == null)
+                {
+                    return;
+                }
+                if (!_noelFuryActive || IsKnightMode || !(__instance is NelEnemy enemy))
+                {
+                    return;
+                }
+                // 基类 `AttackInfo` 没有 Caster/AttackFrom，出手者在 `NelAttackInfo` 上
+                NelAttackInfo nAtk = Atk as NelAttackInfo;
+                if (nAtk == null || (!(nAtk.Caster is PRNoel) && !(nAtk.AttackFrom is PRNoel)))
+                {
+                    return; // 不是诺艾尔打出来的伤害（例如同行的小骑士/魔物互殴）
+                }
+                int extra = KnightInCradlePlugin.FuryTrueDamage;
+                if (extra <= 0)
+                {
+                    return;
+                }
+                _noelFuryTrueDmgApplying = true;
+                try
+                {
+                    enemy.applyHpDamage(extra, true, null);
+                }
+                finally
+                {
+                    _noelFuryTrueDmgApplying = false;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         /// <summary>供 `KnightInCradleBehaviour.OnGUI` 画"屏幕四周红色滤镜"用。</summary>
         public static bool NoelFuryVignetteVisible
         {

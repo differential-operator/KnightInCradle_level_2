@@ -20,8 +20,8 @@ namespace KnightInCradle
         /// 构建标记：每次部署时手动更新，日志 `[KIC][补丁] build=…` 会打印；
         /// 配合后面的 `dll=路径 (文件时间)` 可以立刻确认游戏实际加载的是哪一份 DLL。
         /// </summary>
-        // 2026-09-26.18：护符20 亡者之怒 效果7 —— 屏幕四周红色滤镜 + 诺艾尔中心红色脉冲闪烁
-        internal const string SelfBuildTag = "2026-09-26.18";
+        // 2026-09-26.19：护符20 亡者之怒 效果8 —— 攻速+25% / 咏唱+25% / 伤害+75% / 命中附加10点真伤
+        internal const string SelfBuildTag = "2026-09-26.19";
 
         private static bool _harmonyApplied;
         private static bool _seriousInitApplied; // 启动时是否已应用过一次布局（防止残留居中布局）

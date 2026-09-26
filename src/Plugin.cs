@@ -311,6 +311,15 @@ namespace KnightInCradle
         internal static ConfigEntry<string> FuryGlowColorConfig;
         /// <summary>中心红色闪烁的峰值透明度（默认 0.75，同小骑士那份）。</summary>
         internal static ConfigEntry<float> FuryGlowAlphaConfig;
+        // ---- 护符20 效果8：亡者之怒期间的战斗加成 ----
+        /// <summary>攻击速度倍率（默认 1.25 = 提升 25%，逻辑同快速劈砍）。</summary>
+        internal static ConfigEntry<float> FuryAttackSpeedMultConfig;
+        /// <summary>咏唱速度倍率（默认 1.25 = 提升 25%，逻辑同快速聚集）。</summary>
+        internal static ConfigEntry<float> FuryChantSpeedMultConfig;
+        /// <summary>造成的伤害倍率（默认 1.75 = 提升 75%）。</summary>
+        internal static ConfigEntry<float> FuryDamageMultConfig;
+        /// <summary>造成伤害时附加的真实伤害（默认 10）。</summary>
+        internal static ConfigEntry<int> FuryTrueDamageConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -534,6 +543,14 @@ namespace KnightInCradle
             FuryGlowOffsetYConfig != null ? Mathf.Clamp(FuryGlowOffsetYConfig.Value, -20f, 20f) : -0.5f;
         internal static float FuryGlowAlpha =>
             FuryGlowAlphaConfig != null ? Mathf.Clamp01(FuryGlowAlphaConfig.Value) : 0.75f;
+        internal static float FuryAttackSpeedMult =>
+            FuryAttackSpeedMultConfig != null ? Mathf.Clamp(FuryAttackSpeedMultConfig.Value, 1f, 10f) : 1.25f;
+        internal static float FuryChantSpeedMult =>
+            FuryChantSpeedMultConfig != null ? Mathf.Clamp(FuryChantSpeedMultConfig.Value, 1f, 10f) : 1.25f;
+        internal static float FuryDamageMult =>
+            FuryDamageMultConfig != null ? Mathf.Clamp(FuryDamageMultConfig.Value, 1f, 50f) : 1.75f;
+        internal static int FuryTrueDamage =>
+            FuryTrueDamageConfig != null ? Mathf.Clamp(FuryTrueDamageConfig.Value, 0, 9999) : 10;
         /// <summary>护符20 效果7：中心红色闪烁的颜色（十六进制 RRGGBB，默认 FF4026 = 小骑士那份的 (1, 0.25, 0.15)）。</summary>
         internal static Color FuryGlowColor
         {
@@ -1040,6 +1057,15 @@ namespace KnightInCradle
                 "亡者之怒：中心红色闪烁的颜色，十六进制 RRGGBB（默认 FF4026）。");
             FuryGlowAlphaConfig = Config.Bind("Charm20", "GlowAlpha", 0.75f,
                 "亡者之怒：中心红色闪烁的峰值透明度（0~1，默认 0.75，同小骑士那份）。");
+            // 效果8：亡者之怒期间的战斗加成
+            FuryAttackSpeedMultConfig = Config.Bind("Charm20", "AttackSpeedMult", 1.25f,
+                "亡者之怒：攻击速度倍率（默认 1.25 = 提升 25%，逻辑同护符17 快速劈砍）。");
+            FuryChantSpeedMultConfig = Config.Bind("Charm20", "ChantSpeedMult", 1.25f,
+                "亡者之怒：咏唱速度倍率（默认 1.25 = 提升 25%，逻辑同护符26 快速聚集）。");
+            FuryDamageMultConfig = Config.Bind("Charm20", "DamageMult", 1.75f,
+                "亡者之怒：诺艾尔造成的伤害倍率（默认 1.75 = 提升 75%，与萨满/坚固力量/会心同一乘区连乘）。");
+            FuryTrueDamageConfig = Config.Bind("Charm20", "TrueDamage", 10,
+                "亡者之怒：诺艾尔造成伤害时附加的真实伤害（默认 10；0 = 关闭）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
