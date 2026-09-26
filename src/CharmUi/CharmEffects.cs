@@ -167,6 +167,11 @@ namespace KnightInCradle.CharmUi
             }
             if (owner == CharmOwner.Noel)
             {
+                CharmData cdNoEquip = CharmDatabase.Get(id);
+                if (cdNoEquip != null && cdNoEquip.NoEquip)
+                {
+                    return false; // 37/38/39/41：不可佩戴，效果自然也不生效
+                }
                 return CharmSave.HasEquipped(CharmOwner.Noel, id);
             }
             return IsEquipped(id);

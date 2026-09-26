@@ -836,7 +836,7 @@ namespace KnightInCradle.CharmUi
                 {
                     string costText = id == CharmDatabase.FixedCharmId
                         ? "不可卸下"
-                        : "花费：" + cd.Cost;
+                        : (cd.Cost < 0 ? "花费：？" : "花费：" + cd.Cost);
                     GUI.Label(costRect, costText,
                         GetStyle(costEl.text.fontSize, (TextAnchor)costEl.text.alignment, FontStyle.Normal));
                 }

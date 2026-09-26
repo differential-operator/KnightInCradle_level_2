@@ -821,6 +821,12 @@ namespace KnightInCradle.CharmUi
                 // 虚空之心恒在首位不可卸下；寻神者模式选择器装备后同样不可卸下
                 return;
             }
+            // 37/38/39/41（童话里的传说护符/武器）：可选中但**不能佩戴**（需求 2026-09-27）
+            CharmData cdNoEquip = CharmDatabase.Get(id);
+            if (cdNoEquip != null && cdNoEquip.NoEquip)
+            {
+                return;
+            }
             if (!_sitting)
             {
                 return;

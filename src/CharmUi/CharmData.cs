@@ -12,7 +12,10 @@ namespace KnightInCradle.CharmUi
         public string Name;
         /// <summary>解锁后"解锁：…"那一行的正文（含 `\n\n` 分隔的风味文本）。</summary>
         public string Desc;
+        /// <summary>费用显示。&lt; 0 = 显示"？"（37〜41 这些"童话里的传说护符"）。</summary>
         public int Cost;
+        /// <summary>true = 可选中但**不能佩戴**（需求 2026-09-27：37/38/39/41）。</summary>
+        public bool NoEquip;
     }
 
     /// <summary>41 个护符静态数据（40 虚空之心为固定护符，cost=0 不可卸下）。</summary>
@@ -145,15 +148,16 @@ namespace KnightInCradle.CharmUi
             new CharmData { Id = 36, IconFile = "36_spider", Name = "编织者之歌", Cost = 2,
                 Desc = "从洞穴里找到的小蜘蛛，跟随并保护救出它们的持有者。\n\n它们没有魔物的那种器官，是从哪里来的呢？" },
             // 37〜39（+41 国王之魂）按 `docs/护符效果描述.md`：**可选中但无法佩戴**，只给"未解锁"文案。
-            new CharmData { Id = 37, IconFile = "37_dream", Name = "舞梦者", Cost = 1,
-                Desc = "专门给挥动梦之钉和收集精华的人准备的护符。用梦之钉击中敌人获得的灵魂增加，同时使用梦之钉攻击速度加快。\n\n这里的生物虽使用魔力，但仍然具有灵魂和鲜活的梦境。" },
-            new CharmData { Id = 38, IconFile = "38_dream_protecter", Name = "梦之盾", Cost = 3,
-                Desc = "生成一面缓慢围绕持有者旋转的盾牌，对敌人造成与当前骨钉相等的接触伤害。\n\n这个护符蕴含了伟大战士的精神力，在持有者凝聚时会尽力保护持有者。" },
-            new CharmData { Id = 39, IconFile = "39_Grimm", Name = "格林之子", Cost = 2,
-                Desc = "一场完成的仪式的标志。包含着一团跳动的猩红之火。\n\n火焰必须燃烧，梦魇终将再临。" },
+            // 37〜41：可选中但**不能佩戴**，费用显示"？"（需求 2026-09-27）
+            new CharmData { Id = 37, IconFile = "37_dream", Name = "舞梦者", Cost = -1, NoEquip = true,
+                Desc = "童话里的传说护符，难以仿制。" },
+            new CharmData { Id = 38, IconFile = "38_dream_protecter", Name = "梦之盾", Cost = -1, NoEquip = true,
+                Desc = "童话里的传说武器，难以仿制。" },
+            new CharmData { Id = 39, IconFile = "39_Grimm", Name = "格林之子", Cost = -1, NoEquip = true,
+                Desc = "童话里带来梦魇的恶魔，很多小孩子都喜欢这个恐怖又优雅的角色。" },
             new CharmData { Id = 40, IconFile = "40_VOID", Name = "虚空之心", Desc = "隐藏在内部的空虚，现在不再受到约束。使虚空在持有者的意志下联合起来。\n\n这个护符是持有者的一部分，不能卸下。", Cost = 0 },
-            new CharmData { Id = 41, IconFile = "41_KING", Name = "国王之魂", Cost = 5,
-                Desc = "象征着高等生灵相互结合的圣洁护符。\n\n持有者能缓慢吸收其中无限的灵魂。" },
+            new CharmData { Id = 41, IconFile = "41_KING", Name = "国王之魂", Cost = -1, NoEquip = true,
+                Desc = "童话里的苍白之王，他的王国万世长存。" },
             new CharmData { Id = 43, IconFile = "42_tune", Name = "无忧旋律", Desc = "纪念一份友谊建立的信物。包含一首可能使持有者免受伤害的守护之歌。", Cost = 3 },
             new CharmData { Id = 42, IconFile = "gg_godseeker_mode_selector", Name = "束缚", Desc = "", Cost = 0 },
         };
