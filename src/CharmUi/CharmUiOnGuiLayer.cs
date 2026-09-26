@@ -760,8 +760,9 @@ namespace KnightInCradle.CharmUi
             }
             else if (CharmDatabase.IsLocked(id))
             {
-                // 未解锁：直接显示解锁条件那行文案（不带"未解锁："前缀；文案见 docs/护符效果描述.md）
-                desc = cd.LockedText ?? "？？？";
+                // 未解锁：第一行是【未解锁】标记，换行之后是解锁条件
+                // （文案见 docs/护符效果描述.md 的"未解锁"行）
+                desc = "【未解锁】\n" + (cd.LockedText ?? "？？？");
             }
             Color old = GUI.color;
             GUI.color = Color.white;
