@@ -22,7 +22,36 @@ namespace KnightInCradle.CharmUi
     public static class CharmDatabase
     {
         public const int FixedCharmId = 40;
-        public const int NotchCapacity = 11;
+        /// <summary>
+        /// 护符槽上限：11 = 初始 3 + 开宝箱最多 8（这两部分等解锁/宝箱系统上线后再做成动态），
+        /// 再**加上**炼金做出来的护符槽（三种各 +1，见 `CharmSlotCrafting.CraftedSlotBonus`）。
+        /// </summary>
+        public static int NotchCapacity => 11 + CharmSlotCrafting.CraftedSlotBonus;
+
+        /// <summary>
+        /// 已解锁的护符数量（"坚固护符槽"的制作条件用它）。
+        /// ⚠ 真正的解锁机制还没做：现在按"全部已解锁（36 个真正可用的护符）"计，
+        /// 等解锁系统落地后改成读 `CharmSave` 里的解锁集合即可。
+        /// </summary>
+        public static int UnlockedCharmCount
+        {
+            get
+            {
+                if (KnightInCradlePlugin.PreviewLockedCharmText)
+                {
+                    return 0;
+                }
+                int n = 0;
+                for (int i = 0; i < All.Length; i++)
+                {
+                    if (All[i].Id >= 1 && All[i].Id <= 36 && !IsLocked(All[i].Id))
+                    {
+                        n++;
+                    }
+                }
+                return n;
+            }
+        }
         /// <summary>寻神者模式选择器（自限机制，不占护符费用；仅能通过顶部 sign 装配）。</summary>
         public const int GgSelectorId = 42;
         public static readonly CharmData[] All = new CharmData[]

@@ -27,7 +27,7 @@ namespace KnightInCradle.CharmUi
     {
         private const string KnightKeyPrefix = "kic_charm_slot";
         private const string NoelKeyPrefix = "kic_noel_charm_slot";
-        private const int MaxSlots = CharmDatabase.NotchCapacity; // 11
+        private static int MaxSlots => CharmDatabase.NotchCapacity; // 11 + 炼金护符槽
 
         /// <summary>小骑士的已装备快照（不含固定虚空之心）：
         /// 护符控制器未创建时也能让护符效果立即生效（无需先打开护符 UI）。</summary>
