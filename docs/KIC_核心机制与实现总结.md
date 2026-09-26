@@ -5567,4 +5567,38 @@ MovRenderer，画在诺艾尔身后层 PR0，颜色纯绿（`(0,1,0,0.9)`），�
 
 验证：`build=2026-09-26.16`，DLL SHA256 `0775FF4BAD7BA20D…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `0 失败`）。
+
+### 58.10 效果6：亡者之怒期间播放「森之领主虚弱」BGM
+
+需求：把**森之领主虚弱时播放的那段 BGM**在诺艾尔触发亡者之怒后也放出来，
+一直持续到**战斗结束或脱离战斗**。
+
+**先把"那段 BGM"是什么查清楚**（0.30g 实证）：
+
+| 线索 | 结论 |
+|---|---|
+| 中文本地化 `zh-cn_tx_enemy.txt`：`Enemy_BOSS_NUSI 森之领主` | 森之领主 = `NelNBoss_n`（源文件 `NelNBoss_Nusi.cs`） |
+| 该 boss 的 `isMainBgm()` = `BGM.frontBGMIs("BGM_battle_nusi", "BGM_battle_nusi")` | 战斗曲的 sheet/cue 都是 `BGM_battle_nusi`（`StreamingAssets\BGM_battle_nusi.acb/.awb`） |
+| `initBurstStunPhase()`（被 burst 打进**虚弱**时）里 `BGM.GotoBlock(burst_counter_success >= 2 ? "F" : "D", true)` + `BGM.setOverrideKey(burst_counter_success == 0 ? "mainbattle" : "challenge_1", false)` | "虚弱段"= **同一首 cue 跳到 D（第 1〜2 次虚弱）或 F（第 3 次以后）块**，并套上对应的块转移 override |
+| `Resources/Basic/Data/_bgm` 里 `/* ___ BGM_battle_nusi ___ */` 段：`default_que BGM_battle_nusi`、`block_override _ B C, E F` / `challenge_1 B C, E F` / `mainbattle B C, E C, F G` | 确认是"单 cue + 块"结构（Block A〜I），原版就是靠 override 表换段 |
+
+也就是说**没有一个单独的音频文件**可以直接搬；"虚弱那段的音乐"就是这首 cue 的 D/F 块。
+所以实现上直接**复用游戏的 BGM 系统**（音量/总线/淡入淡出全都跟原版一致，也不用拷音频）：
+
+1. 触发（亡者之怒 + `IsInBattle()`）：记下当前前台 BGM → `BGM.load("BGM_battle_nusi","BGM_battle_nusi")`
+   → `BGM.replace(FadeInMs, 0)`。AIC 的 cue sheet 是**异步装载**的，`BgmPlayer.prepare` 在
+   `SND.loaded` 未就绪时会直接返回 false，所以这里每 0.25 秒重试一次（最多 ~6 秒），
+   直到 `BGM.frontBGMIs(sheet, cue)` 成立；
+2. 就绪后 `BGM.GotoBlock("D")` + `BGM.setOverrideKey("mainbattle")`（**只做一次** ——
+   每帧都跳会把音乐钉死在 D 块上，之后的块推进交给原版的转移表）；
+3. 退出（亡者之怒结束 / 死亡 / 坐长椅 / 卸护符 / 切小骑士 / `IsInBattle()` 变 false）：
+   淡回记录下来的原 BGM（`BGM.load(prev)` + `BGM.replace`）；如果进来时前台本来就是这首
+   （例如正在打森之领主本人），则**什么都不做**，不会把原版战斗曲一起停掉。
+
+配置（`[Charm20]`）：`BgmEnabled`(true)、`BgmSheet`(BGM_battle_nusi)、`BgmCue`(BGM_battle_nusi)、
+`BgmBlock`(D)、`BgmOverride`(mainbattle)、`BgmFadeInMs`(240)、`BgmFadeOutMs`(800)。
+想听"第 3 次虚弱以后"那段就把 `BgmBlock` 改 `F`、`BgmOverride` 改 `challenge_1`。
+
+验证：`build=2026-09-26.17`，DLL SHA256 `62DCB7B4E0675C14…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `0 失败`，新的 `[Charm20] Bgm*` 配置键已正常生成）。
 本地隐藏启动确认 `71 成功 / 0 失败`）。
