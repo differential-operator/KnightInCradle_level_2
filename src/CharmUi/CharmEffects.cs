@@ -1877,7 +1877,7 @@ namespace KnightInCradle.CharmUi
         /// 所以锁蓝期间直接在**伤害管线最外层**整次作废：挂点与护符22 巴尔德之壳相同
         /// （`M2PrADmg.applyDamage` 六参核心重载，在 NoDamage 判定之前）。
         /// </summary>
-        private static bool JoniSturdyLockDamagePrefix(M2PrADmg __instance, ref int __result)
+        private static bool JoniSturdyLockDamagePrefix(M2PrADmg __instance, NelAttackInfo Atk, ref int __result)
         {
             try
             {
@@ -1889,6 +1889,14 @@ namespace KnightInCradle.CharmUi
                 if (noel == null || !ReferenceEquals(__instance.Pr, noel))
                 {
                     return true; // 只管本地诺艾尔
+                }
+                // 护符20 亡者之怒 效果3：亡者之怒期间，**魔物来源**的伤害整次作废
+                // （地图危险格走 `PR.applyDamageFromMap`，那里另有分支；我们自己的致死调用
+                // 直接走 `PR.applyHpDamage`，不经过这里，不受影响）
+                if (IsNoelFuryImmune && IsEnemySourceAttack(Atk))
+                {
+                    __result = 0;
+                    return false;
                 }
                 if (!IsJoniSturdyMpLocked(noel))
                 {
@@ -4220,11 +4228,19 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (IsKnightMode || MDI == null || MDI.kind != MAPDMG.SPIKE)
+                if (IsKnightMode || MDI == null || !(__instance is PRNoel))
                 {
                     return true;
                 }
-                if (!(__instance is PRNoel) || !IsEquipped(CharmOwner.Noel, ThornsId))
+                // 护符20 亡者之怒 效果3：亡者之怒期间免疫地图上**所有**危险格
+                // （尖刺 / 荆棘 / 虫墙拉扯之外的岩浆、雷电、火焰等一并作废）。
+                if (IsNoelFuryImmune)
+                {
+                    __result = null;
+                    return false;
+                }
+                // 护符21 苦痛荆棘 效果1：只免疫棘刺类（SPIKE）
+                if (MDI.kind != MAPDMG.SPIKE || !IsEquipped(CharmOwner.Noel, ThornsId))
                 {
                     return true;
                 }
@@ -4250,7 +4266,7 @@ namespace KnightInCradle.CharmUi
             {
                 if (IsKnightMode || !(__instance is PRNoel) ||
                     !(IsEquipped(CharmOwner.Noel, GrubsongId) || IsEquipped(CharmOwner.Noel, ElegyId) ||
-                      IsEquipped(CharmOwner.Noel, UnnId)))
+                      IsEquipped(CharmOwner.Noel, UnnId) || IsEquipped(CharmOwner.Noel, FuryId)))
                 {
                     return true;
                 }
@@ -5787,7 +5803,7 @@ namespace KnightInCradle.CharmUi
         {
             try
             {
-                if (!IsUnnApplied(__instance) && !NoelSpinInvincible)
+                if (!IsUnnApplied(__instance) && !NoelSpinInvincible && !(IsNoelFuryImmune && __instance is PRNoel))
                 {
                     return true;
                 }
@@ -7521,6 +7537,12 @@ namespace KnightInCradle.CharmUi
         private static bool SturdyHpDamagePrefix(M2Attackable __instance, AttackInfo Atk, ref int val)
         {
             if (!(__instance is PRNoel noel) || val <= 0)
+            {
+                return true;
+            }
+            // 护符20 效果4：亡者之怒的 HP 流失把自己耗死时的收尾调用 —— 直接走原版结算，
+            // 不再触发受击被动（幼虫之歌回魔 / 苦痛荆棘反击 / 亡者之怒自身的阈值改写）。
+            if (_noelFuryDying)
             {
                 return true;
             }
@@ -9599,6 +9621,11 @@ namespace KnightInCradle.CharmUi
                     __result = null; // 亡者之怒的自动圣光爆发：不导致自己眩晕
                     return false;
                 }
+                if (IsNoelFuryImmune && IsNoelNegativeSer(ser))
+                {
+                    __result = null; // 护符20 效果3：亡者之怒期间免疫所有负面状态
+                    return false;
+                }
                 return true;
             }
             catch (Exception)
@@ -11410,6 +11437,71 @@ namespace KnightInCradle.CharmUi
         private static bool _noelFuryActive;
         /// <summary>本次自动"圣光爆发"的免魔/免眩晕剩余时间（秒）。</summary>
         private static float _noelFuryBurstFree;
+        /// <summary>亡者之怒的 HP 流失计时。</summary>
+        private static float _noelFuryDrainTimer;
+        /// <summary>true = 这次 HP 归零是"亡者之怒的 HP 流失"造成的，受击被动一律跳过。</summary>
+        private static bool _noelFuryDying;
+
+        /// <summary>
+        /// 护符20 效果3（2026-09-26）：亡者之怒期间，诺艾尔**免疫魔物的伤害/抓取/负面效果**，
+        /// 以及**地图上所有危险格**（尖刺、荆棘、虫墙等）。实现由四处组成：
+        /// ① 每帧 `addNoDamage(NDMG._ALL)`（滚动无敌帧，挡掉游戏自己那层的判定）；
+        /// ② `M2PrADmg.applyDamage` 前缀：只对"来源是魔物"的伤害整次作废（不影响我们自己的致死调用）；
+        /// ③ `PR.applyDamageFromMap` 前缀（与护符21 共用）：地图危险格直接跳过；
+        /// ④ `M2Ser.Add` 前缀：负面状态一律拒绝；`PR.initAbsorb` / `canPullByWorm` 拦吞下与虫墙拉扯。
+        /// </summary>
+        private static bool IsNoelFuryImmune => _noelFuryActive;
+
+        /// <summary>该伤害包是不是"魔物的攻击"（不是地图伤害/自伤/模组调用）。</summary>
+        private static bool IsEnemySourceAttack(AttackInfo Atk)
+        {
+            NelAttackInfo nAtk = Atk as NelAttackInfo;
+            return nAtk != null && (nAtk.Caster is NelEnemy || nAtk.AttackFrom is NelEnemy);
+        }
+
+        /// <summary>这些状态属于"负面效果"（亡者之怒期间一律拒绝）。</summary>
+        private static bool IsNoelNegativeSer(SER ser)
+        {
+            switch (ser)
+            {
+                case SER.HP_REDUCE:
+                case SER.MP_REDUCE:
+                case SER.SEXERCISE:
+                case SER.CONFUSE:
+                case SER.POISON:
+                case SER.PARALYSIS:
+                case SER.BURNED:
+                case SER.PARASITISED:
+                case SER.SHAMED:
+                case SER.SHAMED_SPLIT:
+                case SER.SHAMED_WET:
+                case SER.SHAMED_EP:
+                case SER.EGGED:
+                case SER.LAYING_EGG:
+                case SER.WORM_TRAPPED:
+                case SER.SLEEP:
+                case SER.TIRED:
+                case SER.BURST_TIRED:
+                case SER.EATEN:
+                case SER.STRONG_HOLD:
+                case SER.FRUSTRATED:
+                case SER.ORGASM_INITIALIZE:
+                case SER.ORGASM_AFTER:
+                case SER.ORGASM_STACK:
+                case SER.FORBIDDEN_ORGASM:
+                case SER.JAMMING:
+                case SER.FROZEN:
+                case SER.NEAR_PEE:
+                case SER.DRUNK:
+                case SER.CLT_BROKEN:
+                case SER.OVERRUN_TIRED:
+                case SER.WEB_TRAPPED:
+                case SER.STONE:
+                    return true;
+                default:
+                    return false;
+            }
+        }
 
         /// <summary>
         /// 护符20 效果1（2026-09-26）：**魔物攻击**若会把诺艾尔的 HP 打到低于
@@ -11509,11 +11601,60 @@ namespace KnightInCradle.CharmUi
                 {
                     _noelFuryActive = false;
                     _noelFuryBurstFree = 0f;
+                    _noelFuryDrainTimer = 0f;
                     return;
                 }
                 int hp = PrHpField != null ? (int)PrHpField.GetValue(pr) : 0;
                 // 亡者之怒的"在状态中"判据：HP ≤ 阈值（回到阈值之上就结束）
                 _noelFuryActive = hp <= KnightInCradlePlugin.FuryHpThreshold;
+                if (!_noelFuryActive)
+                {
+                    _noelFuryDrainTimer = 0f;
+                    return;
+                }
+                if (hp <= 0 || !pr.is_alive)
+                {
+                    return; // 已经死亡：不再续无敌帧、不再流失
+                }
+                // 效果3：亡者之怒期间持续续无敌帧（滚动续期 0.2 秒）
+                try
+                {
+                    pr.addNoDamage(NDMG._ALL, 0.2f);
+                }
+                catch (Exception)
+                {
+                }
+                // 效果4：HP 随时间流失（每 DrainSeconds 秒 -DrainAmount），归零走原版死亡
+                float interval = Mathf.Max(0.1f, KnightInCradlePlugin.FuryDrainSeconds);
+                _noelFuryDrainTimer += Time.deltaTime;
+                if (_noelFuryDrainTimer < interval)
+                {
+                    return;
+                }
+                _noelFuryDrainTimer -= interval;
+                if (_noelFuryDrainTimer > interval)
+                {
+                    _noelFuryDrainTimer = 0f; // 长时间没推进（过图/暂停）时不补算
+                }
+                int left = hp - Mathf.Max(1, KnightInCradlePlugin.FuryDrainAmount);
+                if (left > 0)
+                {
+                    PrHpField.SetValue(pr, left);
+                    RefreshNoelHudHp();
+                    return;
+                }
+                _noelFuryDrainTimer = 0f;
+                _noelFuryActive = false; // 先落状态，避免被自己这一发"魔物来源"判定卷住
+                try
+                {
+                    _noelFuryDying = true;
+                    pr.applyHpDamage(9999, true, null); // 原版强制死亡（读 hp、走 GAMEOVER）
+                }
+                finally
+                {
+                    _noelFuryDying = false;
+                }
+                RefreshNoelHudHp();
             }
             catch (Exception)
             {

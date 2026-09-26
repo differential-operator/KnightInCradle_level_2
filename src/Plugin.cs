@@ -281,6 +281,10 @@ namespace KnightInCradle
         internal static ConfigEntry<int> FuryHpThresholdConfig;
         /// <summary>自动"圣光爆发"的免魔/免眩晕窗口（秒，默认 3）。</summary>
         internal static ConfigEntry<float> FuryBurstSecondsConfig;
+        /// <summary>亡者之怒期间 HP 流失间隔（秒，默认 2）。</summary>
+        internal static ConfigEntry<float> FuryDrainSecondsConfig;
+        /// <summary>亡者之怒期间每次流失的 HP（默认 1）。</summary>
+        internal static ConfigEntry<int> FuryDrainAmountConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -482,6 +486,12 @@ namespace KnightInCradle
             FuryBurstSecondsConfig != null
                 ? Mathf.Clamp(FuryBurstSecondsConfig.Value, 0.2f, 20f)
                 : 3f;
+        internal static float FuryDrainSeconds =>
+            FuryDrainSecondsConfig != null
+                ? Mathf.Clamp(FuryDrainSecondsConfig.Value, 0.1f, 60f)
+                : 2f;
+        internal static int FuryDrainAmount =>
+            FuryDrainAmountConfig != null ? Mathf.Clamp(FuryDrainAmountConfig.Value, 1, 999) : 1;
 
         private static string PoseName(ConfigEntry<string> cfg, string fallback)
         {
@@ -927,6 +937,10 @@ namespace KnightInCradle
                 "则立即回到该值并触发亡者之怒。");
             FuryBurstSecondsConfig = Config.Bind("Charm20", "AutoBurstSeconds", 3f,
                 "亡者之怒：触发时自动释放的「圣光爆发」在这段时间内**不消耗魔力、不导致眩晕**（秒，默认 3）。");
+            FuryDrainSecondsConfig = Config.Bind("Charm20", "DrainSeconds", 2f,
+                "亡者之怒：处于亡者之怒期间 HP 流失的间隔（秒，默认 2 = 每 2 秒掉 1HP，掉到 0 死亡）。");
+            FuryDrainAmountConfig = Config.Bind("Charm20", "DrainAmount", 1,
+                "亡者之怒：每次流失的 HP 数量（默认 1）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
