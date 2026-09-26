@@ -5601,4 +5601,21 @@ MovRenderer，画在诺艾尔身后层 PR0，颜色纯绿（`(0,1,0,0.9)`），�
 
 验证：`build=2026-09-26.17`，DLL SHA256 `62DCB7B4E0675C14…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `0 失败`，新的 `[Charm20] Bgm*` 配置键已正常生成）。
+
+### 58.11 效果7：亡者之怒的红色视觉（同小骑士那份）
+
+需求：诺艾尔触发亡者之怒后，**屏幕四周变红**，**自身中心有红色闪烁**（与小骑士那份一致）。
+
+小骑士那份的现成实现（直接在 `src/KnightEntity.cs` / `src/KnightInCradleBehaviour.cs` 里复用）：
+
+| 视觉 | 骑士侧实现 | 诺艾尔侧做法 |
+|---|---|---|
+| 屏幕四周红色滤镜 | `KnightEntity.FuryVignetteVisible` → `KnightInCradleBehaviour.OnGUI` 里 `GetFuryVignetteTexture()`（矩形红框贴图，厚度 = 屏幕短边 10%，颜色 `(0.78, 0.09, 0.07)`） | 新增 `CharmEffects.NoelFuryVignetteVisible`，在 `OnGUI` 里**骑士未激活就 return 之前**画同一张贴图（骑士模式不叠加） |
+| 自身中心红色闪烁 | `KnightPrepareFuryGlowMesh`：程序化径向光晕（背后层 `PR0`），脉冲 0.25s 升 → 保持 → 0.25s 降（周期 0.51s），峰值 α 0.75，颜色 `(1, 0.25, 0.15)`，直径 3.2 格 | `CharmEffects.TickNoelFuryVisual` + `EnsureNoelFuryGlowTicket` + `PrepareNoelFuryGlowMesh`，同一节奏 / 同一 `PR0` 层级，位置取诺艾尔中心（`mp.pixel2ux(pr.x*CLEN)`），每帧由 `TickNoelCharmEffects` 调用一次 |
+
+配置（`[Charm20]`）：`Vignette`(true)、`GlowScale`(3.2 格)、`GlowOffsetY`(-0.5 格，正值 = 上移)、
+`GlowColor`(FF4026)、`GlowAlpha`(0.75)。
+
+验证：`build=2026-09-26.18`，DLL SHA256 `471E13D8AE56235C…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `0 失败`，新的 `[Charm20] Vignette/Glow*` 配置键已正常生成）。
 本地隐藏启动确认 `71 成功 / 0 失败`）。
