@@ -4936,10 +4936,16 @@ namespace KnightInCradle.CharmUi
         }
 
         /// <summary>
-        /// 旋风斩命中一次。需求 2026-09-27 改版：**不再读取轻攻击**，每击固定
+        /// 旋风斩命中一次。需求 2026-09-27（最终数值，写死在 DLL 里）：每击固定
+        /// **20**，佩戴护符13 坚固力量 **30**，亡者之怒生效期间 **40**。走真伤（fix_damage）。：**不再读取轻攻击**，每击固定
         /// `[Charm35] SpinHitDamage`（默认 10）伤害；佩戴护符13 坚固力量时改用
         /// `SpinHitDamageWithPower`（默认 13）。走真伤（`fix_damage`），不吃其它乘区二次放大。
         /// </summary>
+        /// 旋风斩每击固定伤害（最终数值，不走配置）：基础 / 坚固力量 / 亡者之怒。
+        public const int NailMasterSpinDamageBase = 20;
+        public const int NailMasterSpinDamagePower = 30;
+        public const int NailMasterSpinDamageFury = 40;
+
         private static void ApplyNailMasterSpinHit(PRNoel pr, NelEnemy enemy)
         {
             try
@@ -4951,10 +4957,10 @@ namespace KnightInCradle.CharmUi
                 // 需求 2026-09-27：旋风斩每击固定伤害 —— 基础 20 / 坚固力量 30 / 亡者之怒 40
                 // （亡者之怒优先于坚固力量；两者同时满足时取亡者之怒那一档）
                 int dmg = _noelFuryActive
-                    ? KnightInCradlePlugin.NailMasterSpinHitDamageWithFury
+                    ? NailMasterSpinDamageFury
                     : (IsEquipped(CharmOwner.Noel, PowerId)
-                        ? KnightInCradlePlugin.NailMasterSpinHitDamageWithPower
-                        : KnightInCradlePlugin.NailMasterSpinHitDamage);
+                        ? NailMasterSpinDamagePower
+                        : NailMasterSpinDamageBase);
                 dmg = Mathf.Max(1, dmg);
                 var atk = new NelAttackInfo();
                 atk.fix_damage = true; // 固定伤害，不吃敌人减伤/其它乘区
@@ -7768,7 +7774,7 @@ namespace KnightInCradle.CharmUi
                 IsEquipped(CharmOwner.Noel, NailMasterId) &&
                 IsNoelNailAttack(Atk))
             {
-                val = KnightInCradlePlugin.NailMasterFixedDamage;
+                val = 20; // 护符35：骨钉系每击固定 20（最终数值，写死）
                 return true;
             }
             if (!(__instance is PRNoel noel) || val <= 0)
