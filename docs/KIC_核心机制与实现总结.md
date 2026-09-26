@@ -5481,4 +5481,41 @@ MovRenderer，画在诺艾尔身后层 PR0，颜色纯绿（`(0,1,0,0.9)`），�
 
 验证：`build=2026-09-26.13`，DLL SHA256 `533B95F91504D338…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `0 失败`、无 KIC 警告）。
+
+### 58.7 【修正】上一条三个"改了没效果"的真正原因
+
+反馈：① 触发瞬间（HP 卡在 30）看不到圣光爆发；② HP 缓冲条还在，"会一直回血"；③ 还要免疫蘑菇雾气。
+
+**① 圣光爆发被"受伤状态"顶掉了。** 触发那一刻我们在 `M2Attackable.applyHpDamage` 前缀里切进
+`PR.STATE.BURST`，但**伤害管线还没走完** —— `M2PrADmg.applyDamage` 是在 HP 结算**之后**才切
+受伤反应状态的（`:1315` `DAMAGE_LT` / `:1330` `DAMAGE_L` / `:1380` `DAMAGE`），
+刚放出去的爆发被瞬间顶成"摔倒/后仰"，看起来就像没放。
+
+| 改法 | 位置 |
+|---|---|
+| 亡者之怒期间**不进入任何受伤反应状态**（`DAMAGE / DAMAGE_L / DAMAGE_LT / DAMAGE_LT_KIRIMOMI / DAMAGE_L_LAND / DAMAGE_L_HITWALL / DAMAGE_L_DOWN_ABSORBAFTER / ENEMY_SINK`，判据 `IsDamageReactionState`） | `PR.changeState(PR.STATE)` 的**唯一**前缀 `StableBodyChangeStatePrefix` 里加一条前置判断 |
+
+（顺带把"碰怪不摔倒"从"只在接触伤害那条路"扩成"所有受伤反应状态"。）
+
+**② "HP 缓冲条 / 一直回血"的真身是 GaugeSaver，不只是 `cushion_hp`。** AIC 有两套"延迟血条"：
+
+| 机制 | 位置 | 行为 |
+|---|---|---|
+| `UIStatus.cushion_hp` | `UIStatus.cs:708-715`，`0.003/frame` 收干 | 纯视觉残影 |
+| **`PR.GSaver.GsHp`（GaugeSaver）** | `PrGaugeSaver.cs:444-465` → `DIFF.cureHpFromGSaver` | **真的回血**：`hp < sval` 时周期性 `Pr.cureHp(1)`；HUD 还把 `sval - hp` 画成血条后面那段更长的残影 |
+
+所以只清 `cushion_hp` 没用：GaugeSaver 会把 HP 一点点顶回来（正好抵消"每 2 秒 -1HP"），
+血条上那条长残影也一直在。两条一起处理：
+
+1. `TickNoelFuryCharm` 每帧 `HideNoelHpCushion(pr)`：清 `cushion_hp`，并
+   `PR.GSaver.GsHp.debugSetValue(hp)` 把缓冲额度**钉在当前 HP 上**（残影段消失、回血额度归零）；
+2. 挂 `DIFF.cureHpFromGSaver(PR, ref float, ref float)` **前缀**：亡者之怒期间直接返回 false
+   —— 不放这次 `cureHp(1)`，也不让 `gsaver_limit` 继续往上长。
+
+**③ 免疫蘑菇雾气**：`NoelMushroomMistImmune` 的判据从"佩戴护符32"扩成
+"佩戴护符32 **或** 亡者之怒"，于是 `PR.applyGasDamage` 的两个重载都会替亡者之怒挡下孢子雾
+（`IsMushroomMist` 仍按 `MGATTR.ACME` / `NelNMush.AMkAcme` / `NelNMush.AMistKind` 判定）。
+
+验证：`build=2026-09-26.14`，DLL SHA256 `99F1CF5DF0DF326C…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `0 失败`；唯一的 HarmonyX 警告是既有的 `isNoDamageActive` 提示）。
 本地隐藏启动确认 `71 成功 / 0 失败`）。
