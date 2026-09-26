@@ -11707,6 +11707,7 @@ namespace KnightInCradle.CharmUi
             _noelFuryBurstFired = false;
             _noelFuryDrainTimer = 0f;
             _noelFuryBurstFree = 0f;
+            StopNoelFuryBgm();
         }
 
         /// <summary>每帧推进（挂进 `TickNoelCharmEffects`）：维护亡者之怒状态与自动爆发的免魔窗口。</summary>
@@ -11725,6 +11726,7 @@ namespace KnightInCradle.CharmUi
                     _noelFuryLocked = false;
                     _noelFuryBurstFree = 0f;
                     _noelFuryDrainTimer = 0f;
+                    StopNoelFuryBgm();
                     return;
                 }
                 int hp = PrHpField != null ? (int)PrHpField.GetValue(pr) : 0;
@@ -11766,6 +11768,7 @@ namespace KnightInCradle.CharmUi
                 {
                     // 需求（2026-09-26 追加）效果4：亡者之怒期间用道具/其它手段把 HP 回到阈值之上就**退出**，
                     // 之后再掉回阈值（哪怕正好 30）还能重新触发 —— 所以这里只清"本次激活"的痕迹，不上死亡锁。
+                    StopNoelFuryBgm();
                     if (wasActive)
                     {
                         ReleaseNoelFuryForVanish();
@@ -11787,8 +11790,12 @@ namespace KnightInCradle.CharmUi
                 }
                 if (hp <= 0 || !pr.is_alive)
                 {
+                    StopNoelFuryBgm();
                     return; // 已经死亡：不再续无敌帧、不再流失
                 }
+                // 效果6（2026-09-26 追加）：亡者之怒期间播放"森之领主虚弱"那段 BGM，
+                // 战斗结束 / 脱离战斗 / 亡者之怒结束时淡回原来的 BGM。
+                TickNoelFuryBgm(true, Time.deltaTime);
                 // 需求（2026-09-26 追加）：亡者之怒期间删去 HUD 上的 HP 缓冲条
                 HideNoelHpCushion(pr);
                 // 效果3：亡者之怒期间持续续无敌帧（滚动续期 0.2 秒）
@@ -11847,6 +11854,165 @@ namespace KnightInCradle.CharmUi
         private static bool IsFuryBurstTiredSer(SER ser)
         {
             return ser == SER.BURST_TIRED || ser == SER.TIRED || ser == SER.OVERRUN_TIRED;
+        }
+
+        // ==================== 护符20 效果6：亡者之怒期间播放"森之领主虚弱"BGM ====================
+        /// <summary>0 = 没动过 BGM；1 = 已切曲、等 ACB 就绪后跳块；2 = 已跳到虚弱块。</summary>
+        private static int _furyBgmPhase;
+        /// <summary>跳块前的等待（秒）。</summary>
+        private static float _furyBgmWait;
+        /// <summary>cue sheet 异步装载的重试次数。</summary>
+        private static int _furyBgmTries;
+        /// <summary>进来之前的 isFront BGM（退出时还原用）。</summary>
+        private static string _furyBgmPrevSheet;
+        private static string _furyBgmPrevCue;
+
+        /// <summary>
+        /// 效果6（2026-09-26）：亡者之怒期间播放「森之领主」虚弱阶段那段 BGM，
+        /// 一直持续到战斗结束 / 脱离战斗（`IsInBattle()` 变 false）或亡者之怒本身结束。
+        ///
+        /// 原版实证（0.30g）：森之领主（`NelNBoss_n`，中文本地化 `Enemy_BOSS_NUSI` = 森之领主）
+        /// 被 burst 打进虚弱时（`NelNBoss_Nusi.cs` `initBurstStunPhase`）会调
+        /// `BGM.GotoBlock(第一次 "D" / 第三次以后 "F")` + `BGM.setOverrideKey("mainbattle" / "challenge_1")`。
+        /// 曲子定义在 `Resources/Basic/Data/_bgm` 的 `BGM_battle_nusi` 段：
+        /// cue = `BGM_battle_nusi`（单 cue，块 A〜I），块转移表写在 `block_override` 里
+        /// （`mainbattle B C, E C, F G` / `challenge_1 B C, E F`）。
+        /// 换句话说"虚弱时的音乐"= **同一首 cue 跳到 D（或 F）块**，所以这里直接复用游戏的
+        /// BGM 系统（`BGM.load` → `BGM.replace` → `GotoBlock` + `setOverrideKey`），
+        /// 音量 / 总线 / 淡入淡出都跟原版一致，不额外拷音频文件。
+        ///
+        /// 只当成"临时替换前台 BGM"：进入前记下当前 sheet/cue，退出时淡回原来那首；
+        /// 如果进来时前台本来就是这首 cue（例如正在打森之领主本人），就不替换、只跳块，
+        /// 退出时也不动它（避免把原版战斗曲一起停掉）。
+        /// </summary>
+        private static void TickNoelFuryBgm(bool active, float dt)
+        {
+            try
+            {
+                bool want = active && KnightInCradlePlugin.FuryBgmEnabled && IsInBattle();
+                if (!want)
+                {
+                    StopNoelFuryBgm();
+                    return;
+                }
+                string sheet = KnightInCradlePlugin.FuryBgmSheet;
+                string cue = KnightInCradlePlugin.FuryBgmCue;
+                if (_furyBgmPhase == 0)
+                {
+                    // 第一次：先把当前前台 BGM 记下来（还原用），然后进入"装载 cue"阶段。
+                    _furyBgmPrevSheet = null;
+                    _furyBgmPrevCue = null;
+                    try
+                    {
+                        BGM.getFrontBgm(out _furyBgmPrevSheet, out _furyBgmPrevCue);
+                    }
+                    catch (Exception)
+                    {
+                        _furyBgmPrevSheet = null;
+                        _furyBgmPrevCue = null;
+                    }
+                    _furyBgmPhase = 1;
+                    _furyBgmWait = 0f;
+                    _furyBgmTries = 0;
+                }
+                if (_furyBgmPhase == 1)
+                {
+                    _furyBgmWait -= dt;
+                    if (_furyBgmWait > 0f)
+                    {
+                        return;
+                    }
+                    _furyBgmWait = 0.25f;
+                    bool front = false;
+                    try
+                    {
+                        front = BGM.frontBGMIs(sheet, cue);
+                    }
+                    catch (Exception)
+                    {
+                        front = false;
+                    }
+                    if (!front)
+                    {
+                        // AIC 的 cue sheet 是**异步装载**的：`SND.loaded` 没就绪时
+                        // `BgmPlayer.prepare` 会直接返回 false，所以这里要反复试几次。
+                        if (_furyBgmTries++ > 24)
+                        {
+                            _furyBgmPhase = 2; // 试了 ~6 秒还没成（多半是键名写错）：放弃，不动当前 BGM
+                            return;
+                        }
+                        try
+                        {
+                            BGM.load(sheet, cue, true);
+                            BGM.replace(KnightInCradlePlugin.FuryBgmFadeInMs, 0f, true, true);
+                        }
+                        catch (Exception)
+                        {
+                        }
+                        return;
+                    }
+                    // cue 就绪：跳到"虚弱"块 + 套上对应的块转移 override（只做一次，
+                    // 之后交给原版转移表自己走；每帧都跳会把音乐钉死在 D 块上）。
+                    try
+                    {
+                        string block = KnightInCradlePlugin.FuryBgmBlock;
+                        if (!string.IsNullOrEmpty(block))
+                        {
+                            BGM.GotoBlock(block, true);
+                        }
+                        BGM.setOverrideKey(KnightInCradlePlugin.FuryBgmOverride ?? "", false);
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    _furyBgmPhase = 2;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>退出：淡回原来那首 BGM（原本就是森之领主那首时什么都不做）。</summary>
+        private static void StopNoelFuryBgm()
+        {
+            if (_furyBgmPhase == 0)
+            {
+                return;
+            }
+            string prevSheet = _furyBgmPrevSheet;
+            string prevCue = _furyBgmPrevCue;
+            _furyBgmPhase = 0;
+            _furyBgmWait = 0f;
+            _furyBgmPrevSheet = null;
+            _furyBgmPrevCue = null;
+            string sheet = KnightInCradlePlugin.FuryBgmSheet;
+            string cue = KnightInCradlePlugin.FuryBgmCue;
+            try
+            {
+                // 前台已经不是我们要换掉的那首了（过图/剧情自己换了曲）：不要乱还原。
+                if (!BGM.frontBGMIs(sheet, cue))
+                {
+                    return;
+                }
+                if (string.IsNullOrEmpty(prevSheet))
+                {
+                    // 进来之前本来就没有 BGM：直接淡出。
+                    BGM.fadeout(0f, KnightInCradlePlugin.FuryBgmFadeOutMs, true);
+                    return;
+                }
+                if (prevSheet == sheet && prevCue == cue)
+                {
+                    // 本来就在放这首（没替换过，例如正在打森之领主本人）：不动它。
+                    return;
+                }
+                BGM.load(prevSheet, prevCue, true);
+                BGM.replace(KnightInCradlePlugin.FuryBgmFadeOutMs, KnightInCradlePlugin.FuryBgmFadeOutMs,
+                    true, true);
+            }
+            catch (Exception)
+            {
+            }
         }
 
         /// <summary>

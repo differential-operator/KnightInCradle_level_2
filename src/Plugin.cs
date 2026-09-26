@@ -285,6 +285,21 @@ namespace KnightInCradle
         internal static ConfigEntry<float> FuryDrainSecondsConfig;
         /// <summary>亡者之怒期间每次流失的 HP（默认 1）。</summary>
         internal static ConfigEntry<int> FuryDrainAmountConfig;
+        // ---- 护符20 效果6：亡者之怒期间播放"森之领主虚弱"BGM ----
+        /// <summary>是否启用效果6（默认开）。</summary>
+        internal static ConfigEntry<bool> FuryBgmEnabledConfig;
+        /// <summary>BGM sheet（默认 BGM_battle_nusi = 森之领主的战斗曲）。</summary>
+        internal static ConfigEntry<string> FuryBgmSheetConfig;
+        /// <summary>BGM cue（默认 BGM_battle_nusi）。</summary>
+        internal static ConfigEntry<string> FuryBgmCueConfig;
+        /// <summary>跳到哪个块（默认 D = 第一次"虚弱"时原版跳的块；F = 第三次以后）。</summary>
+        internal static ConfigEntry<string> FuryBgmBlockConfig;
+        /// <summary>块转移表 override 键（默认 mainbattle；F 块配 challenge_1）。</summary>
+        internal static ConfigEntry<string> FuryBgmOverrideConfig;
+        /// <summary>切进去时的淡出/淡入（毫秒，默认 240 / 0）。</summary>
+        internal static ConfigEntry<int> FuryBgmFadeInMsConfig;
+        /// <summary>退出时淡回原 BGM 的时间（毫秒，默认 800）。</summary>
+        internal static ConfigEntry<int> FuryBgmFadeOutMsConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -492,6 +507,20 @@ namespace KnightInCradle
                 : 2f;
         internal static int FuryDrainAmount =>
             FuryDrainAmountConfig != null ? Mathf.Clamp(FuryDrainAmountConfig.Value, 1, 999) : 1;
+        internal static bool FuryBgmEnabled => FuryBgmEnabledConfig == null || FuryBgmEnabledConfig.Value;
+        internal static string FuryBgmSheet => BgmKey(FuryBgmSheetConfig, "BGM_battle_nusi");
+        internal static string FuryBgmCue => BgmKey(FuryBgmCueConfig, "BGM_battle_nusi");
+        internal static string FuryBgmBlock => BgmKey(FuryBgmBlockConfig, "D");
+        internal static string FuryBgmOverride => FuryBgmOverrideConfig != null ? FuryBgmOverrideConfig.Value : "mainbattle";
+        internal static int FuryBgmFadeInMs =>
+            FuryBgmFadeInMsConfig != null ? Mathf.Clamp(FuryBgmFadeInMsConfig.Value, 0, 5000) : 240;
+        internal static int FuryBgmFadeOutMs =>
+            FuryBgmFadeOutMsConfig != null ? Mathf.Clamp(FuryBgmFadeOutMsConfig.Value, 0, 5000) : 800;
+
+        private static string BgmKey(ConfigEntry<string> cfg, string fallback)
+        {
+            return cfg != null && !string.IsNullOrEmpty(cfg.Value) ? cfg.Value : fallback;
+        }
 
         private static string PoseName(ConfigEntry<string> cfg, string fallback)
         {
@@ -941,6 +970,24 @@ namespace KnightInCradle
                 "亡者之怒：处于亡者之怒期间 HP 流失的间隔（秒，默认 2 = 每 2 秒掉 1HP，掉到 0 死亡）。");
             FuryDrainAmountConfig = Config.Bind("Charm20", "DrainAmount", 1,
                 "亡者之怒：每次流失的 HP 数量（默认 1）。");
+            // 效果6：亡者之怒期间播放"森之领主虚弱"那段 BGM
+            FuryBgmEnabledConfig = Config.Bind("Charm20", "BgmEnabled", true,
+                "亡者之怒：触发后是否播放「森之领主」虚弱阶段的那段 BGM（默认开）。" +
+                "只在战斗中播放，战斗结束 / 脱离战斗 / 亡者之怒结束就淡回原来的 BGM。");
+            FuryBgmSheetConfig = Config.Bind("Charm20", "BgmSheet", "BGM_battle_nusi",
+                "亡者之怒 BGM：sheet 键（StreamingAssets\\BGM_<key>.acb 里的数据，默认 BGM_battle_nusi）。");
+            FuryBgmCueConfig = Config.Bind("Charm20", "BgmCue", "BGM_battle_nusi",
+                "亡者之怒 BGM：cue 名（默认 BGM_battle_nusi）。");
+            FuryBgmBlockConfig = Config.Bind("Charm20", "BgmBlock", "D",
+                "亡者之怒 BGM：从哪个块开始（默认 D —— 原版森之领主**第一次**被 burst 打虚弱时跳的块；" +
+                "想听第三次以后的那段改成 F）。");
+            FuryBgmOverrideConfig = Config.Bind("Charm20", "BgmOverride", "mainbattle",
+                "亡者之怒 BGM：块转移 override 键（默认 mainbattle，对应 D 块；用 F 块时改成 challenge_1）。" +
+                "留空 = 用默认转移表。");
+            FuryBgmFadeInMsConfig = Config.Bind("Charm20", "BgmFadeInMs", 240,
+                "亡者之怒 BGM：切进来的淡出时长（毫秒，默认 240）。");
+            FuryBgmFadeOutMsConfig = Config.Bind("Charm20", "BgmFadeOutMs", 800,
+                "亡者之怒 BGM：退出时淡回原 BGM 的时长（毫秒，默认 800）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");
