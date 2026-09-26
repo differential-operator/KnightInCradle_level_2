@@ -20,8 +20,8 @@ namespace KnightInCradle
         /// 构建标记：每次部署时手动更新，日志 `[KIC][补丁] build=…` 会打印；
         /// 配合后面的 `dll=路径 (文件时间)` 可以立刻确认游戏实际加载的是哪一份 DLL。
         /// </summary>
-        // 2026-09-26.17：护符20 亡者之怒 效果6 —— 期间播放森之领主虚弱段 BGM（复用原版 BGM 系统与块转移）
-        internal const string SelfBuildTag = "2026-09-26.17";
+        // 2026-09-26.18：护符20 亡者之怒 效果7 —— 屏幕四周红色滤镜 + 诺艾尔中心红色脉冲闪烁
+        internal const string SelfBuildTag = "2026-09-26.18";
 
         private static bool _harmonyApplied;
         private static bool _seriousInitApplied; // 启动时是否已应用过一次布局（防止残留居中布局）
@@ -467,6 +467,7 @@ namespace KnightInCradle
                 CharmEffects.TickNoelNailMasterCharm(pr);
                 CharmEffects.TickNoelWeaversongCharm(pr);
                 CharmEffects.TickNoelFuryCharm(pr);
+                CharmEffects.TickNoelFuryVisual(pr); // 护符20 效果7：中心红色闪烁（红边在 OnGUI）
                 CharmEffects.TickCollectorAutoPickup(pr.x, pr.mbottom);
             }
             catch (Exception)
@@ -655,6 +656,13 @@ namespace KnightInCradle
             try
             {
                 KnightEntity k = KnightEntity.Instance;
+                // 护符20 效果7（诺艾尔侧）：亡者之怒期间屏幕四周红色滤镜
+                // （复用骑士那份红框贴图；骑士模式不叠加）。这一段放在"骑士未激活就 return"之前。
+                if (CharmEffects.NoelFuryVignetteVisible)
+                {
+                    GUI.color = Color.white;
+                    GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), GetFuryVignetteTexture());
+                }
                 if (k == null || !k.IsActive)
                 {
                     return;

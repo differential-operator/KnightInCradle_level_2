@@ -300,6 +300,17 @@ namespace KnightInCradle
         internal static ConfigEntry<int> FuryBgmFadeInMsConfig;
         /// <summary>退出时淡回原 BGM 的时间（毫秒，默认 800）。</summary>
         internal static ConfigEntry<int> FuryBgmFadeOutMsConfig;
+        // ---- 护符20 效果7：亡者之怒的红色视觉（屏幕红边 + 中心红闪）----
+        /// <summary>亡者之怒期间是否显示屏幕四周红色滤镜（默认开，同小骑士那份）。</summary>
+        internal static ConfigEntry<bool> FuryVignetteConfig;
+        /// <summary>中心红色闪烁的直径（格，默认 3.2，同小骑士那份）。</summary>
+        internal static ConfigEntry<float> FuryGlowScaleConfig;
+        /// <summary>中心红色闪烁的纵向偏移（格，默认 -0.5 = 向下半格，同小骑士那份）。</summary>
+        internal static ConfigEntry<float> FuryGlowOffsetYConfig;
+        /// <summary>中心红色闪烁的颜色（RRGGBB，默认 FF4026）。</summary>
+        internal static ConfigEntry<string> FuryGlowColorConfig;
+        /// <summary>中心红色闪烁的峰值透明度（默认 0.75，同小骑士那份）。</summary>
+        internal static ConfigEntry<float> FuryGlowAlphaConfig;
 
         // ---- 诺艾尔姿势浏览器（开发用调试工具：逐个预览原版姿势/动画名）----
         /// <summary>下一个姿势（默认 F8）。</summary>
@@ -516,6 +527,36 @@ namespace KnightInCradle
             FuryBgmFadeInMsConfig != null ? Mathf.Clamp(FuryBgmFadeInMsConfig.Value, 0, 5000) : 240;
         internal static int FuryBgmFadeOutMs =>
             FuryBgmFadeOutMsConfig != null ? Mathf.Clamp(FuryBgmFadeOutMsConfig.Value, 0, 5000) : 800;
+        internal static bool FuryVignette => FuryVignetteConfig == null || FuryVignetteConfig.Value;
+        internal static float FuryGlowScale =>
+            FuryGlowScaleConfig != null ? Mathf.Clamp(FuryGlowScaleConfig.Value, 0.2f, 30f) : 3.2f;
+        internal static float FuryGlowOffsetY =>
+            FuryGlowOffsetYConfig != null ? Mathf.Clamp(FuryGlowOffsetYConfig.Value, -20f, 20f) : -0.5f;
+        internal static float FuryGlowAlpha =>
+            FuryGlowAlphaConfig != null ? Mathf.Clamp01(FuryGlowAlphaConfig.Value) : 0.75f;
+        /// <summary>护符20 效果7：中心红色闪烁的颜色（十六进制 RRGGBB，默认 FF4026 = 小骑士那份的 (1, 0.25, 0.15)）。</summary>
+        internal static Color FuryGlowColor
+        {
+            get
+            {
+                string s = FuryGlowColorConfig != null ? FuryGlowColorConfig.Value : null;
+                if (!string.IsNullOrEmpty(s))
+                {
+                    s = s.Trim().TrimStart('#');
+                    if (s.Length == 6 &&
+                        byte.TryParse(s.Substring(0, 2), System.Globalization.NumberStyles.HexNumber,
+                            System.Globalization.CultureInfo.InvariantCulture, out byte r) &&
+                        byte.TryParse(s.Substring(2, 2), System.Globalization.NumberStyles.HexNumber,
+                            System.Globalization.CultureInfo.InvariantCulture, out byte g) &&
+                        byte.TryParse(s.Substring(4, 2), System.Globalization.NumberStyles.HexNumber,
+                            System.Globalization.CultureInfo.InvariantCulture, out byte b))
+                    {
+                        return new Color(r / 255f, g / 255f, b / 255f, 1f);
+                    }
+                }
+                return new Color(1f, 0.25f, 0.15f, 1f);
+            }
+        }
 
         private static string BgmKey(ConfigEntry<string> cfg, string fallback)
         {
@@ -988,6 +1029,17 @@ namespace KnightInCradle
                 "亡者之怒 BGM：切进来的淡出时长（毫秒，默认 240）。");
             FuryBgmFadeOutMsConfig = Config.Bind("Charm20", "BgmFadeOutMs", 800,
                 "亡者之怒 BGM：退出时淡回原 BGM 的时长（毫秒，默认 800）。");
+            // 效果7：亡者之怒的红色视觉
+            FuryVignetteConfig = Config.Bind("Charm20", "Vignette", true,
+                "亡者之怒：是否显示屏幕四周红色滤镜（默认开，同小骑士那份）。");
+            FuryGlowScaleConfig = Config.Bind("Charm20", "GlowScale", 3.2f,
+                "亡者之怒：诺艾尔中心红色闪烁的直径（格，默认 3.2，同小骑士那份）。");
+            FuryGlowOffsetYConfig = Config.Bind("Charm20", "GlowOffsetY", -0.5f,
+                "亡者之怒：中心红色闪烁的纵向偏移（格，正值 = 上移；默认 -0.5 = 向下半格，同小骑士那份）。");
+            FuryGlowColorConfig = Config.Bind("Charm20", "GlowColor", "FF4026",
+                "亡者之怒：中心红色闪烁的颜色，十六进制 RRGGBB（默认 FF4026）。");
+            FuryGlowAlphaConfig = Config.Bind("Charm20", "GlowAlpha", 0.75f,
+                "亡者之怒：中心红色闪烁的峰值透明度（0~1，默认 0.75，同小骑士那份）。");
             // 诺艾尔姿势浏览器（调试工具）
             PoseBrowserNextKeyConfig = Config.Bind("PoseBrowser", "NextKey", "F8",
                 "姿势浏览器：切到下一个姿势（默认 F8）。浏览时屏幕左上角显示 序号/总数 + 姿势名，日志也会打印。");

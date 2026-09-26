@@ -11856,6 +11856,176 @@ namespace KnightInCradle.CharmUi
             return ser == SER.BURST_TIRED || ser == SER.TIRED || ser == SER.OVERRUN_TIRED;
         }
 
+        // ==================== 护符20 效果7：亡者之怒的红色视觉（屏幕红边 + 中心红闪） ====================
+        /// <summary>供 `KnightInCradleBehaviour.OnGUI` 画"屏幕四周红色滤镜"用。</summary>
+        public static bool NoelFuryVignetteVisible
+        {
+            get
+            {
+                if (!_noelFuryActive || IsKnightMode || !KnightInCradlePlugin.FuryVignette)
+                {
+                    return false;
+                }
+                PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+                return pr != null && pr.is_alive;
+            }
+        }
+
+        private static float _noelFuryGlowTimer;
+        private static Texture2D _noelFuryGlowTex;
+        private static MeshDrawer _noelFuryGlowMesh;
+        private static Material _noelFuryGlowMat;
+        private static M2RenderTicket _noelFuryGlowTicket;
+        private static Map2d _noelFuryGlowMap;
+
+        /// <summary>
+        /// 效果7（2026-09-26）：亡者之怒期间诺艾尔"自身中心红色闪烁"。
+        /// 复刻小骑士那份 `KnightPrepareFuryGlowMesh`：程序化径向光晕（背后层 PR0），
+        /// 脉冲节奏 0.25s 升到峰值 → 短暂保持 → 0.25s 降回（周期 0.51s），峰值透明度默认 0.75。
+        /// 屏幕四周的红色滤镜在 `KnightInCradleBehaviour.OnGUI` 里（复用骑士那张红框贴图）。
+        /// </summary>
+        public static void TickNoelFuryVisual(PRNoel pr)
+        {
+            try
+            {
+                bool want = !IsKnightMode && pr != null && pr.is_alive && _noelFuryActive;
+                if (!want)
+                {
+                    ReleaseNoelFuryGlowTicket();
+                    _noelFuryGlowTimer = 0f;
+                    return;
+                }
+                _noelFuryGlowTimer += Time.deltaTime;
+                EnsureNoelFuryGlowTicket(pr);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>红色光晕：绑当前地图的 MovRenderer，画在诺艾尔身后层 PR0。</summary>
+        private static void EnsureNoelFuryGlowTicket(PRNoel pr)
+        {
+            Map2d mp = pr != null ? pr.Mp : null;
+            if (mp == null)
+            {
+                return;
+            }
+            if (_noelFuryGlowTex == null)
+            {
+                _noelFuryGlowTex = MakeRadialGlowTextureNoel(64);
+            }
+            if (_noelFuryGlowTex == null)
+            {
+                return;
+            }
+            if (_noelFuryGlowMesh != null && _noelFuryGlowMap == mp && _noelFuryGlowTicket != null)
+            {
+                return;
+            }
+            ReleaseNoelFuryGlowTicket();
+            _noelFuryGlowMap = mp;
+            _noelFuryGlowMesh = new MeshDrawer(null, 4, 6);
+            _noelFuryGlowMesh.draw_gl_only = true;
+            _noelFuryGlowMat = MTRX.newMtr(MTRX.ShaderGDT);
+            _noelFuryGlowMat.EnableKeyword("NO_PIXELSNAP");
+            _noelFuryGlowMesh.activate("noel_fury_glow", _noelFuryGlowMat, false, MTRX.ColWhite, null);
+            _noelFuryGlowTicket = mp.MovRenderer.assignDrawable(
+                M2Mover.DRAW_ORDER.PR0, null, PrepareNoelFuryGlowMesh, _noelFuryGlowMesh, null, null);
+        }
+
+        private static void ReleaseNoelFuryGlowTicket()
+        {
+            try
+            {
+                if (_noelFuryGlowTicket != null && _noelFuryGlowMap != null &&
+                    _noelFuryGlowMap.MovRenderer != null)
+                {
+                    _noelFuryGlowMap.MovRenderer.deassignDrawable(_noelFuryGlowTicket, -1);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (_noelFuryGlowMat != null)
+                {
+                    IN.DestroyOne(_noelFuryGlowMat);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _noelFuryGlowTicket = null;
+            _noelFuryGlowMesh = null;
+            _noelFuryGlowMat = null;
+            _noelFuryGlowMap = null;
+        }
+
+        private static bool PrepareNoelFuryGlowMesh(Camera Cam, M2RenderTicket Tk, bool need_redraw,
+            int draw_id, out MeshDrawer MdOut, ref bool color_one_overwrite)
+        {
+            MdOut = null;
+            Map2d mp = _noelFuryGlowMap;
+            if (mp == null || _noelFuryGlowMesh == null || draw_id != 0)
+            {
+                return false;
+            }
+            _noelFuryGlowMesh.clearSimple();
+            PRNoel pr = KnightInCradleBehaviour.GetPrPublic();
+            if (pr == null || !pr.is_alive || _noelFuryGlowTex == null || !_noelFuryActive || IsKnightMode)
+            {
+                MdOut = _noelFuryGlowMesh;
+                return true;
+            }
+            // 与小骑士那份同一个脉冲节奏：0.25s 升到峰值、短暂保持、0.25s 降回。
+            float t = _noelFuryGlowTimer % 0.51f;
+            float alpha = t < 0.25f
+                ? t / 0.25f
+                : (t < 0.26f ? 1f : 1f - (t - 0.26f) / 0.25f);
+            alpha = Mathf.Clamp01(alpha) * KnightInCradlePlugin.FuryGlowAlpha;
+            Tk.Matrix = mp.gameObject.transform.localToWorldMatrix *
+                        Matrix4x4.Translate(new Vector3(mp.pixel2ux(pr.x * mp.CLEN), mp.pixel2uy(pr.y * mp.CLEN), 0f));
+            _noelFuryGlowMesh.initForImgAndTexture(_noelFuryGlowTex);
+            Color col = KnightInCradlePlugin.FuryGlowColor;
+            _noelFuryGlowMesh.Col = new Color(col.r, col.g, col.b, alpha);
+            float size = KnightInCradlePlugin.FuryGlowScale * mp.CLEN;
+            _noelFuryGlowMesh.Rect(0f, KnightInCradlePlugin.FuryGlowOffsetY * mp.CLEN, size, size, false);
+            MdOut = _noelFuryGlowMesh;
+            return true;
+        }
+
+        /// <summary>程序化生成径向红色光晕贴图（中心亮、向外平滑衰减到 0）。</summary>
+        private static Texture2D MakeRadialGlowTextureNoel(int size)
+        {
+            try
+            {
+                var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+                float half = size * 0.5f;
+                for (int y = 0; y < size; y++)
+                {
+                    for (int x = 0; x < size; x++)
+                    {
+                        float dx = (x + 0.5f - half) / half;
+                        float dy = (y + 0.5f - half) / half;
+                        float d = Mathf.Sqrt(dx * dx + dy * dy);
+                        float a = Mathf.Clamp01(1f - d);
+                        a = a * a;
+                        tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                    }
+                }
+                tex.filterMode = FilterMode.Bilinear;
+                tex.wrapMode = TextureWrapMode.Clamp;
+                tex.Apply();
+                return tex;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         // ==================== 护符20 效果6：亡者之怒期间播放"森之领主虚弱"BGM ====================
         /// <summary>0 = 没动过 BGM；1 = 已切曲、等 ACB 就绪后跳块；2 = 已跳到虚弱块。</summary>
         private static int _furyBgmPhase;
