@@ -4520,6 +4520,25 @@ namespace KnightInCradle.CharmUi
         public static bool NailMasterEquipped =>
             !IsKnightMode && IsEquipped(CharmOwner.Noel, NailMasterId);
 
+        /// <summary>护符35 骨钉大师的荣耀：该伤害包是不是"诺艾尔的骨钉系攻击"。</summary>
+        private static bool IsNoelNailAttack(AttackInfo Atk)
+        {
+            try
+            {
+                NelAttackInfo nAtk = Atk as NelAttackInfo;
+                if (nAtk == null)
+                {
+                    return false;
+                }
+                MagicItem mg = nAtk.PublishMagic;
+                return mg != null && IsNailMasterFixedKind(mg.kind) &&
+                       (mg.Caster is PRNoel || nAtk.Caster is PRNoel || nAtk.AttackFrom is PRNoel);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
         /// <summary>护符35 的"固定伤害"覆盖哪些招式（自己的骨钉系攻击，不含法术）。</summary>
         private static bool IsNailMasterFixedKind(MGKIND kind)
         {
@@ -7633,19 +7652,6 @@ namespace KnightInCradle.CharmUi
                 // 两者同时满足就连乘 —— 于是"装了萨满之石的魔法霰弹及其变种" = ×1.25 ×1.25
                 // 另含护符16 沉重之击：进入"会心"后诺艾尔造成的伤害 +40%（不限定招式），同样连乘。
                 float mult = NoelFinalDamageMult(Mg.kind, IsNoelShotgunFlavored(Mg));
-                // 护符35：佩戴荣耀时每一击固定伤害（默认 20，携带坚固力量 25），不再读轻攻击
-                if (IsEquipped(CharmOwner.Noel, NailMasterId) && IsNailMasterFixedKind(Mg.kind))
-                {
-                    // 固定 20/25：同时把 `fix_damage` 打开，否则游戏还会按自己的伤害发布率/
-                    // 敌人减伤再打折（实测 20 会显示成 13 左右）。
-                    var stFixed = new ShamanBoostState { Hp0 = Atk.hpdmg0, Cur = Atk.hpdmg_current, Fix = Atk.fix_damage };
-                    Atk.hpdmg0 = KnightInCradlePlugin.NailMasterFixedDamage;
-                    // 关键：`AttackInfo._hpdmg` 取的是 `hpdmg_current`（>=0 时优先），只改 hpdmg0 不生效
-                    Atk.hpdmg_current = KnightInCradlePlugin.NailMasterFixedDamage;
-                    Atk.fix_damage = true;
-                    __state = stFixed;
-                    return;
-                }
                 if (mult <= 1f)
                 {
                     return;
@@ -7749,6 +7755,18 @@ namespace KnightInCradle.CharmUi
         /// </summary>
         private static bool SturdyHpDamagePrefix(M2Attackable __instance, AttackInfo Atk, ref int val)
         {
+            // 护符35 骨钉大师的荣耀（2026-09-27 重做）：诺艾尔的**骨钉系**攻击改成**固定伤害**，
+            // 每击 20（携带护符13 坚固力量时 25）。
+            // 挂在这里是因为 `M2Attackable.applyHpDamage` 是魔物掉血的最后一站，
+            // `val` 已经是"所有伤害发布率 / 敌人减伤算完之后真正要扣的血"，
+            // 直接覆盖它就能保证显示与扣除都是 20/25（不会出现 20 被再打七折变成 13 的情况）。
+            if (__instance is NelEnemy && !IsKnightMode &&
+                IsEquipped(CharmOwner.Noel, NailMasterId) &&
+                IsNoelNailAttack(Atk))
+            {
+                val = KnightInCradlePlugin.NailMasterFixedDamage;
+                return true;
+            }
             if (!(__instance is PRNoel noel) || val <= 0)
             {
                 return true;
