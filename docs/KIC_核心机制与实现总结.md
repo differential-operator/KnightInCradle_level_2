@@ -5618,4 +5618,28 @@ MovRenderer，画在诺艾尔身后层 PR0，颜色纯绿（`(0,1,0,0.9)`），�
 
 验证：`build=2026-09-26.18`，DLL SHA256 `471E13D8AE56235C…`（两份安装已同步；只覆盖 DLL；
 本地隐藏启动确认 `0 失败`，新的 `[Charm20] Vignette/Glow*` 配置键已正常生成）。
+
+### 58.12 效果8：亡者之怒期间的战斗加成
+
+需求：亡者之怒期间诺艾尔 ① 攻速 +25%（同快速劈砍）② 咏唱 +25%（同快速聚集）
+③ 造成伤害 +75% ④ 造成伤害时附加 10 点真伤。
+
+| # | 做法 | 挂点 |
+|---|---|---|
+| ① | 复用护符17 快速劈砍那条：`PR.baseTS` 后缀里再乘一个 `FuryAttackSpeedMult`(1.25) | `FastSlashBaseTsPostfix`（判据从"佩戴护符17"扩成"佩戴护符17 **或** 亡者之怒"） |
+| ② | 复用护符26 快速聚集那条：`PR.getCastingTimeScale(MagicItem)` 后缀里再乘 `FuryChantSpeedMult`(1.25)；仍然只对"正在咏唱的那一发"生效 | `FastGatherCastScalePostfix`（早退条件放行亡者之怒） |
+| ③ | 进统一的"最终伤害乘区" `NoelFinalDamageMult`（与萨满/坚固力量/会心/深聚连乘）；同时 `ShamanCircleCastPrefix` 的早退条件必须放行亡者之怒，否则**只带亡者之怒时会直接早退 = 加成不生效** | `NoelFinalDamageMult` + `ShamanCircleCastPrefix` |
+| ④ | `M2Attackable.applyHpDamage(int, bool, AttackInfo)` 的**后缀**：`__result > 0`（真的掉血）且攻击包的 `Caster`/`AttackFrom` 是本地诺艾尔时，再 `enemy.applyHpDamage(extra, true, null)` | 与护符3 的 `SturdyHpDamagePrefix` 同一挂点（一前一后） |
+
+④ 为什么挂 `M2Attackable.applyHpDamage`：魔物受伤最后都会汇到这里
+（`NelEnemy.applyHpDamage(4 参)` 只是转发到它，`NelEnemy.cs:2249-2252`），
+而逐个挂敌人的 3 参 `applyDamage` 无效（子类各自 override，虚分派不走基类）。
+追加伤害用 `force = true` + `Atk = null`：不吃敌人减伤/浮动（真伤），也不会因为 `Caster` 为空
+而再触发一次自己（另配 `_noelFuryTrueDmgApplying` 兜底防递归）。
+
+配置（`[Charm20]`）：`AttackSpeedMult`(1.25)、`ChantSpeedMult`(1.25)、`DamageMult`(1.75)、
+`TrueDamage`(10，0 = 关闭)。
+
+验证：`build=2026-09-26.19`，DLL SHA256 `752F2D52FEC0ACE6…`（两份安装已同步；只覆盖 DLL；
+本地隐藏启动确认 `0 失败`，新的 `[Charm20] AttackSpeedMult/ChantSpeedMult/DamageMult/TrueDamage` 配置键已生成）。
 本地隐藏启动确认 `71 成功 / 0 失败`）。
