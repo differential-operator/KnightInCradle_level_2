@@ -7106,6 +7106,8 @@ namespace KnightInCradle.CharmUi
         private sealed class ShamanBoostState
         {
             public int Hp0;
+            /// <summary>原 `fix_damage`（护符35 的固定伤害会把它设成 true，后缀要还原）。</summary>
+            public bool Fix;
         }
 
         /// <summary>
@@ -7632,8 +7634,11 @@ namespace KnightInCradle.CharmUi
                 // 护符35：佩戴荣耀时每一击固定伤害（默认 20，携带坚固力量 25），不再读轻攻击
                 if (IsEquipped(CharmOwner.Noel, NailMasterId) && IsNailMasterFixedKind(Mg.kind))
                 {
-                    var stFixed = new ShamanBoostState { Hp0 = Atk.hpdmg0 };
+                    // 固定 20/25：同时把 `fix_damage` 打开，否则游戏还会按自己的伤害发布率/
+                    // 敌人减伤再打折（实测 20 会显示成 13 左右）。
+                    var stFixed = new ShamanBoostState { Hp0 = Atk.hpdmg0, Fix = Atk.fix_damage };
                     Atk.hpdmg0 = KnightInCradlePlugin.NailMasterFixedDamage;
+                    Atk.fix_damage = true;
                     __state = stFixed;
                     return;
                 }
@@ -7663,6 +7668,7 @@ namespace KnightInCradle.CharmUi
                     return;
                 }
                 Atk.hpdmg0 = __state.Hp0;
+                Atk.fix_damage = __state.Fix;
             }
             catch (Exception)
             {
