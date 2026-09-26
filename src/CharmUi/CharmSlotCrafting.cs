@@ -177,6 +177,15 @@ namespace KnightInCradle.CharmUi
                 Stb.Add(desc);
             };
             NelItem.CreateItemEntry(key, itm, id, false);
+            // 炼金配方书是按"**已知/见过的物品**"逐行列出的（`UiAlchemyRecipeBook` 从存储区的行
+            // 反查 `getRecipeBasic(row.Data)`），所以产物必须先在图鉴里记一笔，配方才看得见。
+            try
+            {
+                itm.obtain_count = 1;
+            }
+            catch (Exception)
+            {
+            }
         }
 
         /// <summary>把三段配方追加到原版配方脚本末尾（`#ALCHEMY` 段）。</summary>
