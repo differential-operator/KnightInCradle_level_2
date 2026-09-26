@@ -713,7 +713,13 @@ namespace KnightInCradle.CharmUi
             Texture2D white = GetTemplateTexture("cost_white_template");
             Texture2D over = GetTemplateTexture("cost_overcharm_template");
 
-            int filled = Mathf.Min(Controller.TotalCost, blacks.Count);
+            // 可见的槽孔数 = 当前上限（初始 3、随开箱增加），最多到布局里画得出来的那些
+            int holeCount = Mathf.Min(blacks.Count, CharmDatabase.NotchCapacity);
+            if (holeCount <= 0)
+            {
+                holeCount = blacks.Count;
+            }
+            int filled = Mathf.Min(Controller.TotalCost, holeCount);
             if (white != null)
             {
                 for (int i = 0; i < filled; i++)
@@ -721,10 +727,12 @@ namespace KnightInCradle.CharmUi
                     GUI.DrawTexture(blacks[i], white, ScaleMode.StretchToFill, true);
                 }
             }
-            int excess = Controller.TotalCost - blacks.Count;
+            // 超额点：从**最后一个可见槽孔**后面接着画（原来是接在布局第 11 个之后，
+            // 所以上限只有 3~11 时超额点会跑到很远的位置上）
+            int excess = Controller.TotalCost - holeCount;
             if (excess > 0 && over != null)
             {
-                Rect last = blacks[blacks.Count - 1];
+                Rect last = blacks[holeCount - 1];
                 for (int k = 0; k < excess; k++)
                 {
                     var r = new Rect(last.x + spacing * (k + 1), last.y, last.width, last.height);
