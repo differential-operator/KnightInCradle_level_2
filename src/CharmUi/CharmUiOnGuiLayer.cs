@@ -386,6 +386,14 @@ namespace KnightInCradle.CharmUi
                 {
                     continue;
                 }
+                // 护符槽孔：只画"当前上限"个（初始 3 个，随开箱数每 4 箱 +1，最多 14），
+                // 布局里多余的槽孔图直接不画（需求 2026-09-26）。
+                if (el.kind == "image" &&
+                    el.path.IndexOf("cost_black", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    !IsCostHoleVisible(el.path))
+                {
+                    continue;
+                }
                 // 寻神者模式选择器：sign 第 4 次点击前不显示（解锁后由 IsIconHidden 在装备时隐藏）
                 if (Controller != null && !Controller.IsGgSelectorShown &&
                     el.kind == "image" && el.image != null && !string.IsNullOrEmpty(el.image.file) &&
@@ -722,6 +730,46 @@ namespace KnightInCradle.CharmUi
                     var r = new Rect(last.x + spacing * (k + 1), last.y, last.width, last.height);
                     GUI.DrawTexture(r, over, ScaleMode.StretchToFill, true);
                 }
+            }
+        }
+
+        /// <summary>
+        /// 该"护符槽孔"（cost_black）是否应该画出来：只画前 `CharmDatabase.NotchCapacity` 个
+        /// （初始 3，随开箱数每 4 箱 +1，最多 14）。序号 = 比它更靠左的槽孔数量。
+        /// </summary>
+        private bool IsCostHoleVisible(string path)
+        {
+            try
+            {
+                if (_data == null || _data.elements == null ||
+                    !_rects.TryGetValue(path, out Rect mine))
+                {
+                    return true;
+                }
+                int cap = CharmDatabase.NotchCapacity;
+                int index = 0;
+                for (int i = 0; i < _data.elements.Count; i++)
+                {
+                    UiElementData el = _data.elements[i];
+                    if (el.kind != "image" || el.image == null || string.IsNullOrEmpty(el.image.file) ||
+                        CharmUiRoot.IsTemplateTag(el.tag))
+                    {
+                        continue;
+                    }
+                    if (el.path.IndexOf("cost_black", StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        continue;
+                    }
+                    if (_rects.TryGetValue(el.path, out Rect r) && r.x < mine.x - 0.01f)
+                    {
+                        index++;
+                    }
+                }
+                return index < cap;
+            }
+            catch (Exception)
+            {
+                return true;
             }
         }
 
